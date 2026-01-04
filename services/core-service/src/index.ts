@@ -3050,6 +3050,150 @@ async function start() {
     // İlk kontrol 30 saniye sonra
     setTimeout(cleanupStuckJobs, 30 * 1000);
 
+    // ============================================
+    // GRID DESIGNS API (Kullanıcı Grid Tasarımları)
+    // ============================================
+
+    // Kullanıcının grid tasarımlarını listele
+    app.get('/grid-designs/:gridId', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { gridId } = req.params
+        const userId = (req.user as any).userId
+        const tenantId = (req.user as any).tenantId
+
+        const result = await db.query(
+          `SELECT gd.id, gd.name, gd.grid_id, gd.state, gd.is_default, gd.dataset_id, 
+                  gd.created_at, gd.updated_at, d.name as dataset_name
+           FROM grid_designs gd
+           LEFT JOIN datasets d ON gd.dataset_id = d.id
+           WHERE gd.user_id = $1 AND gd.tenant_id = $2 AND gd.grid_id = $3
+           ORDER BY gd.is_default DESC, gd.name ASC`,
+          [userId, tenantId, gridId]
+        )
+
+        res.json({ success: true, data: result.rows })
+      } catch (error) {
+        next(error)
+      }
+    })
+
+    // Yeni grid tasarımı kaydet
+    app.post('/grid-designs', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { gridId, name, state, isDefault, datasetId } = req.body
+        const userId = (req.user as any).userId
+        const tenantId = (req.user as any).tenantId
+
+        // Eğer varsayılan yapılıyorsa, diğerlerinin varsayılan durumunu kaldır
+        if (isDefault) {
+          await db.query(
+            `UPDATE grid_designs SET is_default = false WHERE user_id = $1 AND grid_id = $2`,
+            [userId, gridId]
+          )
+        }
+
+        const result = await db.query(
+          `INSERT INTO grid_designs (user_id, tenant_id, grid_id, name, state, is_default, dataset_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, name, grid_id, state, is_default, dataset_id, created_at`,
+          [userId, tenantId, gridId, name, JSON.stringify(state), isDefault || false, datasetId || null]
+        )
+
+        res.status(201).json({ success: true, data: result.rows[0] })
+      } catch (error: any) {
+        if (error.code === '23505') { // Unique constraint violation
+          res.status(400).json({ success: false, error: 'Bu isimde bir tasarım zaten mevcut' })
+        } else {
+          next(error)
+        }
+      }
+    })
+
+    // Grid tasarımını güncelle
+    app.put('/grid-designs/:id', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { id } = req.params
+        const { name, state, isDefault } = req.body
+        const userId = (req.user as any).userId
+
+        // Eğer varsayılan yapılıyorsa, diğerlerinin varsayılan durumunu kaldır
+        if (isDefault) {
+          const existing = await db.query('SELECT grid_id FROM grid_designs WHERE id = $1', [id])
+          if (existing.rows.length > 0) {
+            await db.query(
+              `UPDATE grid_designs SET is_default = false WHERE user_id = $1 AND grid_id = $2`,
+              [userId, existing.rows[0].grid_id]
+            )
+          }
+        }
+
+        const result = await db.query(
+          `UPDATE grid_designs 
+           SET name = COALESCE($1, name), 
+               state = COALESCE($2, state), 
+               is_default = COALESCE($3, is_default),
+               updated_at = NOW()
+           WHERE id = $4 AND user_id = $5
+           RETURNING id, name, grid_id, state, is_default, updated_at`,
+          [name, state ? JSON.stringify(state) : null, isDefault, id, userId]
+        )
+
+        if (result.rows.length === 0) {
+          return res.status(404).json({ success: false, error: 'Tasarım bulunamadı' })
+        }
+
+        res.json({ success: true, data: result.rows[0] })
+      } catch (error) {
+        next(error)
+      }
+    })
+
+    // Grid tasarımını sil
+    app.delete('/grid-designs/:id', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { id } = req.params
+        const userId = (req.user as any).userId
+
+        const result = await db.query(
+          `DELETE FROM grid_designs WHERE id = $1 AND user_id = $2 RETURNING id`,
+          [id, userId]
+        )
+
+        if (result.rows.length === 0) {
+          return res.status(404).json({ success: false, error: 'Tasarım bulunamadı' })
+        }
+
+        res.json({ success: true, message: 'Tasarım silindi' })
+      } catch (error) {
+        next(error)
+      }
+    })
+
+    // Varsayılan grid tasarımını getir
+    app.get('/grid-designs/:gridId/default', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { gridId } = req.params
+        const userId = (req.user as any).userId
+        const tenantId = (req.user as any).tenantId
+
+        const result = await db.query(
+          `SELECT id, name, grid_id, state, is_default, created_at, updated_at
+           FROM grid_designs
+           WHERE user_id = $1 AND tenant_id = $2 AND grid_id = $3 AND is_default = true
+           LIMIT 1`,
+          [userId, tenantId, gridId]
+        )
+
+        if (result.rows.length === 0) {
+          return res.json({ success: true, data: null })
+        }
+
+        res.json({ success: true, data: result.rows[0] })
+      } catch (error) {
+        next(error)
+      }
+    })
+
     app.listen(PORT, () => {
       logger.info(`📦 Core Service running on port ${PORT}`);
       logger.info('🔄 Stuck job cleanup scheduled (every 2 minutes)');

@@ -2547,7 +2547,7 @@ export default function AdminPage() {
                   </p>
                   
                   <div className="space-y-3">
-                    {['dashboard', 'finance', 'operations', 'analysis', 'stores', 'data', 'admin'].map(menuKey => {
+                    {['dashboard', 'finance', 'operations', 'analysis', 'stores', 'designer', 'data', 'datagrid', 'admin'].map(menuKey => {
                       const perm = rolePermissions.find(p => p.menu_key === menuKey) || { menu_key: menuKey, can_view: false, can_edit: false }
                       const menuLabels: Record<string, string> = {
                         dashboard: 'Dashboard (Ana Sayfa)',
@@ -2555,7 +2555,9 @@ export default function AdminPage() {
                         operations: 'Operasyonlar',
                         analysis: 'Analiz',
                         stores: 'Mağaza Yönetimi',
+                        designer: 'Tasarım Stüdyosu',
                         data: 'Veri Yönetimi',
+                        datagrid: 'DataGrid Demo',
                         admin: 'Yönetim Paneli'
                       }
                       

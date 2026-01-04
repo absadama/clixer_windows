@@ -1571,6 +1571,103 @@ app.post('/api-preview', authenticate, async (req: Request, res: Response, next:
   }
 });
 
+// ClickHouse dataset aggregates - TÜM dataset için toplamlar (footer için)
+app.get('/datasets/:id/aggregates', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    // columns parametresi: virgülle ayrılmış kolon adları ve aggregation tipleri
+    // Örnek: columns=ToplamTutar:sum,Adet:sum,BirimFiyat:avg
+    const columnsParam = req.query.columns as string;
+
+    const dataset = await db.queryOne(
+      'SELECT * FROM datasets WHERE id = $1 AND tenant_id = $2',
+      [id, req.user!.tenantId]
+    );
+
+    if (!dataset) {
+      throw new NotFoundError('Dataset');
+    }
+
+    if (!dataset.clickhouse_table) {
+      throw new ValidationError('Dataset henüz ClickHouse tablosu oluşturulmamış');
+    }
+
+    // Aggregate sorgusunu oluştur
+    const aggregates: Record<string, { sum?: number; avg?: number; count?: number; min?: number; max?: number }> = {};
+    
+    if (columnsParam) {
+      // Kullanıcının belirttiği kolonları hesapla
+      const columnDefs = columnsParam.split(',').map(c => {
+        const [colName, aggType] = c.split(':');
+        return { column: colName.trim(), aggregation: aggType?.trim() || 'sum' };
+      });
+
+      // Her kolon için aggregate hesapla
+      const selectParts: string[] = ['count() as _total_count'];
+      columnDefs.forEach(({ column, aggregation }) => {
+        const safeCol = column.replace(/[^a-zA-Z0-9_]/g, ''); // SQL injection koruması
+        switch (aggregation) {
+          case 'sum':
+            selectParts.push(`sum(${safeCol}) as ${safeCol}_sum`);
+            break;
+          case 'avg':
+            selectParts.push(`avg(${safeCol}) as ${safeCol}_avg`);
+            break;
+          case 'count':
+            selectParts.push(`count(${safeCol}) as ${safeCol}_count`);
+            break;
+          case 'min':
+            selectParts.push(`min(${safeCol}) as ${safeCol}_min`);
+            break;
+          case 'max':
+            selectParts.push(`max(${safeCol}) as ${safeCol}_max`);
+            break;
+        }
+      });
+
+      const sql = `SELECT ${selectParts.join(', ')} FROM clixer_analytics.${dataset.clickhouse_table}`;
+      const result = await clickhouse.query(sql);
+      
+      let totalCount = 0;
+      if (result.length > 0) {
+        const row = result[0];
+        totalCount = Number(row._total_count) || 0;
+        columnDefs.forEach(({ column, aggregation }) => {
+          const safeCol = column.replace(/[^a-zA-Z0-9_]/g, '');
+          if (!aggregates[column]) aggregates[column] = {};
+          aggregates[column][aggregation as keyof typeof aggregates[typeof column]] = Number(row[`${safeCol}_${aggregation}`]) || 0;
+        });
+      }
+
+      res.json({ 
+        success: true, 
+        data: {
+          datasetId: id,
+          tableName: dataset.clickhouse_table,
+          totalCount,
+          aggregates
+        }
+      });
+    } else {
+      // Kolon belirtilmemişse sadece count dön
+      const countResult = await clickhouse.query(`SELECT count() as cnt FROM clixer_analytics.${dataset.clickhouse_table}`);
+      const totalCount = Number(countResult[0]?.cnt) || 0;
+
+      res.json({ 
+        success: true, 
+        data: {
+          datasetId: id,
+          tableName: dataset.clickhouse_table,
+          totalCount,
+          aggregates
+        }
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ClickHouse dataset preview
 app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -1592,7 +1689,8 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
 
     // ClickHouse'dan veri çek
     const startTime = Date.now();
-    const rows = await clickhouse.query(`SELECT * FROM clixer_analytics.${dataset.clickhouse_table} LIMIT ${Math.min(limit, 10)}`);
+    const maxLimit = Math.min(limit, 10000); // Max 10K satır
+    const rows = await clickhouse.query(`SELECT * FROM clixer_analytics.${dataset.clickhouse_table} LIMIT ${maxLimit}`);
     const executionTime = Date.now() - startTime;
 
     // Kolon bilgilerini al

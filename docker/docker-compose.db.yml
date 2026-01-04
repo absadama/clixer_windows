@@ -46,9 +46,8 @@ services:
     container_name: clixer_clickhouse
     restart: unless-stopped
     environment:
+      # Kullanıcı yönetimi users.xml ile yapılır, ENV ile değil!
       CLICKHOUSE_DB: clixer_analytics
-      CLICKHOUSE_USER: clixer
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clixer_click_2025}
       CLICKHOUSE_MAX_MEMORY_USAGE: 6000000000
       CLICKHOUSE_MAX_MEMORY_USAGE_FOR_ALL_QUERIES: 8000000000
       CLICKHOUSE_MAX_EXECUTION_TIME: 300

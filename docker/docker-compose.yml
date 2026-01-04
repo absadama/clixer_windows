@@ -52,8 +52,8 @@ services:
     restart: unless-stopped
     environment:
       CLICKHOUSE_DB: clixer_analytics
-      CLICKHOUSE_USER: clixer
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      # CLICKHOUSE_USER: clixer  # users.xml ile yonetilir
+      # CLICKHOUSE_PASSWORD: ...  # users.xml ile yonetilir
       # Performance Settings - Optimized for 16GB Mac
       CLICKHOUSE_MAX_MEMORY_USAGE: 6000000000  # 6GB per query (max)
       CLICKHOUSE_MAX_MEMORY_USAGE_FOR_ALL_QUERIES: 8000000000  # 8GB total
@@ -61,6 +61,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./init-scripts/clickhouse:/docker-entrypoint-initdb.d
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/users.xml
     ports:
       - "8123:8123"  # HTTP interface
       - "9000:9000"  # Native interface

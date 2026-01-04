@@ -4467,3 +4467,409 @@ app.get('/users/me', ...)       // ❌ Buraya asla ulaşılmaz
 2. Kullanıcı tema seçerse → LocalStorage'a kaydedilir
 3. Yeni kurulum → Clixer ile açılır
 4. Veritabanı sıfırlanırsa → Clixer seed edilir
+
+---
+
+## 🔴 CLICKHOUSE KULLANICI YÖNETİMİ (KRİTİK!)
+
+### MUTLAK KURAL: ClickHouse kullanıcıları XML ile yönetilir, ENV ile DEĞİL!
+
+### Sorun (v3.3 öncesi)
+
+Docker Compose'da `CLICKHOUSE_USER` ve `CLICKHOUSE_PASSWORD` environment değişkenleri kullanıldığında:
+
+1. ClickHouse otomatik olarak `/etc/clickhouse-server/users.d/default-user.xml` dosyası oluşturur
+2. Bu dosyada `<default remove="remove">` satırı var → **Default kullanıcı SİLİNİR!**
+3. Sonuç: Hem `default` hem `clixer` kullanıcısı ÇALIŞMAZ
+4. Hata: `Authentication failed: password is incorrect, or there is no user with such name`
+
+### Çözüm
+
+1. **CLICKHOUSE_USER ve CLICKHOUSE_PASSWORD environment değişkenlerini KULLANMA!**
+2. Kullanıcıları `docker/clickhouse/users.xml` dosyası ile yönet
+3. Bu dosyayı Docker volume olarak mount et
+
+### docker-compose.yml (DOĞRU)
+
+```yaml
+clickhouse:
+  image: clickhouse/clickhouse-server:25.12.1
+  environment:
+    CLICKHOUSE_DB: clixer_analytics
+    # ❌ CLICKHOUSE_USER: clixer         # KULLANMA!
+    # ❌ CLICKHOUSE_PASSWORD: ...        # KULLANMA!
+    CLICKHOUSE_MAX_MEMORY_USAGE: 6000000000
+  volumes:
+    - clickhouse_data:/var/lib/clickhouse
+    - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/users.xml  # ✅ XML ile yönet
+```
+
+### docker/clickhouse/users.xml (ZORUNLU DOSYA)
+
+```xml
+<?xml version="1.0"?>
+<clickhouse>
+    <users>
+        <!-- Default user (şifresiz) -->
+        <default>
+            <password></password>
+            <networks><ip>::/0</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </default>
+        
+        <!-- Clixer user (şifreli) -->
+        <clixer>
+            <password>clixer_click_2025</password>
+            <networks><ip>::/0</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </clixer>
+    </users>
+</clickhouse>
+```
+
+### Müşteri Kurulumunda Kontrol
+
+```bash
+# ClickHouse kullanıcı testi
+docker exec clixer_clickhouse clickhouse-client --user clixer --password clixer_click_2025 --query "SELECT currentUser()"
+
+# Beklenen çıktı: clixer
+```
+
+### Hata Durumunda Kurtarma
+
+```bash
+# 1. Container ve volume sil
+docker stop clixer_clickhouse
+docker rm clixer_clickhouse
+docker volume rm docker_clickhouse_data
+
+# 2. Yeniden oluştur
+docker-compose -f docker-compose.db.yml up -d clickhouse
+
+# 3. Test et
+docker exec clixer_clickhouse clickhouse-client --user clixer --password clixer_click_2025 --query "SELECT 1"
+```
+
+### Etkilenen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `docker/docker-compose.yml` | CLICKHOUSE_USER/PASSWORD kaldırıldı |
+| `docker/docker-compose.db.yml` | CLICKHOUSE_USER/PASSWORD kaldırıldı |
+| `docker/clickhouse/users.xml` | Kullanıcı tanımları (ZORUNLU) |
+
+---
+
+## 📅 v3.3 - 4 Ocak 2026
+
+**ClickHouse Kullanıcı Yönetimi Düzeltmesi**
+
+1. ✅ `CLICKHOUSE_USER` ve `CLICKHOUSE_PASSWORD` environment değişkenleri kaldırıldı
+2. ✅ Kullanıcı yönetimi `docker/clickhouse/users.xml` ile yapılıyor
+3. ✅ Hem `default` hem `clixer` kullanıcısı aktif
+4. ✅ "Authentication failed" hatası düzeltildi
+5. ✅ UI'dan "Yeniden Bağlan" çalışıyor
+
+**Kök Neden:**
+Docker'ın CLICKHOUSE_USER environment değişkeni `default-user.xml` oluşturup default kullanıcıyı siliyordu.
+
+**Yedekleme:**
+- SQL Server Express bağlantı testi başarılı
+- Üniversite demo veritabanı (17.594 kayıt) oluşturuldu
+
+---
+
+## 🔴 SIDEBAR ↔ ROL & YETKİLER SENKRONİZASYONU (KRİTİK!)
+
+### MUTLAK KURAL: Sidebar'a eklenen her menü 3 yerde güncellenmeli!
+
+**Prensip:** Sidebar'a yeni bir menü/sayfa eklendiğinde, bu menü otomatik olarak:
+1. **Rol & Yetkiler** ekranında görünmeli (Yönetim Paneli → Rol & Yetkiler)
+2. **Etiketler** tablosunda görünmeli (çeviri için)
+3. **Pozisyon bazlı erişim** kontrol edilebilmeli
+
+### Etkilenen Dosyalar
+
+| Dosya | Amaç |
+|-------|------|
+| `frontend/src/components/Layout.tsx` | Sidebar menü tanımları |
+| `frontend/src/pages/AdminPage.tsx` | Rol & Yetkiler → Menü İzinleri listesi |
+| `docker/init-scripts/postgres/00-schema-and-seed.sql` | labels tablosu seed |
+| `frontend/src/stores/settingsStore.ts` | `canViewMenu()` fonksiyonu |
+
+### Yeni Menü Ekleme Akışı
+
+```
+1. Layout.tsx'e menü ekle (sidebar)
+      ↓
+2. AdminPage.tsx → menuPermissions array'ine ekle
+      ↓
+3. labels tablosuna Türkçe/İngilizce etiket ekle
+      ↓
+4. settingsStore.ts → canViewMenu() kontrol et
+```
+
+### Örnek: DataGrid Demo Ekleme
+
+```typescript
+// 1. Layout.tsx - Sidebar menü
+{ icon: Grid3X3, label: 'DataGrid Demo', path: '/datagrid-demo', key: 'datagrid_demo' }
+
+// 2. AdminPage.tsx - menuPermissions array
+{ key: 'datagrid_demo', label: 'DataGrid Demo' }
+
+// 3. labels tablosu (SQL)
+INSERT INTO labels (tenant_id, label_type, label_key, label_value) 
+VALUES ('...', 'menu', 'datagrid_demo', 'DataGrid Demo');
+
+// 4. settingsStore.ts - Erişim kontrolü otomatik çalışır
+```
+
+### ASLA YAPMA
+
+1. ❌ Sadece Layout.tsx'e menü ekleyip diğerlerini unutma
+2. ❌ Rol & Yetkiler'de menüyü hardcode etme
+3. ❌ Etiket eklemeden menü ekleme
+
+### KONTROL LİSTESİ
+
+Yeni sayfa/menü eklerken:
+- [ ] Layout.tsx'e eklendi mi?
+- [ ] AdminPage.tsx menuPermissions'a eklendi mi?
+- [ ] labels seed'ine eklendi mi?
+- [ ] Rol & Yetkiler'de görünüyor mu? (TEST!)
+- [ ] Pozisyon bazlı erişim çalışıyor mu? (TEST!)
+
+---
+
+## 📅 v3.4 - 4 Ocak 2026
+
+**Sidebar ↔ Rol & Yetkiler Senkronizasyon Kuralı**
+
+1. ✅ DataGrid Demo sayfası eklendi
+2. ✅ Sidebar'a menü ekleme kuralı dokümante edildi
+3. ✅ 3 dosya senkronizasyonu zorunlu hale getirildi
+4. ⚠️ DataGrid Demo → Rol & Yetkiler'e eklenmeli (BEKLEMEDE)
+
+---
+
+## 🔴 ENTERPRISE DATAGRID KRİTİK KURALLAR (v3.5 - 5 Ocak 2026)
+
+### 1. "Functions are not valid as a React child" HATASI
+
+**Sorun:** Gruplu şablonlarda aggregated değer render edilirken `flexRender` fonksiyon döndürüyor.
+
+**KÖK NEDEN:** `@tanstack/react-table` gruplu satırlarda aggregated cell'leri farklı işliyor. `flexRender` bazen fonksiyon döndürür.
+
+**ÇÖZÜM:**
+```typescript
+// ❌ YANLIŞ - Fonksiyon dönebilir!
+{flexRender(cell.column.columnDef.aggregatedCell, cell.getContext())}
+
+// ✅ DOĞRU - Değeri doğrudan al ve formatla
+{row.getVisibleCells()
+  .filter(cell => cell.getIsAggregated())
+  .map(cell => {
+    const rawValue = cell.getValue()
+    let displayValue: string = '-'
+
+    if (rawValue !== null && rawValue !== undefined && typeof rawValue !== 'function') {
+      if (typeof rawValue === 'number') {
+        displayValue = new Intl.NumberFormat('tr-TR').format(rawValue)
+      } else {
+        displayValue = String(rawValue)
+      }
+    }
+    return <span key={cell.id}>{displayValue}</span>
+  })
+}
+```
+
+---
+
+### 2. "[Table] Column with id 'xxx' does not exist" HATASI
+
+**Sorun:** Kayıtlı şablonda farklı dataset'ten kalan kolon ID'leri tablo state'inde kalıyor.
+
+**KÖK NEDEN:** `useReactTable`'a geçirilen state'ler (`grouping`, `sorting`, `columnFilters`, `columnVisibility`, `columnOrder`) mevcut kolon tanımlarında olmayan ID'ler içeriyor.
+
+**ÇÖZÜM:** TÜM STATE'LERİ FİLTRELE!
+```typescript
+// 1. Geçerli kolon ID'lerini al
+const validColumnIds = useMemo(() => columnConfigs.map(c => c.id), [columnConfigs])
+
+// 2. TÜM state'leri filtrele (sadece grouping DEĞİL!)
+const validGrouping = useMemo(() => 
+  grouping.filter(id => validColumnIds.includes(id)), [grouping, validColumnIds])
+
+const validSorting = useMemo(() => 
+  sorting.filter(s => validColumnIds.includes(s.id)), [sorting, validColumnIds])
+
+const validColumnFilters = useMemo(() => 
+  columnFilters.filter(f => validColumnIds.includes(f.id)), [columnFilters, validColumnIds])
+
+const validColumnVisibility = useMemo(() => {
+  const valid: Record<string, boolean> = {}
+  for (const [key, value] of Object.entries(columnVisibility)) {
+    if (validColumnIds.includes(key)) valid[key] = value
+  }
+  return valid
+}, [columnVisibility, validColumnIds])
+
+const validColumnOrder = useMemo(() => 
+  columnOrder.filter(id => validColumnIds.includes(id)), [columnOrder, validColumnIds])
+
+// 3. Filtrelenmiş state'leri kullan
+const table = useReactTable({
+  state: {
+    sorting: validSorting,
+    columnFilters: validColumnFilters,
+    grouping: validGrouping,
+    columnVisibility: validColumnVisibility,
+    columnOrder: validColumnOrder,
+    // ...
+  }
+})
+```
+
+---
+
+### 3. "Can't perform a React state update on a component that hasn't mounted yet" HATASI
+
+**Sorun:** Async operasyonlar component mount olmadan state güncellemeye çalışıyor.
+
+**ÇÖZÜM:**
+```typescript
+// 1. Mount tracking
+const isUnmountedRef = useRef(false)
+const isReady = useRef(false)
+
+// 2. requestAnimationFrame ile ready state
+useEffect(() => {
+  isUnmountedRef.current = false
+  const timer = requestAnimationFrame(() => {
+    if (!isUnmountedRef.current) isReady.current = true
+  })
+  return () => {
+    cancelAnimationFrame(timer)
+    isUnmountedRef.current = true
+  }
+}, [])
+
+// 3. Async işlemlerde kontrol
+const loadData = async () => {
+  if (isUnmountedRef.current) return
+  // ...
+  if (!isUnmountedRef.current) setState(data)
+}
+```
+
+---
+
+### 4. Arama Yaparken Toplamlar Değişmiyor
+
+**Sorun:** Footer server-side aggregates kullanıyor, filtrelenmiş veriyi değil.
+
+**ÇÖZÜM:**
+```typescript
+const hasActiveFilters = globalFilter || columnFilters.length > 0
+
+if (!hasActiveFilters && serverSideAggregates) {
+  // Server-side toplam (TÜM 10M satır)
+  aggregatedValue = serverSideAggregates[column].sum
+} else {
+  // Client-side toplam (FİLTRELENMİŞ satırlar)
+  const rows = table.getFilteredRowModel().rows
+  aggregatedValue = rows.reduce((sum, row) => sum + row.getValue(column), 0)
+}
+```
+
+---
+
+### 5. Tarih Formatında Arama Çalışmıyor
+
+**Sorun:** `05.01.2026` formatında arama yapınca sonuç gelmiyor.
+
+**ÇÖZÜM:** Özel globalFilterFn tanımla:
+```typescript
+const globalFilterFn = useCallback((row, columnId, filterValue) => {
+  const value = row.getValue(columnId)
+  const searchValue = filterValue.toLowerCase().trim()
+  
+  // Normal string arama
+  if (String(value).toLowerCase().includes(searchValue)) return true
+  
+  // Tarih kolonları için ek format kontrolleri
+  const config = columnConfigs.find(c => c.id === columnId)
+  if (config?.type === 'date') {
+    const dateValue = new Date(value)
+    // Türkçe: 05.01.2026
+    if (dateValue.toLocaleDateString('tr-TR').includes(searchValue)) return true
+    // ISO: 2026-01-05
+    if (dateValue.toISOString().split('T')[0].includes(searchValue)) return true
+  }
+  
+  return false
+}, [columnConfigs])
+
+// useReactTable'a ekle
+const table = useReactTable({
+  globalFilterFn,
+  // ...
+})
+```
+
+---
+
+### 6. 401 Unauthorized for grid-designs
+
+**Sorun:** `/api/core/grid-designs` endpoint'i IP whitelist'e takılıyor.
+
+**ÇÖZÜM:** Gateway'de özel route ekle (ÖNCE tanımla!):
+```typescript
+// ✅ DOĞRU SIRA - Spesifik route ÖNCE
+app.use('/api/core/grid-designs', createProxyMiddleware({
+  ...proxyOptions(SERVICES.CORE),
+  pathRewrite: { '^/api/core': '' }
+}))
+
+// Sonra genel route (IP whitelist ile)
+app.use('/api/core', adminIPWhitelist, createProxyMiddleware({...}))
+```
+
+---
+
+### ÖZET: DataGrid Tasarım Yükleme Sırası
+
+```
+1. Sayfa mount → isReady = true (requestAnimationFrame ile)
+2. loadDesigns() → Kayıtlı şablonları getir
+3. Default şablon varsa → dataset_id kontrol et
+4. dataset_id varsa → Önce veriyi yükle (loadDatasetData)
+5. Veri gelince → validColumnIds hesapla
+6. State'leri filtrele → validGrouping, validSorting, vb.
+7. applyDesign() → Filtrelenmiş state'leri uygula
+8. Tablo render → Hatasız!
+```
+
+**MUTLAK KURAL:** Kayıtlı tasarımı uygulamadan ÖNCE veri ve kolonlar yüklenmiş olmalı!
+
+---
+
+## 📅 v3.5 - 5 Ocak 2026
+
+**Enterprise DataGrid Kritik Hata Çözümleri**
+
+1. ✅ "Functions are not valid as a React child" - flexRender yerine getValue() kullan
+2. ✅ "Column with id does not exist" - TÜM state'leri validColumnIds ile filtrele
+3. ✅ "Can't perform React state update" - Mount tracking ve requestAnimationFrame
+4. ✅ Arama yaparken toplamlar değişmiyor - hasActiveFilters kontrolü
+5. ✅ Tarih formatında arama çalışmıyor - Özel globalFilterFn
+6. ✅ 401 Unauthorized - Gateway route sıralaması
+
+**Backup:** `backups/v3.5_datagrid_fixes_20260105/`

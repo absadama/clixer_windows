@@ -23,6 +23,7 @@ import {
   User as UserIcon,
   Sun,
   Moon,
+  Table2,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { UserRole } from '../types'
@@ -42,6 +43,7 @@ const defaultMenuLabels: Record<string, string> = {
   stores: 'Magazalar',
   designer: 'Tasarim Studyosu',
   data: 'Veri Baglantilari',
+  datagrid: 'DataGrid Demo',
   admin: 'Yonetim Paneli',
   profile: 'Profilim'
 }
@@ -55,6 +57,7 @@ const menuItemsBase = [
   { id: 'stores', key: 'stores', href: '/stores', icon: Store, badge: null },
   { id: 'settings', key: 'designer', href: '/designer', icon: Palette, badge: null },
   { id: 'data', key: 'data', href: '/data', icon: Database, badge: null },
+  { id: 'datagrid', key: 'datagrid', href: '/datagrid-demo', icon: Table2, badge: 'YENİ' },
   { id: 'admin', key: 'admin', href: '/admin', icon: Shield, badge: null },
 ]
 
@@ -62,7 +65,7 @@ const menuItemsBase = [
 // Clixer: Ana tema - koyu, profesyonel
 // Light: Aydınlık tema - yüksek kontrast
 // Corporate: Kurumsal tema - teal/mavi
-const themes = {
+export const themes = {
   // CLIXER ENTERPRISE THEME - Website Renk Paleti (VARSAYILAN)
   // Coal: #0F1116 | Anthracite: #181B21 | Surface: #21252E | Neon Cyan: #00CFDE
   clixer: {

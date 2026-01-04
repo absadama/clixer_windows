@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <clickhouse>
     <users>
-        <!-- Default user (şifresiz) -->
+        <!-- Default user (sifresiz, yonetim icin) -->
         <default>
             <password></password>
             <networks>
@@ -12,7 +12,7 @@
             <access_management>1</access_management>
         </default>
         
-        <!-- Clixer user (şifreli) -->
+        <!-- Clixer user (sifreli, uygulama icin) -->
         <clixer>
             <password>clixer_click_2025</password>
             <networks>

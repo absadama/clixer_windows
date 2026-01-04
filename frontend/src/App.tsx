@@ -14,6 +14,7 @@ import AnalysisPage from './pages/AnalysisPage'
 import StoresPage from './pages/StoresPage'
 import AdminPage from './pages/AdminPage'
 import ProfilePage from './pages/ProfilePage'
+import DataGridDemoPage from './pages/DataGridDemoPage'
 import api from './services/api'
 
 function App() {
@@ -63,6 +64,7 @@ function App() {
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/datagrid-demo" element={<DataGridDemoPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>

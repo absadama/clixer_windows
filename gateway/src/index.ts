@@ -89,7 +89,7 @@ app.use(compression());
 // Genel rate limit - Tüm endpointler için
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 dakika
-  max: 200, // Dakikada 200 istek
+  max: process.env.NODE_ENV === 'development' ? 500 : 200, // Dev'de 500, prod'da 200
   message: { 
     success: false, 
     errorCode: 'RATE_LIMIT', 
@@ -330,6 +330,12 @@ const adminIPWhitelist = async (req: Request, res: Response, next: NextFunction)
   
   next();
 };
+
+// Grid Designs route (IP whitelist gerektirmez - kullanıcı bazlı)
+app.use('/api/core/grid-designs', createProxyMiddleware({
+  ...proxyOptions(SERVICES.CORE),
+  pathRewrite: { '^/api/core': '' }
+}));
 
 // Core routes (users, tenants, designs, components, settings, roles)
 // /api/core/* -> Core Service (yeni prefix)
