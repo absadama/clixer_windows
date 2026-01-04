@@ -3994,13 +3994,108 @@ Bundle: 1.34MB (gzip: 340KB)
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-02 | **v6.5.0** | **Production Ready - Debug Temizliği & Güvenlik Kontrolü** |
+| 2026-01-04 | **v2.0-prod** | **🚀 Production Ready - Ubuntu Kurulum, Nginx, SSL, Firewall** |
+| 2026-01-04 | v1.1 | Kod + PostgreSQL veritabanı yedeği |
+| 2026-01-04 | v1 | İlk Windows kurulum sürümü |
+| 2026-01-02 | v6.5.0 | Production Ready - Debug Temizliği & Güvenlik Kontrolü |
 | 2025-12-31 | v6.4.0 | Login Clixer Teması, JWT Fix, Schedule Fix |
 | 2025-12-31 | v6.3.0 | Konuşma geçmişi, Clixer varsayılan tema |
 | 2025-12-30 | v6.2.0 | Clixer teması tasarımı |
 | 2025-12-30 | v6.1.0 | API POST Sync |
 | 2025-12-30 | v6.0.0 | Logo entegrasyonu |
-| 2025-12-30 | v5.4.0 | Kokpit & Detay Analiz senkronizasyonu |
-| 2025-12-30 | v5.3.0 | Rol vs Pozisyon ayrımı, Profil yönetimi |
 
--full yedek al dediğim de githuba ve lokale var olan uygulamanın yani clixer ın tüm çalışan kod yapısı db'si ve içeriği ile beraber yedeklenecek her zaman.
+---
+
+## 📅 v2.0-prod - 4 Ocak 2026
+
+**🚀 Production Ready - Müşteri Ubuntu Sunucusu için Hazır**
+
+### GitHub Repository
+- **URL**: https://github.com/absadama/clixer_windows
+- **Branch**: main
+- **Tags**: v1, v1.1, v2.0
+
+### Eklenen Production Dosyaları
+
+| Dosya | Açıklama |
+|-------|----------|
+| `deploy/install-ubuntu.sh` | Tek komutla Ubuntu kurulum scripti |
+| `deploy/README-PRODUCTION.md` | Production kurulum dökümanı |
+| `db-backup/postgresql_full.sql` | PostgreSQL veritabanı yedeği |
+| `docker/clickhouse/users.xml` | ClickHouse clixer kullanıcısı |
+
+### Ubuntu Sunucu Kurulumu (SSH ile)
+
+```bash
+# 1. Sunucuya bağlan
+ssh root@SUNUCU_IP
+
+# 2. Tek komutla kur
+curl -fsSL https://raw.githubusercontent.com/absadama/clixer_windows/main/deploy/install-ubuntu.sh | sudo bash
+
+# 3. SSL sertifikası al
+sudo certbot --nginx -d analytics.domain.com
+```
+
+### Kurulum Scripti Neler Yapar?
+
+1. ✅ Sistem güncellemesi
+2. ✅ Docker + Docker Compose kurulumu
+3. ✅ Node.js 20 kurulumu
+4. ✅ Clixer kullanıcısı oluşturma (/opt/clixer)
+5. ✅ GitHub'dan kod çekme
+6. ✅ .env dosyası oluşturma
+7. ✅ PostgreSQL, ClickHouse, Redis başlatma
+8. ✅ Veritabanı yedeğini yükleme
+9. ✅ npm install tüm servislerde
+10. ✅ Nginx reverse proxy yapılandırma
+11. ✅ UFW Firewall (22, 80, 443)
+12. ✅ Fail2ban güvenlik
+
+### Giriş Bilgileri
+
+| Alan | Değer |
+|------|-------|
+| URL | http://SUNUCU_IP veya https://domain.com |
+| Email | admin@clixer |
+| Şifre | Admin1234! |
+
+---
+
+## 🔴 GITHUB YEDEKLEMEYİ GİTMEYENLER (KRİTİK!)
+
+GitHub'a `.gitignore` nedeniyle GİTMEYEN dosyalar:
+
+| Dosya/Klasör | Neden | Çözüm |
+|--------------|-------|-------|
+| `.env` | Güvenlik (şifreler) | `.env.example` kopyala |
+| `node_modules/` | Çok büyük | `npm install` |
+| `docker/*_data/` | Veritabanı verileri | Docker oluşturur |
+| `dist/`, `build/` | Derlenen dosyalar | `npm run build` |
+| `backups/` | Yedekler | Çok büyük |
+
+### Yeni Kurulumda Yapılacaklar
+
+```bash
+# 1. .env oluştur
+cp .env.example .env
+
+# 2. Bağımlılıkları kur
+cd shared && npm install && npm run build && cd ..
+npm install --prefix gateway
+npm install --prefix services/auth-service
+# ... diğer servisler
+
+# 3. PostgreSQL yedeğini yükle (varsa)
+docker exec -i clixer_postgres psql -U clixer -d clixer < db-backup/postgresql_full.sql
+```
+
+---
+
+## 📦 FULL YEDEK KURALI
+
+"Full yedek al" dediğinde:
+1. ✅ Tüm kod GitHub'a push
+2. ✅ PostgreSQL dump alınıp `db-backup/` klasörüne eklenmeli
+3. ✅ ClickHouse tablolar varsa dump alınmalı
+4. ✅ GitHub'a commit + push + tag
