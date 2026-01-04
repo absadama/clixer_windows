@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # Test MSSQL Server (Azure SQL Edge - ARM64/M1/M2 uyumlu!)
+  test-mssql:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    container_name: clixer_test_mssql
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=TestPassword123!
+    ports:
+      - "1433:1433"
+    networks:
+      - clixer-network
+    cap_add:
+      - SYS_PTRACE
+
+  # Test MySQL Server
+  test-mysql:
+    image: mysql:8.0
+    container_name: clixer_test_mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=TestPassword123!
+      - MYSQL_DATABASE=test_erp
+      - MYSQL_USER=testuser
+      - MYSQL_PASSWORD=TestPassword123!
+    ports:
+      - "3307:3306"
+    networks:
+      - clixer-network
+
+  # Test LDAP Server (OpenLDAP) - AD Uyumlu Kurumsal Yapı
+  test-ldap:
+    image: osixia/openldap:1.5.0
+    container_name: clixer_test_ldap
+    environment:
+      - LDAP_ORGANISATION=Demo Sirket
+      - LDAP_DOMAIN=clixer.local
+      - LDAP_ADMIN_PASSWORD=admin123
+      - LDAP_BASE_DN=dc=clixer,dc=local
+    volumes:
+      - ./ldap-init:/container/service/slapd/assets/config/bootstrap/ldif/custom
+    command: --copy-service
+    ports:
+      - "389:389"
+      - "636:636"
+    networks:
+      - clixer-network
+
+  # LDAP Admin UI (phpLDAPadmin)
+  ldap-admin:
+    image: osixia/phpldapadmin:0.9.0
+    container_name: clixer_ldap_admin
+    environment:
+      - PHPLDAPADMIN_LDAP_HOSTS=test-ldap
+      - PHPLDAPADMIN_HTTPS=false
+    ports:
+      - "8080:80"
+    depends_on:
+      - test-ldap
+    networks:
+      - clixer-network
+
+networks:
+  clixer-network:
+    external: true

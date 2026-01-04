@@ -1,0 +1,4272 @@
+# CLİXER - Enterprise Analytics Platform
+# "Olağanüstü Veri Hızı" 🚀
+# Power BI / Tableau / Qlik Rakibi
+
+---
+
+## 🔴🔴🔴 CURSOR AI - EN KRİTİK KURAL 🔴🔴🔴
+
+> **KULLANICIDAN "BAŞARILI" VEYA "ÇALIŞTI" MESAJI GELMEDEN ASLA .cursorrules DOSYASINA GÜNCELLEME YAPMA!**
+
+### Neden?
+1. Değişiklik yapılır → Kullanıcı TEST EDER
+2. Test başarılı → Kullanıcı "çalıştı/tamam/başarılı" der
+3. **ANCAK O ZAMAN** .cursorrules güncellenir
+4. Aksi halde HATALI BİLGİ kalıcı olur!
+
+### Akış:
+```
+Kod değişikliği yap → Kullanıcıya söyle → BEKLE
+                                            ↓
+                          Kullanıcı: "Çalıştı!" ✅ → .cursorrules güncelle
+                          Kullanıcı: "Hata var" ❌ → Düzelt, tekrar test et
+```
+
+### ASLA YAPMA:
+- ❌ Test edilmeden rules'a yazma
+- ❌ "Düzeltme tamamlandı" diyerek rules'a ekleme
+- ❌ Kullanıcı onayı olmadan versiyon güncelleme
+
+---
+
+## 📋 PROJE KİMLİĞİ
+
+**Clixer**, büyük ölçekli kurumsal analitik platformudur. Perakende, F&B, üniversite, holding gibi farklı sektörlerde kullanılabilir. Temel farkımız: **real-time veri akışı** ve **olağanüstü performans**.
+
+### Motto
+> "Veri hızı olağanüstü olacak şekilde tasarlandı"
+
+### Rakiplerden Farkımız
+| Özellik | Power BI | Tableau | Clixer |
+|---------|----------|---------|--------|
+| Real-time | ❌ (15dk refresh) | ❌ | ✅ WebSocket |
+| Offline | ❌ | ❌ | ✅ Service Worker |
+| Delta Sync | ❌ | ❌ | ✅ |
+| Native Mobile | Ayrı app | Ayrı app | ✅ Capacitor |
+| White-label | ❌ | ❌ | ✅ |
+| No-code ETL | Power Query | ❌ | ✅ UI tabanlı |
+
+---
+
+## 🏗️ TEKNOLOJİ YIĞINI
+
+### Frontend
+- React 19 + TypeScript (strict mode)
+- Vite (build tool)
+- Zustand (state management) - Context API DEĞİL
+- TailwindCSS (styling)
+- TanStack Virtual (büyük listeler için)
+- Recharts (grafikler, lazy loaded)
+- Capacitor (native mobile)
+- Service Worker + IndexedDB (offline support)
+
+### Backend (5 Microservice)
+- Node.js + Express.js
+- TypeScript
+- JWT + bcrypt (auth)
+
+### Databases
+- **PostgreSQL 15**: Uygulama ayarları (OLTP)
+- **ClickHouse**: Analitik veriler (OLAP)
+- **Redis**: Cache + Pub/Sub + Queue
+
+### Infrastructure
+- Docker + Docker Compose
+- Bull Queue (job processing)
+- WebSocket (Socket.io)
+
+---
+
+## 🔧 MİCROSERVİCES MİMARİSİ (5 Servis)
+
+| Servis | Port | Sorumluluk |
+|--------|------|------------|
+| auth-service | 4001 | Login, JWT, 2FA, Şifre |
+| core-service | 4002 | Users, Tenants, Designs, Components, Settings |
+| data-service | 4003 | Connections, Datasets, ETL, ClickHouse yazma |
+| notification-service | 4004 | Alerts, Cron, Email, WebSocket |
+| analytics-service | 4005 | KPI okuma, Cache, Aggregation |
+
+### Dizin Yapısı
+```
+clixer/
+├── frontend/                 # React uygulaması
+│   ├── src/
+│   │   ├── components/       # UI bileşenleri
+│   │   ├── pages/            # Sayfa componentleri
+│   │   ├── stores/           # Zustand stores
+│   │   ├── services/         # API istemcileri
+│   │   ├── hooks/            # Custom hooks
+│   │   └── utils/            # Yardımcı fonksiyonlar
+│   └── public/
+├── services/
+│   ├── auth-service/
+│   ├── core-service/
+│   ├── data-service/
+│   ├── notification-service/
+│   └── analytics-service/
+├── shared/                   # Ortak modüller
+│   ├── db.ts                 # Database helpers
+│   ├── auth.ts               # JWT middleware
+│   ├── cache.ts              # Redis helpers
+│   ├── errors.ts             # Error classes
+│   └── logger.ts             # Structured logging
+├── gateway/                  # API Gateway
+├── docker/
+│   ├── docker-compose.yml
+│   └── Dockerfile.*
+└── scripts/
+    ├── setup.sh
+    └── seed.sh
+```
+
+---
+
+## 🗄️ VERİTABANI MİMARİSİ
+
+### PostgreSQL (clixer) - Uygulama Ayarları
+```sql
+-- Kullanıcı ve yetki
+users, tenants, roles, permissions
+
+-- Tasarım
+designs, components (widget+metric birleşik)
+
+-- Veri bağlantıları
+data_connections, datasets, etl_jobs, etl_schedules
+
+-- Sistem
+system_settings, audit_logs, notifications
+```
+
+### ClickHouse (clixer_analytics) - Analitik Veriler
+```sql
+-- ETL ile doldurulan tablolar
+-- Materialized Views (pre-aggregation)
+-- Partition by month (toYYYYMM)
+```
+
+### ⚠️ KRİTİK KURAL
+- PostgreSQL = Config, ayarlar, CRUD (sık güncellenen)
+- ClickHouse = Analitik, büyük veri, aggregation (append-only)
+- **Dashboard ASLA müşteri DB'ye direkt bağlanmaz!**
+- Akış: Müşteri DB → ETL → ClickHouse → Dashboard
+
+---
+
+## 🚀 PERFORMANS OPTİMİZASYONLARI
+
+### 1. Pre-Aggregation (ClickHouse Materialized Views)
+```sql
+-- Dashboard açılınca hesaplama YAPILMAZ
+-- Veri ETL sırasında aggregated olur
+CREATE MATERIALIZED VIEW mv_daily_sales
+ENGINE = SummingMergeTree()
+ORDER BY (store_id, date)
+AS SELECT
+    store_id,
+    toDate(created_at) as date,
+    sum(amount) as total_sales
+FROM sales
+GROUP BY store_id, date;
+```
+
+### 2. Multi-Level Cache (4 Katman)
+```
+L1: Browser (Service Worker, IndexedDB) → 1ms
+L2: CDN/Edge (opsiyonel, production) → 10ms
+L3: Redis (query results) → 5ms
+L4: ClickHouse Materialized Views → 50ms
+```
+
+### 3. Event-Driven Cache Invalidation
+```javascript
+// ETL veri yazdığında
+await clickhouse.insert('sales', data);
+await redis.del('kpi:*'); // Cache temizle
+await redis.publish('data_changed', { table: 'sales' }); // Event gönder
+// Frontend WebSocket ile anında güncellenir
+```
+
+### 4. CQRS (Command Query Responsibility Segregation)
+- Write Path: Müşteri DB → ETL → ClickHouse (yavaş olabilir)
+- Read Path: Redis Cache → ClickHouse MV → Dashboard (ultra hızlı)
+
+### 5. Single Endpoint for Dashboard
+```javascript
+// ❌ YANLIŞ: Waterfall calls
+GET /api/design/1
+GET /api/metrics
+GET /api/kpi/metric1
+...
+
+// ✅ DOĞRU: Tek istek
+GET /api/dashboard/1/full
+// Tüm design + components + kpi data TEK response
+```
+
+### 6. Virtual Rendering
+```jsx
+// 100.000 satırlık tablo 60 FPS
+import { useVirtualizer } from '@tanstack/react-virtual';
+```
+
+### 7. Delta Sync
+```javascript
+// İlk yükleme: Tüm veri
+GET /api/dashboard/full
+
+// Sonraki: Sadece değişenler
+GET /api/dashboard/delta?since=2025-01-01T10:00:00Z
+```
+
+---
+
+## 🔄 ETL MİMARİSİ
+
+### Veri Kaynakları
+- Database (MSSQL, PostgreSQL, MySQL, Oracle)
+- API (REST, GraphQL)
+- Excel/CSV dosyaları
+
+### Sync Stratejileri
+| Strateji | Kullanım | Açıklama |
+|----------|----------|----------|
+| Timestamp-Based | Çoğu tablo | WHERE modified_at > last_sync |
+| ID-Based | Log tabloları | WHERE id > last_id |
+| Date Partition | Satış verileri | Günü sil, yeniden yaz |
+| Full Refresh | Küçük tablolar | Truncate + Insert |
+
+### ETL UI Ayarları
+- Sync sıklığı: 15dk, 1 saat, günlük, manuel
+- Referans kolon seçimi (tarih, ID)
+- Satır limiti (max 100K)
+- Retry politikası
+- Hata bildirimi
+
+---
+
+## 🔐 GÜVENLİK
+
+### Authentication
+- JWT (15dk access token + 7 gün refresh token)
+- 2FA (TOTP)
+- Password hashing: bcrypt (salt rounds: 12)
+
+### Authorization
+- RBAC (Role-Based Access Control)
+- Tenant isolation (her sorguya tenant_id filtresi)
+
+### API Security
+- Rate limiting (100 req/min normal, 500 premium)
+- CORS whitelist
+- Helmet.js (security headers)
+- SQL injection prevention (parameterized queries)
+
+---
+
+## 🛡️ DAYANIKLILIK (Resilience)
+
+### Circuit Breaker
+```javascript
+// ClickHouse çökerse Redis cache'ten dön
+breaker.fallback(() => redis.get('last_known_data'));
+```
+
+### Graceful Degradation
+```javascript
+// Bir widget hata verse diğerleri çalışır
+const results = await Promise.allSettled([...widgets]);
+```
+
+### Query Timeout
+```javascript
+// Uzun sorgu sunucuyu kilitlemez (10s max)
+await clickhouse.query(sql, { timeout: 10000 });
+```
+
+### Health Checks
+```javascript
+GET /health/live   // Uygulama çalışıyor mu?
+GET /health/ready  // Tüm bağımlılıklar hazır mı?
+```
+
+---
+
+## 📱 MOBİL MİMARİ
+
+### Capacitor (Native)
+- iOS ve Android native app
+- Aynı React kodu
+- Push notification, biometrics
+
+### Mobile-First API
+- GraphQL ile sadece gerekli alanlar
+- Offline-first (IndexedDB sync)
+
+---
+
+## 📝 KODLAMA KURALLARI
+
+### TypeScript - Strict Mode ZORUNLU
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true
+  }
+}
+```
+
+### API Response Format - Her Zaman camelCase
+```javascript
+{
+  "success": true,
+  "data": { "userId": "1", "userName": "Ali" }
+}
+```
+
+### Error Response Format
+```javascript
+{
+  "success": false,
+  "errorCode": "AUTH_001",
+  "message": "Geçersiz token"
+}
+```
+
+### Naming Conventions
+- Components: PascalCase (Dashboard.tsx)
+- Functions: camelCase (fetchData)
+- Constants: UPPER_SNAKE_CASE (API_BASE_URL)
+- Database: snake_case (user_preferences)
+
+---
+
+## ❌ DİNAMO'DAN ÖĞRENİLEN DERSLER (YAPMA!)
+
+1. Monolitik başlayıp sonra microservices'e geçme → Baştan 5 servis
+2. Widget'ı 2 tabloya kaydetme → Tek components tablosu
+3. API'de snake_case/camelCase karışıklığı → Sadece camelCase
+4. Waterfall API calls → Tek endpoint /dashboard/full
+5. Mock data fallback (production'da) → Sadece development'ta
+6. Context API ile state → Zustand
+7. any tipi kullanma → Strict TypeScript
+8. Cache sonradan ekleme → Redis baştan
+9. Her serviste farklı error handling → Merkezi AppError class
+10. stores tablosu hem config hem müşteri DB'de → Net ayrım
+
+---
+
+## 🎯 PERFORMANS HEDEFLERİ
+
+| Metrik | Hedef |
+|--------|-------|
+| İlk dashboard yüklemesi | < 500ms |
+| Sonraki navigasyon (cache) | < 100ms |
+| Real-time güncelleme | < 50ms |
+| 100K satır tablo render | 60 FPS |
+
+---
+
+## 📦 BAŞLANGIÇ ADIMLARI
+
+### Phase 1: Temel Altyapı
+1. [ ] Docker setup (PostgreSQL, ClickHouse, Redis)
+2. [ ] 5 microservice boilerplate
+3. [ ] Shared modules (db, auth, cache, errors, logger)
+4. [ ] API Gateway
+5. [ ] Frontend boilerplate (Vite + React + Zustand)
+
+### Phase 2: Core Features
+1. [ ] Auth (login, JWT, 2FA)
+2. [ ] User/Tenant management
+3. [ ] Data connections (DB, API, Excel)
+4. [ ] ETL engine
+5. [ ] Dashboard designer
+
+### Phase 3: Analytics
+1. [ ] ClickHouse integration
+2. [ ] Materialized views
+3. [ ] KPI calculation
+4. [ ] Real-time (WebSocket)
+5. [ ] Cache layer
+
+### Phase 4: Polish
+1. [ ] Mobile (Capacitor)
+2. [ ] Offline support
+3. [ ] Monitoring
+4. [ ] Performance optimization
+
+---
+
+## 🔒 KULLANICI KURALLARI
+
+- Mikroservis mimarisi kullanılacak
+- Öncelik sayfa performansı ve hızlı çalışma
+- 500 kullanıcı aynı anda desteklenmeli
+- Tüm sayfalar responsive
+- Tüm menü ve başlıklar parametrik
+- Siber tehditler düşünülerek geliştir
+- Ayarlar veritabanında saklanacak
+- Hata durumunda uygulama çökmeyecek (Error Boundary)
+- Her widget izole (WidgetErrorBoundary)
+- GitHub'a push için kullanıcı onayı gerekli
+- Yedek klasörü: backupapp/
+
+---
+
+## 📅 VERSİYON GEÇMİŞİ
+
+| Tarih | Versiyon | Açıklama |
+|-------|----------|----------|
+| 2025-12-20 | v0.0.1 | Proje oluşturuldu, mimari kararlar belirlendi |
+
+---
+
+## 🏷️ PROJE BİLGİLERİ
+
+- **Proje Adı**: Clixer
+- **Başlangıç**: 20 Aralık 2025
+- **Önceki Proje**: Dinamo Cockpit (park edildi)
+- **Amaç**: Power BI rakibi enterprise analytics platform
+- **Motto**: "Olağanüstü Veri Hızı"
+
+---
+
+## 🔷 ClickHouse EMBED & NO-CODE ETL MİMARİSİ
+
+### Temel Prensip
+> "ClickHouse embed olarak çalışır. Dashboard ASLA müşteri DB'ye direkt bağlanmaz.
+> Kaynak ne olursa olsun: Kaynak → ETL → ClickHouse → Dashboard"
+
+### ClickHouse Tablo Oluşturma (UI Üzerinden - No-Code)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   UI AKIŞI (No-Code)                        │
+└─────────────────────────────────────────────────────────────┘
+
+ADIM 1: Veri Bağlantısı Oluştur
+┌────────────────────────────────────────┐
+│  Bağlantı Tipi:  ○ Database           │
+│                  ○ API                 │
+│                  ○ Excel/CSV           │
+│                                        │
+│  [MSSQL seçildi]                       │
+│  Host: 192.168.1.100                   │
+│  Port: 1433                            │
+│  Database: ERP_PROD                    │
+│  User: ******                          │
+│  Password: ******                      │
+│                                        │
+│  [Bağlantıyı Test Et] [Kaydet]         │
+└────────────────────────────────────────┘
+
+ADIM 2: Kaynak Tablo/View Seç
+┌────────────────────────────────────────┐
+│  Kullanılabilir Tablolar:              │
+│  ☐ dbo.Customers                       │
+│  ☑ dbo.DailySales                      │
+│  ☐ dbo.Products                        │
+│  ☐ dbo.Inventory                       │
+│                                        │
+│  [Önizle] [İleri]                      │
+└────────────────────────────────────────┘
+
+ADIM 3: Kolon Seçimi ve Mapping
+┌────────────────────────────────────────┐
+│  Kaynak Kolon     → Clixer Kolon       │
+│  ─────────────────────────────────────│
+│  ☑ sale_date      → sale_date (Date)   │
+│  ☑ store_id       → store_id (String)  │
+│  ☑ amount         → amount (Decimal)   │
+│  ☑ quantity       → quantity (Int)     │
+│  ☐ created_by     → (dahil etme)       │
+│  ☐ modified_at    → (dahil etme)       │
+│                                        │
+│  [Geri] [İleri]                        │
+└────────────────────────────────────────┘
+
+ADIM 4: ETL Kuralları
+┌────────────────────────────────────────┐
+│  Dataset Adı: Günlük Satışlar          │
+│                                        │
+│  Sync Stratejisi:                      │
+│  ○ Timestamp-Based (Değişenleri çek)   │
+│    └─ Referans Kolon: [modified_at ▼]  │
+│  ○ ID-Based (Yeni kayıtları çek)       │
+│    └─ Referans Kolon: [id ▼]           │
+│  ○ Date Partition (Günü yenile)        │
+│    └─ Tarih Kolonu: [sale_date ▼]      │
+│  ○ Full Refresh (Her seferinde tümü)   │
+│                                        │
+│  Sync Sıklığı:                         │
+│  ○ 15 dakika  ○ 1 saat  ○ Günlük       │
+│  ○ Haftalık   ○ Manuel                 │
+│                                        │
+│  Satır Limiti: [100000]                │
+│  Hata Durumunda: [3 kez dene, bildir]  │
+│                                        │
+│  [Geri] [Dataset Oluştur]              │
+└────────────────────────────────────────┘
+```
+
+### Arka Planda Ne Olur?
+
+```javascript
+// data-service: Dataset oluşturulduğunda
+async function createDataset(config) {
+  // 1. PostgreSQL'e dataset config kaydet
+  await postgres.insert('datasets', {
+    id: uuid(),
+    name: config.name,
+    connection_id: config.connectionId,
+    source_table: config.sourceTable,
+    column_mapping: config.columnMapping,
+    sync_strategy: config.syncStrategy,
+    sync_schedule: config.syncSchedule,
+    reference_column: config.referenceColumn,
+    row_limit: config.rowLimit
+  });
+
+  // 2. ClickHouse'da tablo OTOMATIK oluştur
+  const createTableSQL = generateClickHouseTable(config);
+  await clickhouse.query(createTableSQL);
+  
+  // 3. İlk sync'i başlat
+  await etlQueue.add('initial_sync', { datasetId: config.id });
+}
+
+// ClickHouse tablo dinamik oluşturma
+function generateClickHouseTable(config) {
+  const columns = config.columnMapping.map(col => 
+    `${col.targetName} ${mapToClickHouseType(col.type)}`
+  ).join(',\n  ');
+
+  return `
+    CREATE TABLE IF NOT EXISTS ${config.name} (
+      ${columns},
+      _synced_at DateTime DEFAULT now()
+    )
+    ENGINE = MergeTree()
+    PARTITION BY toYYYYMM(${config.dateColumn || '_synced_at'})
+    ORDER BY (${config.orderByColumns.join(', ')})
+  `;
+}
+```
+
+### ETL Process Isolation (Uygulama Etkilenmez!)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    PROCESS İZOLASYONU                       │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────┐     ┌─────────────────────┐
+│   UYGULAMA KATMANI  │     │     ETL KATMANI     │
+│   (Ana Process)     │     │  (Ayrı Process)     │
+├─────────────────────┤     ├─────────────────────┤
+│ • auth-service      │     │ • etl-worker        │
+│ • core-service      │     │ • Bull Queue        │
+│ • analytics-service │     │ • Job Scheduler     │
+│ • notification-svc  │     │                     │
+│ • Frontend          │     │                     │
+├─────────────────────┤     ├─────────────────────┤
+│ Kaynak: Redis Cache │     │ Hedef: ClickHouse   │
+│         ClickHouse  │     │        (yazma)      │
+│         (okuma)     │     │                     │
+└─────────────────────┘     └─────────────────────┘
+         │                           │
+         │    ETL çalışırken         │
+         │    dashboard YAVAŞLAMAZ!  │
+         │                           │
+         └───────────────────────────┘
+```
+
+### Docker Compose - Process Isolation
+
+```yaml
+services:
+  # UYGULAMA KATMANI (Group 1)
+  analytics-service:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+    # Sadece ClickHouse'tan OKUR
+
+  # ETL KATMANI (Group 2 - Ayrı)
+  etl-worker:
+    build: ./services/etl-worker
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G  # ETL için daha fazla RAM
+    depends_on:
+      - clickhouse
+      - redis
+    # ClickHouse'a YAZAR
+    # Ağır iş yükü ana uygulamayı etkilemez
+```
+
+### ETL Worker Mimarisi
+
+```javascript
+// services/etl-worker/index.js
+const Queue = require('bull');
+
+const etlQueue = new Queue('etl-jobs', { redis });
+
+// Job processor
+etlQueue.process('sync', async (job) => {
+  const { datasetId, strategy } = job.data;
+  
+  // 1. Dataset config'i PostgreSQL'den al
+  const dataset = await getDatasetConfig(datasetId);
+  
+  // 2. Kaynak bağlantısını aç
+  const sourceConn = await connectToSource(dataset.connection);
+  
+  // 3. Stratejiye göre veri çek
+  let data;
+  switch (strategy) {
+    case 'timestamp':
+      data = await sourceConn.query(
+        `SELECT * FROM ${dataset.sourceTable} 
+         WHERE ${dataset.referenceColumn} > $1`,
+        [dataset.lastSyncValue]
+      );
+      break;
+    case 'date_partition':
+      // Bugünü sil, yeniden yaz
+      await clickhouse.query(
+        `ALTER TABLE ${dataset.name} DELETE WHERE toDate(${dataset.dateColumn}) = today()`
+      );
+      data = await sourceConn.query(
+        `SELECT * FROM ${dataset.sourceTable} WHERE ${dataset.dateColumn} = CURRENT_DATE`
+      );
+      break;
+    // ... diğer stratejiler
+  }
+  
+  // 4. ClickHouse'a yaz
+  await clickhouse.insert(dataset.name, data);
+  
+  // 5. Cache'i invalidate et
+  await redis.publish('etl_completed', { datasetId });
+  
+  // 6. Son sync bilgisini güncelle
+  await updateLastSync(datasetId, new Date());
+  
+  return { rowsProcessed: data.length };
+});
+
+// Scheduler
+etlQueue.process('schedule', async (job) => {
+  const datasets = await getScheduledDatasets(job.data.interval);
+  for (const ds of datasets) {
+    await etlQueue.add('sync', { datasetId: ds.id, strategy: ds.syncStrategy });
+  }
+});
+```
+
+### Veri Akışı Özeti
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                     CLİXER VERİ AKIŞI                          │
+│              "Kaynak ne olursa olsun → ClickHouse"             │
+└────────────────────────────────────────────────────────────────┘
+
+     ┌─────────┐     ┌─────────┐     ┌─────────┐
+     │  MSSQL  │     │   API   │     │  Excel  │
+     └────┬────┘     └────┬────┘     └────┬────┘
+          │               │               │
+          └───────────────┼───────────────┘
+                          │
+                          ▼
+                 ┌────────────────┐
+                 │   ETL Worker   │  ← Ayrı process
+                 │  (Bull Queue)  │  ← Kaynak kaybetmez
+                 └────────┬───────┘
+                          │
+                          ▼
+          ┌───────────────────────────────┐
+          │         ClickHouse            │
+          │     (Embed - Clixer içinde)   │
+          │  ┌─────────────────────────┐  │
+          │  │  Materialized Views     │  │  ← Pre-aggregation
+          │  │  (Otomatik hesaplanmış) │  │
+          │  └─────────────────────────┘  │
+          └───────────────┬───────────────┘
+                          │
+                          ▼
+                 ┌────────────────┐
+                 │  Redis Cache   │  ← L3 Cache
+                 └────────┬───────┘
+                          │
+                          ▼
+                 ┌────────────────┐
+                 │   Dashboard    │  ← Ultra hızlı!
+                 │   (Frontend)   │
+                 └────────────────┘
+```
+
+### ⚠️ KRİTİK KURALLAR
+
+1. **ClickHouse tabloları UI'dan oluşturulur** - Kod yazılmaz
+2. **Tüm ETL ayarları UI'dan yapılır** - No-code
+3. **ETL ayrı process'te çalışır** - Ana uygulama etkilenmez
+4. **Dashboard sadece ClickHouse'tan okur** - Müşteri DB'ye direkt bağlanmaz
+5. **Kaynak ne olursa olsun akış aynı** - MSSQL/API/Excel → ETL → ClickHouse → Dashboard
+6. **Materialized Views ile pre-aggregation** - Dashboard'da hesaplama yok
+
+---
+
+## 🔴 CURSOR İLETİŞİM KURALLARI (KRİTİK!)
+
+### ASLA YAPMA:
+1. **Kullanıcı "okunmuyor/görünmüyor" dediğinde** → Sadece metin rengini değiştirme! Önce arka plan, kontrast, tema uyumu kontrol et.
+2. **Aynı hatayı 2+ kez tekrarlama** → 2. denemede çalışmadıysa DUR, sorunu yeniden analiz et.
+3. **Ekran görüntüsünü analiz etmeden kod yazma** → Görsel geri bildirim varsa önce onu incele.
+4. **Kullanıcının söylediğini tam anlamadan aksiyon alma** → Emin değilsen SOR.
+5. **Yüzeysel çözüm deneme** → Kök nedeni bul, semptomları değil.
+
+### HER ZAMAN YAP:
+1. **Görsel sorunlarda** → Arka plan rengi, metin rengi, border, shadow, opacity HEPSİNİ kontrol et.
+2. **Tema sorunlarında** → Light, Dark, Corporate, Midnight, Ember - TÜM temalarda test et.
+3. **"Çalışmıyor" denildiğinde** → Console log, network tab, backend log - HEPSİNİ kontrol et.
+4. **2. denemede başarısızsa** → Kullanıcıya sor: "Tam olarak ne görüyorsun? Ekran görüntüsü paylaşabilir misin?"
+5. **Karmaşık sorunlarda** → Önce analiz yap, sonra plan sun, onay al, sonra uygula.
+
+### RENK KURALLARI (UI):
+- **Açık tema metin:** `text-gray-600` veya `text-gray-700` (ASLA açık renkler)
+- **Koyu tema metin:** `text-gray-300` veya `text-gray-400`
+- **Bilgi kutuları:** Arka plan ŞEFFAF veya çok hafif, border belirgin
+- **Kontrast:** WCAG AA standardı (4.5:1 oran)
+
+### HATA DÖNGÜSÜNDEN ÇIKIŞ:
+```
+Hata → Düzelt → Hata devam ediyor → DURMA NOKTASI!
+↓
+1. Önceki denemeleri listele
+2. Ortak hatayı bul
+3. Farklı yaklaşım düşün
+4. Kullanıcıya sor
+5. Onay al → Uygula
+```
+
+---
+
+bu ürün enterprise müşteriler için tasarlanmıştır.
+büyük veri setleri ile çalışılacak şekilde her kurgu ve alt yapı düşünülmeli
+kod kalitesi ve performansı her zaman önceliklidir.
+bu mimariyi tasarlarken her zaman dünyanın en iyi kod mimarı ve perfromans lideri gibi düşünerek kod yaz. ileriyi gör büyük düşün.
+aynı anda 1000 kişi bu uygulamadan veri çekecek konforda ve alt yapı mimarisind olacak.
+şirket kim olursa olsun genel müdür, yönetici, bölge müdürü, mağaza müdürü kavramı gibi jenerik kavramlar değişsede mantık aynı olacaktır.
+herkes kendi yetki seviyesinde kendine atanmış store'ları görür.
+en önemli kısımlardan biri de kod ve uygulama güvenliği. kod yazarken bir siber istihbarat uzmanı gibi düşün. dışardan gelecek tüm olası atakları düşünerek mimariyi tasarla. kod ve uygulama güvenliği sızma senaryolarını düşün.
+yapılan geliştirmelerin ne olduğu her başarılı işlemden sonra historye yazılır ve cursor olası bir soruna son geliştirmelerin ne olduğunu bilir. bunu asla unutma.
+uygulama piyasadki powerbi gibi qliksense gibi büyüklerle yarışacak. öne çıkan özelliklerimiz olmalı.esnek şık. ayrıca clickhouse entegreli bir mekanizma ile 500.000.000 milyon satır veri de olsa hızlı çalışan aynı anda 1000 kişi girerek yavaşlamayan bir mimari olacak.
+bu uygulama tamamlandıktan sonra ilk iki müşterisinde biri restoran zinciri diğeri de 50.000 öğrencili bir üniversite olacak.
+UI'Da responsive yapıya her geliştirmede dikkat edilecek.
+
+---
+
+## 🔒 BIG DATA VE VERİ TUTARLILIK KURALLARI
+
+### ⚠️ KRİTİK: DUPLICATE VERİ ASLA OLMAMALI!
+
+Her ETL işleminde veri tutarlılığı garanti altına alınmalıdır:
+
+### 1. ClickHouse Tablo Oluşturma Kuralları
+
+```sql
+-- ✅ DOĞRU: ReplacingMergeTree + Partition + Doğru Tipler
+CREATE TABLE dataset_xxx (
+  id String,                    -- Primary key
+  tarih Date,                   -- Partition kolonu = Date tipi
+  magaza_id String,
+  tutar Float64,                -- Sayısal değer = Float64
+  adet Int32,                   -- Tam sayı = Int32
+  _synced_at DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(_synced_at)  -- ✅ Duplicate önler!
+PARTITION BY toYYYYMM(tarih)              -- ✅ Aylık partition
+ORDER BY (tarih, id)                       -- ✅ Unique key ile sıralama
+
+-- ❌ YANLIŞ: MergeTree + String tipler
+CREATE TABLE dataset_xxx (
+  tarih String,        -- ❌ Partition çalışmaz!
+  tutar String,        -- ❌ Performans kaybı!
+)
+ENGINE = MergeTree()   -- ❌ Duplicate birikir!
+```
+
+### 2. Tip Dönüşüm Kuralları
+
+| Kaynak Tip | ClickHouse Tip | Notlar |
+|------------|----------------|--------|
+| date, timestamp, datetime | Date veya DateTime | Partition için Date tercih |
+| int, integer, bigint | Int32 veya Int64 | |
+| float, decimal, numeric | Float64 | |
+| varchar, text, char | String | |
+| boolean, bool | UInt8 | |
+
+### 3. Partition Kuralları
+
+- **Partition kolonu ZORUNLU Date veya DateTime tipinde olmalı**
+- String tipinde kolon partition key olamaz!
+- Partition silme işlemi: `ALTER TABLE xxx DELETE WHERE partition = 'YYYYMM'`
+- Sliding window: Son N gün/ay partition'ları refresh edilir
+
+### 4. ETL Job Kuralları
+
+```
+Her ETL job sonrası:
+1. OPTIMIZE TABLE xxx FINAL çalıştır (duplicate temizliği)
+2. Kaynak satır sayısı vs Hedef satır sayısı karşılaştır
+3. %1'den fazla fark varsa UYARI logla
+4. Tutarlılık raporunu etl_jobs tablosuna kaydet
+```
+
+### 5. Duplicate Önleme Mekanizmaları
+
+1. **ReplacingMergeTree Engine**: Aynı ORDER BY key'e sahip satırlardan en yeni (_synced_at) kalır
+2. **OPTIMIZE FINAL**: Her sync sonrası çalıştırılır, duplicate'ları fiziksel olarak siler
+3. **Partition Delete Before Insert**: Date partition'larda önce sil, sonra ekle
+4. **ID Based Deduplication**: ORDER BY'da mutlaka unique key (id) olmalı
+
+### 6. Veri Tutarlılık Kontrolü
+
+```javascript
+// Her sync sonrası zorunlu kontrol
+async function validateDataConsistency(dataset, sourceCount) {
+  const targetCount = await clickhouse.query(`SELECT count() FROM ${dataset.table}`);
+  const tolerance = Math.ceil(sourceCount * 0.01); // %1 tolerans
+  
+  if (Math.abs(targetCount - sourceCount) > tolerance) {
+    logger.warn('DATA CONSISTENCY WARNING', { sourceCount, targetCount });
+  }
+  
+  // OPTIMIZE çalıştır
+  await clickhouse.execute(`OPTIMIZE TABLE ${dataset.table} FINAL`);
+}
+```
+
+### 7. UI Kontrolleri
+
+- Dataset oluştururken partition kolonu seçilmişse tip otomatik Date olmalı
+- Engine varsayılan olarak ReplacingMergeTree seçili gelmeli
+- Sync sonrası UI'da "Toplam Satır" = ClickHouse'daki gerçek satır sayısı (OPTIMIZE sonrası)
+
+### 8. NO-CODE PRENSİBİ
+
+- Kullanıcı hiçbir SQL yazmadan dataset oluşturabilmeli
+- Tüm tip dönüşümleri otomatik yapılmalı
+- Partition stratejisi UI'dan seçilebilmeli
+- Hata durumunda anlaşılır Türkçe mesajlar gösterilmeli
+- Her şey UI'dan yönetilebilmeli (ETL Worker başlat/durdur dahil)
+
+---
+
+## 📋 DEĞİŞİKLİK GEÇMİŞİ (History)
+
+### v1.0.1 - 22 Aralık 2025
+
+**Big Data & Veri Tutarlılık Güncellemesi**
+
+1. ✅ Akıllı tip dönüşüm sistemi eklendi (SQL → ClickHouse)
+2. ✅ ReplacingMergeTree varsayılan engine olarak ayarlandı
+3. ✅ Her sync sonrası OPTIMIZE FINAL çalıştırılıyor
+4. ✅ Veri tutarlılık kontrolü (kaynak vs hedef karşılaştırma)
+5. ✅ Duplicate temizleme ve raporlama
+6. ✅ Akıllı tarih formatı dönüştürücü (tüm formatlar destekleniyor)
+7. ✅ Partition kolonu otomatik Date tipine dönüştürülüyor
+8. ✅ ORDER BY'da unique key (id) zorunlu hale getirildi
+
+**Düzeltilen Sorunlar:**
+- gunluk_satis2: 27M duplicate satır temizlendi, doğru tiplerle yeniden oluşturuldu
+- String tipli tarih kolonları artık Date'e dönüştürülüyor
+- Partition key boş kalma sorunu düzeltildi
+
+### v1.0.2 - 22 Aralık 2025
+
+**Partition Format Uyumsuzluğu Düzeltmesi**
+
+1. ✅ Partition silme formatı artık tablo partition_key'inden okunuyor
+2. ✅ Dataset ayarı (UI) ile tablo yapısı (ClickHouse) arasında tutarlılık kontrolü eklendi
+3. ✅ Format uyumsuzluğu loglanıyor (beklenen vs gerçekleşen)
+4. ✅ Sync butonuna loading ve feedback mesajı eklendi
+5. ✅ Duplicate job önleme düzeltildi (tek job çalışıyor)
+
+**Öğrenilen Ders:**
+> Partition silme formatı ASLA dataset ayarından alınmamalı!
+> Her zaman `system.tables.partition_key` okunarak GERÇEK format belirlenmeli.
+> UI ayarı ile ClickHouse tablo yapısı UYUMSUZ olabilir!
+
+**Tutarlılık Kontrolü Kuralı:**
+```javascript
+// Sync başlamadan önce:
+1. Tablonun partition_key'ini oku (system.tables)
+2. Dataset ayarındaki partition_type ile karşılaştır
+3. Uyumsuzluk varsa UYARI logla
+4. Gerçek format ile partition sil (dataset ayarını yoksay)
+```
+
+### v1.0.3 - 22 Aralık 2025
+
+**Finans Parametrik Görünürlük & Dil Paketi**
+
+1. ✅ "Amorti Edilemiyor" uyarı kartı için gizle/göster ayarı eklendi (`finance_show_amortization_warning`)
+2. ✅ Amorti uyarısı için pozisyon bazlı görünürlük eklendi (`finance_amortization_positions`)
+3. ✅ Varsayılan tema (default_theme) artık veritabanından doğru okunuyor ve uygulanıyor
+4. ✅ Dil paketi sistemi (i18n) oluşturuldu:
+   - `frontend/src/i18n/translations.ts` - Türkçe ve İngilizce çeviriler
+   - `frontend/src/i18n/useTranslation.ts` - Çeviri hook'u
+   - Tüm sayfa ve menü metinleri için çeviri desteği
+5. ✅ Rapor yetkilendirme sistemi: `allowed_positions` kolonu ile pozisyon bazlı rapor erişimi
+6. ✅ Test kullanıcıları oluşturuldu (her pozisyon için 1 kullanıcı - LDAP simülasyonu)
+7. ✅ Finans sayfasındaki ROI, Kar Marjı, Gider Dağılımı, Ayarlar sekmesi için pozisyon kontrolü
+8. ✅ DesignerPage'de rapor oluştururken pozisyon seçimi UI'ı eklendi
+9. ✅ DashboardPage ve AnalysisPage'de allowedPositions filtresi uygulandı
+
+**Yeni Ayarlar (system_settings):**
+- `finance_show_amortization_warning`: boolean - Amorti uyarısı göster/gizle
+- `finance_amortization_positions`: string[] - Bu pozisyonlar amorti uyarısını görebilir
+
+**Yeni Dosyalar:**
+- `/frontend/src/i18n/translations.ts` - Çeviri metinleri (TR/EN)
+- `/frontend/src/i18n/useTranslation.ts` - useTranslation hook
+- `/frontend/src/i18n/index.ts` - i18n export
+
+**Veritabanı Değişiklikleri:**
+- `designs` tablosuna `allowed_positions TEXT[]` kolonu eklendi
+
+**Yedekleme:**
+- Backup: `backups/v1.0.3_20251222_234356/`
+- PostgreSQL dump, ClickHouse metadata, kod yedeği dahil
+
+### v1.0.4 - 23 Aralık 2025
+
+**Azure SQL Entegrasyonu & Veri Formatı Standardizasyonu**
+
+1. ✅ Azure SQL bağlantı desteği eklendi
+   - `encrypt: true` otomatik olarak Azure SQL için aktif
+   - `.database.windows.net` host'ları otomatik algılanıyor
+   
+2. ✅ MSSQL sorgu desteği düzeltildi
+   - `LIMIT` yerine `TOP` kullanılıyor (MSSQL syntax)
+   - `SELECT * FROM table` → `SELECT TOP 1000 * FROM table`
+   
+3. ✅ Columns endpoint eklendi
+   - `/connections/:id/tables/:tableName/columns` - Tablo kolonlarını listele
+   - PostgreSQL, MSSQL, MySQL desteği
+   
+4. ✅ Tarih formatı standardizasyonu (TÜM bağlantılar için)
+   - **Problem**: JavaScript Date objeleri ISO formatına (`2025-12-23T16:26:58.786Z`) dönüşüyordu
+   - **Çözüm**: Orijinal veritabanı formatları korunuyor
+   
+   | Bağlantı | Format | Örnek |
+   |----------|--------|-------|
+   | PostgreSQL | `YYYY-MM-DD HH:mm:ss.SSS` | `2025-12-23 16:26:58.786` |
+   | MSSQL | `YYYY-MM-DD HH:mm:ss.SSSSSSS` | `2025-12-23 16:26:58.7860000` |
+   | MySQL | `YYYY-MM-DD HH:mm:ss` | `2025-12-23 16:26:58` (dateStrings: true) |
+
+5. ✅ Bağlantı düzenleme (Edit) özelliği eklendi
+   - DataPage'de her bağlantı için Edit butonu
+   - Mevcut bağlantı bilgilerini güncelleme
+
+6. ✅ MySQL karakter kodlama düzeltildi
+   - `charset: 'utf8mb4'` tüm MySQL bağlantılarında aktif
+   - Türkçe karakterler doğru görünüyor
+
+7. ✅ Restoran zinciri test veritabanı scripti oluşturuldu
+   - `scripts/azure-restaurant-db.sql` - Azure SQL için
+   - Pozisyonlar, bölgeler, mağazalar, kullanıcılar, kategoriler, ürünler, satışlar
+   - 2000+ transaction örnek veri
+
+**Değiştirilen Dosyalar:**
+- `services/data-service/src/index.ts` - Azure SQL, TOP syntax, columns endpoint, tarih formatı
+- `frontend/src/pages/DataPage.tsx` - Edit butonu, bağlantı düzenleme
+- `scripts/azure-restaurant-db.sql` - Restoran DB scripti (yeni)
+
+**Test Ortamları:**
+- `docker/docker-compose.test.yml` - MSSQL, MySQL, LDAP test container'ları
+- MySQL ERP: 1M+ satış kaydı
+- MySQL Üniversite: 50K öğrenci, 220K fatura
+
+**Yedekleme:**
+- Backup: `backups/v1.0.4_20251223_200702/`
+- Kod yedeği: services, frontend, shared, scripts
+
+### v1.0.5 - 23 Aralık 2025
+
+**SQL Modu & Gelişmiş Tablo Görünümü**
+
+1. ✅ SQL Modu ile metrik oluşturma
+   - MetricsPage'de "SQL Modu" toggle eklendi
+   - Serbest SQL sorgusu ile metrik tanımlama
+   - `use_sql_mode` ve `custom_sql` kolonları metrics tablosuna eklendi
+   - `executeMetric` fonksiyonunda SQL modu desteği
+   
+2. ✅ Gerçek tablo görünümü (LIST tipi widgetlar)
+   - Kart görünümü yerine düzgün HTML tablo (`<table>`, `<thead>`, `<tbody>`)
+   - Kolon başlıkları, satırlar, sayfalama
+   - Responsive tasarım
+   - DashboardPage (Kokpit) ve AnalysisPage (Detaylı Analiz) güncellendi
+
+3. ✅ Backend güncellemeleri
+   - `analytics-service`: Metrik kaydetme/güncelleme SQL modu desteği
+   - `executeMetric`: SQL modu aktifse `custom_sql` çalıştırılıyor
+   - Tablo adı otomatik değiştirme (FROM/JOIN sonrası)
+
+**Veritabanı Değişiklikleri:**
+```sql
+ALTER TABLE metrics ADD COLUMN use_sql_mode BOOLEAN DEFAULT false;
+ALTER TABLE metrics ADD COLUMN custom_sql TEXT;
+```
+
+**Değiştirilen Dosyalar:**
+- `services/analytics-service/src/index.ts` - SQL modu desteği, executeMetric güncellendi
+- `frontend/src/pages/MetricsPage.tsx` - SQL Modu UI, Metric interface güncellendi
+- `frontend/src/pages/DashboardPage.tsx` - Gerçek tablo görünümü
+- `frontend/src/pages/AnalysisPage.tsx` - Gerçek tablo görünümü
+
+**Yedekleme:**
+- Backup: `backups/v1.0.5_20251223_214154/`
+- PostgreSQL dump, ClickHouse metadata, kod yedeği dahil (1.1GB)
+
+### v1.0.6 - 24 Aralık 2025
+
+**ID-Based Incremental Sync & Progress Bar & ETL İyileştirmeleri**
+
+1. ✅ **ID-Based Incremental Sync** (Gerçek Incremental!)
+   - `syncById` fonksiyonu artık gerçek incremental sync yapıyor
+   - ClickHouse'tan `max(id)` alınıyor
+   - Kaynaktan `WHERE id > max_id` ile sadece yeni kayıtlar çekiliyor
+   - Mevcut tabloya **EKLENİYOR** (silme yok!)
+   - `source_query`'den tablo adı çıkarıcı (`extractTableFromQuery`) eklendi
+   - `password_encrypted` kullanılarak bağlantı şifresi düzeltildi
+
+2. ✅ **Progress Bar** (Gerçek Zamanlı İlerleme)
+   - Her batch'te (5000 satır) `rows_processed` güncelleniyor
+   - Frontend her 2 saniyede refresh yapıyor
+   - "Kaynaktan veri çekiliyor..." mesajı + pulse animasyon
+   - Yüzde gösterimi ve tahmini kalan süre
+   - `ETLJob` interface'ine `jobId` eklendi
+   - `processETLJob`'ta `etlJobId` sync fonksiyonlarına geçiriliyor
+
+3. ✅ **Dataset İsimleri ClickHouse'ta Görünüyor**
+   - `db.queryAll()` kullanılarak array düzgün dönüyor
+   - ClickHouse tabloları artık dataset ismi, sync stratejisi gösteriyor
+
+4. ✅ **Sistem Sağlığı & ETL Monitoring**
+   - Stuck job tespiti ve otomatik fail
+   - Redis lock yönetimi (görüntüleme, temizleme)
+   - Worker crash detection UI uyarısı
+   - ClickHouse tablo yönetimi (liste, boyut, sil, optimize)
+
+5. ✅ **Dataset Row Limit**
+   - UI'dan satır limiti değiştirilebilir (1M, 10M, 50M, ∞)
+   - Her sync'te limit kadar satır çekiliyor
+
+**Önemli Kod Değişiklikleri:**
+- `services/etl-worker/src/index.ts`:
+  - `extractTableFromQuery()` fonksiyonu eklendi
+  - `syncById()` gerçek incremental sync implementasyonu
+  - `password` → `password_encrypted` düzeltmesi
+  - `source_table` → `sourceTableName` (query'den çıkarılan)
+  - `ETLJob` interface'ine `jobId` eklendi
+  - `processETLJob`'ta `etlJobId` sync fonksiyonlarına geçiriliyor
+
+- `services/data-service/src/index.ts`:
+  - `db.queryAll()` kullanımı (running-jobs, stuck-jobs, clickhouse tables)
+  - `row_limit` dataset API'ye eklendi
+
+- `frontend/src/pages/DataPage.tsx`:
+  - Progress bar UI (yüzde, kalan süre, animasyon)
+  - Auto-refresh 2 saniye (running job varken)
+  - "Kaynaktan veri çekiliyor..." mesajı
+
+**Test Sonuçları:**
+- Azure_Trans_iTem2: 1M → 2M → 3M → 3.6M (incremental artış ✅)
+- Progress bar çalışıyor: 0% → 100% görsel ilerleme ✅
+- Dataset isimleri ClickHouse'ta görünüyor ✅
+
+**Yedekleme:**
+- Backup: `backups/v1.0.6_20251224_141028/`
+
+### v1.0.7 - 24 Aralık 2025
+
+**Tip Uyumluluk Kontrolü & Kalıcı Düzeltmeler**
+
+1. ✅ **ID Kolonu Tip Düzeltmesi**
+   - ID kolonu artık kaynak DB tipini koruyor (Int32, Int64)
+   - Eskiden zorla String yapılıyordu → YANLIŞ!
+   - UUID/GUID ise String, Integer ise Int32/Int64
+
+2. ✅ **sourceType Backend'de Okunuyor**
+   - UI'dan gelen `sourceType` artık backend'de işleniyor
+   - `col.sourceType || col.type` eklendi
+
+3. ✅ **ClickHouse max(id) CAST Düzeltmesi**
+   - String tipli ID kolonlarında `toInt64OrZero()` ile doğru karşılaştırma
+   - ID-based sync artık String ID'lerde de çalışıyor
+
+4. ✅ **Count Verification**
+   - Her sync sonrası kaynak ve hedef satır sayısı karşılaştırılıyor
+   - %1'den fazla fark varsa uyarı loglanıyor
+
+5. ✅ **Kısmi Yenileme (Partial Refresh)**
+   - UI'dan "Son 7/30/90/180 Gün Yenile" seçeneği
+   - `/datasets/:id/partial-refresh` endpoint'i
+   - Sadece seçilen tarih aralığı sil-yaz
+
+---
+
+## 🔴 KRİTİK KURAL: TİP UYUMLULUK KONTROLÜ
+
+### MUTLAK KURAL: Sync öncesi tip uyumluluk kontrolü ZORUNLU!
+
+**Prensip:** ClickHouse tablo tipleri ile kaynak DB tipleri UYUMLU OLMAK ZORUNDA.
+Bu kural SQL Server, PostgreSQL, MySQL, API - TÜM kaynaklar için geçerlidir!
+
+### Tip Dönüşüm Kuralları (SQL → ClickHouse)
+
+| Kaynak Tip (SQL) | ClickHouse Tip | Notlar |
+|------------------|----------------|--------|
+| int, integer | Int32 | |
+| bigint, int8 | Int64 | |
+| smallint, int2 | Int16 | |
+| tinyint | Int8 | |
+| float, real | Float32 | |
+| double, decimal, numeric | Float64 | |
+| varchar, text, nvarchar | String | |
+| date | Date | Partition için tercih |
+| datetime, timestamp | DateTime | |
+| boolean, bit | UInt8 | |
+| uuid, uniqueidentifier | String | |
+
+### ID Kolonu Özel Kuralı
+
+```javascript
+// ❌ ESKİ YANLIŞ KOD
+if (targetName === 'id') {
+  chType = 'String'; // HER ID'Yİ STRING YAPIYORDU!
+}
+
+// ✅ YENİ DOĞRU KOD
+if (targetName === 'id') {
+  if (chType.startsWith('Int')) {
+    // Integer ID korunsun (Int32, Int64)
+  } else if (sqlType.includes('uuid') || sqlType.includes('uniqueidentifier')) {
+    chType = 'String'; // Sadece UUID ise String
+  }
+}
+```
+
+### Sync Öncesi Kontrol (MUST!)
+
+Dataset oluşturulurken veya sync başlamadan önce:
+
+```javascript
+// 1. Kaynak tablo tiplerini al
+const sourceColumns = await getSourceColumns(connection, tableName);
+
+// 2. ClickHouse tablo tiplerini al (varsa)
+const chColumns = await clickhouse.describe(tableName);
+
+// 3. Karşılaştır
+for (const col of sourceColumns) {
+  const expectedType = sqlToClickHouseType(col.type);
+  const actualType = chColumns[col.name];
+  
+  if (actualType && !isCompatible(expectedType, actualType)) {
+    throw new Error(`Tip uyumsuzluğu: ${col.name} - Beklenen: ${expectedType}, Mevcut: ${actualType}`);
+  }
+}
+```
+
+### Uyumsuzluk Durumunda
+
+1. **Tablo yok** → Doğru tiplerle oluştur
+2. **Tip uyumsuz** → HATA ver, sync başlatma!
+3. **Düzeltme için** → Tabloyu sil, yeniden oluştur
+
+### Neden Kritik?
+
+| Durum | Sonuç |
+|-------|-------|
+| ID String, veri Integer | max(id) yanlış çalışır, sync bozulur |
+| Tarih String, veri Date | Partition çalışmaz |
+| Sayı String | Aggregation yanlış sonuç verir |
+
+**ASLA tip uyumsuzluğu olan bir tablo ile sync yapma!**
+
+### UI'da Tip Uyumluluk Gösterimi (MUST!)
+
+Dataset oluştururken kolon mapping ekranında:
+
+1. **Her kolon için göster:**
+   - Kaynak Tip (SQL/API'den gelen)
+   - ClickHouse Tip (dönüştürülmüş)
+   - Uyumluluk durumu (✅/❌)
+
+2. **Uyumsuzluk varsa:**
+   - İlgili satırı kırmızı göster
+   - Kolon adını işaretle
+   - Düzeltme önerisi sun (tooltip)
+   - "Dataset Oluştur" butonunu disable yap
+
+3. **Özet kutusu:**
+   - ✅ Tüm kolonlar uyumlu → Yeşil onay
+   - ❌ X kolonda sorun var → Kırmızı uyarı + liste
+
+4. **Akış:**
+```
+Sorgu çalıştır → Kolonlar listelenir → Tip kontrolü yapılır
+                                            ↓
+                      Uyumlu: ✅ Dataset oluşturulabilir
+                      Uyumsuz: ❌ Hata mesajı + öneri
+```
+
+**Prensip:** Kullanıcı hiçbir zaman tip uyumsuzluğu olan bir dataset oluşturamamalı!
+
+---
+
+## 🗓️ TARİH FORMAT DÖNÜŞÜM KURALLARI
+
+### MUTLAK KURAL: TÜM SQL tarih formatları ClickHouse'a uyumlu olmalı!
+
+ClickHouse DateTime formatı: `YYYY-MM-DD HH:mm:ss`
+
+### Desteklenen Giriş Formatları:
+
+| Format | Örnek | Kaynak |
+|--------|-------|--------|
+| ISO 8601 | `2025-12-23T16:00:00.000Z` | JavaScript, API |
+| ISO with offset | `2025-12-23T16:00:00+03:00` | PostgreSQL |
+| SQL Server | `2025-12-23 16:00:00.0000000` | MSSQL |
+| MySQL | `2025-12-23 16:00:00` | MySQL |
+| PostgreSQL | `2025-12-23 16:00:00.123456` | PostgreSQL |
+| Date only | `2025-12-23` | Tüm DB'ler |
+| European | `23/12/2025`, `23.12.2025` | Yerel formatlar |
+| US | `12/23/2025` | ABD formatı |
+| Compact | `20251223` | Legacy sistemler |
+| SQL Server short | `Dec 23 2025 4:00PM` | MSSQL |
+| JavaScript Date | `Date object` | Runtime |
+| Unix timestamp | `1703343600000` | API, JavaScript |
+
+### Dönüşüm Fonksiyonu:
+
+```javascript
+function convertToClickHouseDateTime(value: any): string | null {
+  // 1. JavaScript Date objesi
+  if (value instanceof Date) { ... }
+  
+  // 2. Unix timestamp (number)
+  if (typeof value === 'number') { ... }
+  
+  // 3. String formatları
+  // A. ISO 8601: 2025-12-23T16:00:00.000Z
+  // B. SQL Server: 2025-12-23 16:00:00.0000000
+  // C. MySQL/PostgreSQL: 2025-12-23 16:00:00
+  // D. Date only: 2025-12-23
+  // E. European: 23/12/2025
+  // F. US: 12/23/2025
+  // G. Compact: 20251223
+  // H. SQL Server short: Dec 23 2025 4:00PM
+  
+  return 'YYYY-MM-DD HH:mm:ss'; // Çıktı formatı
+}
+```
+
+### Dönüşüm Akışı:
+
+```
+Kaynak DB → ETL Worker → transformBatchForClickHouse() → ClickHouse
+                              ↓
+           Her satır için: convertToClickHouseDateTime()
+                              ↓
+           Tarih değeri: "2025-12-23 16:00:00" ✅
+```
+
+### Uygulama Kuralları:
+
+1. **Her insert öncesi** `transformBatchForClickHouse()` çağrılmalı
+2. **Tanınamayan format** → null dön + log yaz
+3. **Tip kontrolü** → `isDateLikeValue()` ile otomatik algıla
+4. **Hata durumu** → Sync devam etmeli, sadece o değer null olmalı
+
+### Kod Konumları:
+
+- `services/etl-worker/src/index.ts`:
+  - `convertToClickHouseDateTime()` - Ana dönüşüm fonksiyonu
+  - `isDateLikeValue()` - Tarih algılama
+  - `transformRowForClickHouse()` - Satır dönüşümü
+  - `transformBatchForClickHouse()` - Batch dönüşümü
+
+---
+
+## 🔴 ETL JOB DURUM KURALLARI
+
+### MUTLAK KURAL: 0 satır = BAŞARISIZ!
+
+ETL job durumu şu kurallara göre belirlenmeli:
+
+| Durum | Koşul | UI Görünümü |
+|-------|-------|-------------|
+| `completed` | rows_processed > 0 VE hata yok | ✅ Yeşil "Tamamlandı" |
+| `failed` | rows_processed = 0 VEYA hata var | ❌ Kırmızı "Başarısız" |
+| `running` | İşlem devam ediyor | 🔄 Mavi "Çalışıyor" |
+| `pending` | Sırada bekliyor | ⏳ Gri "Bekliyor" |
+| `cancelled` | Kullanıcı iptal etti | ⚪ Gri "İptal Edildi" |
+
+### ETL Hata Yönetimi Kuralları:
+
+1. **Hata Takibi**
+   - Her batch insert hatası kaydedilmeli (`lastError`)
+   - Final batch hatası kaydedilmeli
+   - Sync sonunda hata varsa → `reject(error)` ile fırlat
+
+2. **0 Satır Kontrolü**
+   - `totalInserted === 0` → Hata olarak işaretle
+   - Hata mesajı: "Kaynak tablodan veri çekilemedi veya ClickHouse'a yazılamadı (0 satır)"
+
+3. **UI'da Hata Gösterimi**
+   - `error_message` alanı her zaman görünmeli
+   - Verification uyarısı (sarı) vs Hata (kırmızı) ayrımı
+   - "Tamamlandı" yazan job'da 0 satır OLMAMALI
+
+4. **Status Güncelleme**
+   ```javascript
+   // Başarılı
+   UPDATE etl_jobs SET status = 'completed', rows_processed = X WHERE id = $1
+   
+   // Başarısız
+   UPDATE etl_jobs SET status = 'failed', error_message = $1 WHERE id = $2
+   ```
+
+5. **Count Verification**
+   - Sync sonrası kaynak vs hedef satır sayısı karşılaştır
+   - Fark varsa `error_message` alanına yaz (uyarı olarak)
+   - UI'da sarı kutu ile göster
+
+### v1.0.8 - 24 Aralık 2025
+
+**ETL Hata Yönetimi & Date Tipi Düzeltmesi**
+
+1. ✅ 0 satır = failed olarak işaretleniyor
+2. ✅ Hata mesajı her zaman kaydediliyor
+3. ✅ Date tipi kolonlar için dönüşüm eklendi (MSSQL streaming)
+4. ✅ Verification uyarısı UI'da sarı kutu ile görünüyor
+5. ✅ Batch insert hataları takip ediliyor
+
+### v1.0.9 - 24 Aralık 2025
+
+**ID-Based Sync Bug Fix & extractTableFromQuery Düzeltmesi**
+
+1. ✅ `extractTableFromQuery` fonksiyonu MSSQL köşeli parantez formatını destekliyor
+   - Eski: `FROM table` → Çalışıyordu
+   - **YENİ**: `FROM [dbo].[transaction_items]` → Artık çalışıyor!
+   
+2. ✅ ID-based sync artık doğru çalışıyor
+   - `syncById` fonksiyonu kaynak tablo adını doğru buluyor
+   - `SELECT TOP limit * FROM table WHERE id > maxId` sorgusu çalışıyor
+   - Her sync sadece YENİ kayıtları ekliyor (silme yok!)
+
+3. ✅ OPTIMIZE FINAL her sync sonrası çalışıyor
+   - Duplicate'lar otomatik temizleniyor
+
+**Düzeltilen Regex:**
+```javascript
+// ESKİ (YANLIŞ):
+/\bFROM\s+([a-zA-Z_][a-zA-Z0-9_]*)/i
+
+// YENİ (DOĞRU):
+/\bFROM\s+\[?([a-zA-Z_][a-zA-Z0-9_]*)\]?\.\[?([a-zA-Z_][a-zA-Z0-9_]*)\]?/i
+```
+
+**Etkilenen Dosyalar:**
+- `services/etl-worker/src/index.ts` - extractTableFromQuery fonksiyonu
+
+### v1.0.10 - 24 Aralık 2025
+
+**Stuck Job UI Uyarısı & Temizle Butonu**
+
+1. ✅ `isJobStuck()` fonksiyonu eklendi - 2dk'dan fazla çalışan ve 0 satır işlenen job tespiti
+2. ✅ Progress bar'da "Yanıt alınamıyor!" uyarısı
+3. ✅ "Temizle" butonu ile tek tıkla stuck job iptali
+4. ✅ No-code prensibine uygun - müşteri terminal kullanmadan stuck job temizleyebilir
+
+**Etkilenen Dosyalar:**
+- `frontend/src/pages/DataPage.tsx` - isJobStuck fonksiyonu ve UI uyarısı
+
+---
+
+### v1.0.11 - 25 Aralık 2025
+
+**Master Veriler & RLS Sistemi**
+
+1. ✅ **Master Veriler Tabloları Oluşturuldu**
+   - `stores` - Mağaza listesi (code, name, store_type, ownership_group, region_id, city, district, address, phone, email, manager_name, manager_email, opening_date, square_meters, employee_count, rent_amount, target_revenue)
+   - `regions` - Bölge listesi (code, name, description, manager_name, manager_email)
+   - `ownership_groups` - Sahiplik grupları (code, name, description, color, icon)
+
+2. ✅ **Admin Panel - Master Veriler Sekmesi**
+   - Mağazalar, Bölgeler, Gruplar alt sekmeleri
+   - Manuel CRUD işlemleri (Ekle, Düzenle, Sil)
+   - CSV Import/Export (UTF-8 BOM, semicolon delimiter)
+   - Örnek verili şablon indirme
+
+3. ✅ **RLS (Row-Level Security) Sistemi**
+   - Dataset'te `store_column`, `region_column`, `group_column` tanımlama
+   - Pozisyonlarda `filter_level` (none, group, region, store)
+   - Kullanıcılarda `filter_value` (ilgili kod değeri)
+   - JWT'de filterLevel ve filterValue taşınıyor
+   - Metrik çalıştırılırken otomatik WHERE koşulu ekleniyor
+
+4. ✅ **RLS Endpoint Güncellemeleri**
+   - `/metrics/:metricId/execute` - RLS aktif
+   - `/metrics/batch` - RLS aktif
+   - `/dashboard/:designId/full` - RLS aktif (DÜZELTİLDİ)
+   - `/datasets/:datasetId/query` - RLS aktif (YENİ)
+   - `/datasets/:datasetId/aggregate` - RLS aktif (YENİ)
+
+5. ✅ **Cache Key Güncelleme**
+   - Dashboard cache key'ine `filterLevel:filterValue` eklendi
+   - Kullanıcıya özel cache (admin farklı, mağaza müdürü farklı)
+
+**Etkilenen Dosyalar:**
+- `services/analytics-service/src/index.ts` - RLS tüm endpoint'lere eklendi
+- `services/core-service/src/index.ts` - Master Data CRUD endpoint'leri
+- `frontend/src/pages/AdminPage.tsx` - Master Veriler UI
+- `frontend/src/pages/DataPage.tsx` - RLS kolon seçimi (Dataset ayarları)
+- `docker/init-scripts/postgres/03-master-data.sql` - Master tablolar
+
+---
+
+## 🔐 RLS (Row-Level Security) MİMARİSİ
+
+### Temel Prensip
+
+```
+Kullanıcı Pozisyonu → filter_level (none/group/region/store)
+Kullanıcı Ataması → filter_value (kod değeri: '1', 'MARMARA', 'MERKEZ')
+Dataset Tanımı → store_column, region_column, group_column
+Metrik Çalıştırma → WHERE [rls_column] = '[filter_value]'
+```
+
+### Hiyerarşi
+
+| Pozisyon | filter_level | Gördüğü Veri |
+|----------|--------------|--------------|
+| Genel Müdür | none | TÜM VERİ |
+| Direktör | group | MERKEZ veya FRANCHISE mağazaları |
+| Bölge Müdürü | region | Kendi bölgesindeki mağazalar |
+| Mağaza Müdürü | store | Sadece kendi mağazası |
+
+### Kritik Kurallar
+
+1. **stores.code = Müşteri DB'deki store_id olmalı!**
+   - Master Veriler'deki stores.code değeri
+   - ClickHouse'daki store_id kolonu ile eşleşmeli
+
+2. **Cache Key'de RLS bilgisi olmalı**
+   ```javascript
+   const cacheKey = `dashboard:${designId}:${tenantId}:${filterLevel}:${filterValue}:${params}`;
+   ```
+
+3. **executeMetric çağrılarında userRLS parametresi zorunlu**
+   ```javascript
+   const userRLS = { userId, filterLevel, filterValue };
+   await executeMetric(metricId, tenantId, parameters, userRLS);
+   ```
+
+4. **Dataset query/aggregate endpoint'lerinde RLS WHERE eklenmeli**
+   ```javascript
+   if (userFilterLevel !== 'none' && userFilterValue) {
+     rlsCondition = `${rlsColumn} = '${userFilterValue}'`;
+   }
+   ```
+
+5. **⚠️ analytics-service'de varsayılan filterLevel = 'none' olmalı!**
+   ```javascript
+   // ✅ DOĞRU (v5.2.4+ sonrası)
+   filterLevel: (req.user as any).filterLevel || 'none'
+   
+   // ❌ YANLIŞ (önceki hali)
+   filterLevel: (req.user as any).filterLevel || 'store'
+   ```
+   **Neden?** JWT'den filterLevel okunamadığında varsayılan `'store'` kullanılıyorsa,
+   admin bile olsa RLS filtresi aktif olur ve veri görünmez!
+
+6. **RLS Kolon Tipi Uyumluluğu ZORUNLU!**
+   | Dataset RLS Kolonu | ClickHouse Tipi | Clixer filter_value | Uyumlu mu? |
+   |--------------------|-----------------|---------------------|------------|
+   | store_id | Int32 (1, 2, 3...) | UUID (string) | ❌ HATA! |
+   | store_id | Int32 (1, 2, 3...) | '1', '2', '3' | ✅ OK |
+   | store_code | String | 'STR001' | ✅ OK |
+   
+   **Kural:** Dataset'teki RLS kolonu tipi ile Clixer'daki `users.filter_value` tipi AYNI olmalı!
+
+7. **RLS Aktifleştirme Sırası**
+   ```
+   ADIM 1: Pozisyonlara filter_level ata
+           Admin Panel → Pozisyonlar → Düzenle → filter_level (none/group/region/store)
+   
+   ADIM 2: Kullanıcılara filter_value ata
+           Admin Panel → Kullanıcılar → Düzenle → RLS Filtre Değeri (mağaza/bölge/grup kodu)
+   
+   ADIM 3: Dataset'e RLS kolon seç (İSTEĞE BAĞLI)
+           Veri Bağlantıları → Dataset → Ayarlar → Mağaza/Bölge/Grup Kolonu
+   
+   ADIM 4: Test et
+           Farklı kullanıcılarla giriş yap, sadece yetkili veriyi gördüklerini doğrula
+   ```
+
+### 🔴 YAŞANAN SORUN VE ÇÖZÜM (v5.2.4 - 29 Aralık 2025)
+
+**Belirti:** Widget'ta veri görünmüyordu, ekranda "-" gösteriliyordu.
+
+**Console Hatası:**
+```
+ClickHouse: Cannot convert string '4d5dce1a-f549-4c30-8808-451ee79b8a80' to type Int32
+```
+
+**Kök Neden (2 sorun):**
+
+1. **analytics-service'de varsayılan filterLevel yanlıştı:**
+   ```javascript
+   // YANLIŞ: JWT'den okunamazsa 'store' kullanılıyordu
+   filterLevel: (req.user as any).filterLevel || 'store'
+   ```
+   Bu durumda admin bile olsa RLS filtresi aktif oluyordu.
+
+2. **RLS kolon tipi uyumsuzluğu:**
+   - Dataset'te `store_column = 'store_id'` (Int32: 1, 2, 3...)
+   - Clixer'daki mağazalar UUID (string: '4d5dce1a-...')
+   - WHERE store_id = 'uuid' → TİP HATASI!
+
+**Çözüm:**
+1. analytics-service'de 4 yerde `'store'` → `'none'` değiştirildi
+2. Tip uyumsuz dataset'lerden RLS kolon kaldırıldı:
+   ```sql
+   UPDATE datasets SET store_column = NULL WHERE name = 'TEKSTIL_SATIS';
+   ```
+
+**Öğrenilen Ders:**
+- RLS kolonu seçerken ClickHouse kolon tipi ile Clixer filter_value tipi UYUMLU olmalı
+- Yeni müşteri DB entegrasyonunda RLS öncesi tip kontrolü ZORUNLU
+
+### Test Sonuçları
+
+| Kullanıcı | filter_level | filter_value | Sonuç |
+|-----------|--------------|--------------|-------|
+| admin@demo.com | none | - | 4,376,663.5 (tüm veri) |
+| cihan.adar@sirket.com | store | 1 | 266,117.5 (store_id=1) |
+
+---
+
+## 📊 MASTER VERİLER YÖNETİMİ
+
+### Tablolar
+
+| Tablo | Amaç | RLS Kolonu |
+|-------|------|------------|
+| stores | Mağaza listesi | code → filter_value |
+| regions | Bölge listesi | code → filter_value |
+| ownership_groups | Sahiplik grupları | code → filter_value |
+
+### Doldurma Yöntemleri
+
+1. **Manuel Giriş** - Admin Panel → Master Veriler → Ekle butonu
+2. **CSV Import** - Şablon indir, doldur, import et
+3. **ETL Sync** (Gelecek) - Müşteri DB'den otomatik çekme
+
+### CSV Format
+
+```csv
+code;name;store_type;ownership_group;region_code;city;district
+1;İstanbul Kadıköy;MAGAZA;MERKEZ;MARMARA;İstanbul;Kadıköy
+2;Ankara Kızılay;MAGAZA;FRANCHISE;IC_ANADOLU;Ankara;Çankaya
+```
+
+---
+
+## 🔧 UI DÜZELTMELERİ (v1.0.11)
+
+1. ✅ Input kutularına `border` class'ı eklendi (görünürlük)
+2. ✅ TİP badge renkleri güncellendi (MERKEZ=mavi, MAGAZA=yeşil, DEPO=amber, FRANCHISE=mor)
+3. ✅ `opening_date` tarih formatı düzeltildi (ISO → YYYY-MM-DD)
+4. ✅ `regions` tablosuna `updated_at` kolonu eklendi
+5. ✅ Dataset ayarlarında RLS bölümü eklendi (görünür + düzenlenebilir)
+
+---
+
+## 📅 VERSİYON GEÇMİŞİ
+
+| Tarih | Versiyon | Açıklama |
+|-------|----------|----------|
+| 2025-12-20 | v0.0.1 | Proje oluşturuldu |
+| 2025-12-21 | v1.0.0 | İlk release, ETL, Dashboard |
+| 2025-12-22 | v1.0.1-v1.0.3 | Big Data, Dil Paketi, Finans |
+| 2025-12-23 | v1.0.4-v1.0.5 | Azure SQL, SQL Modu |
+| 2025-12-24 | v1.0.6-v1.0.10 | ID-Based Sync, Progress Bar, Stuck Job |
+| 2025-12-25 | v1.0.11-v1.0.12 | Master Veriler, RLS Sistemi, Designer Fix |
+| 2025-12-25 | **v2.0.0** | **Enterprise Ready - Performans & Güvenlik** |
+
+---
+
+---
+
+## 🔴 KRİTİK KURAL: UNIQUE KOLON ZORUNLU (ORDER BY)
+
+### MUTLAK KURAL: Dataset'te unique kolon OLMADAN dataset oluşturulamaz!
+
+**Sorun:** ReplacingMergeTree engine'i ORDER BY key'e göre duplicate'ları merge eder.
+Eğer ORDER BY `_synced_at` gibi aynı değere sahip kolon olursa, TÜM SATIRLAR TEK SATIRA MERGE EDİLİR!
+
+### Unique Kolon Belirleme Sırası
+
+```
+1. Kullanıcı seçimi (UI'dan) → En öncelikli
+2. Otomatik algılama:
+   - "id" → İlk tercih
+   - "code" → İkinci tercih  
+   - "uuid" → Üçüncü tercih
+   - "pk" veya "primary_key" → Dördüncü tercih
+   - "_id" (MongoDB style) → Beşinci tercih
+3. Hiçbiri yoksa → HATA VER, dataset oluşturma!
+```
+
+### UI Kuralları
+
+1. **Dataset oluştururken "Unique Kolon" dropdown ZORUNLU**
+2. Otomatik algılanan kolon varsayılan seçili gelir
+3. Algılanamazsa kırmızı uyarı: "⚠️ Unique kolon seçilmedi! Dataset oluşturulamaz."
+4. "Dataset Oluştur" butonu disable olur
+5. Kullanıcı manuel olarak herhangi bir kolonu seçebilir
+
+### Backend Validation
+
+```javascript
+// data-service: Dataset oluşturma
+if (!uniqueColumn) {
+  throw new ValidationError('Unique kolon zorunludur. Lütfen bir kolon seçin.');
+}
+```
+
+### ClickHouse Tablo Oluşturma
+
+```sql
+-- ✅ DOĞRU
+CREATE TABLE dataset_xxx (...)
+ENGINE = ReplacingMergeTree(_synced_at)
+ORDER BY (code)  -- Unique kolon!
+
+-- ❌ YANLIŞ (TÜM VERİ MERGE EDİLİR!)
+CREATE TABLE dataset_xxx (...)
+ENGINE = ReplacingMergeTree(_synced_at)
+ORDER BY (_synced_at)  -- Aynı değer = tek satır!
+```
+
+### Örnek Senaryolar
+
+| Sorgu | Algılanan Unique | ORDER BY | Sonuç |
+|-------|------------------|----------|-------|
+| `SELECT id, name FROM users` | id ✅ | (id) | Çalışır |
+| `SELECT code, name FROM stores` | code ✅ | (code) | Çalışır |
+| `SELECT name, city FROM stores` | ❌ YOK | HATA! | Dataset oluşmaz |
+| `SELECT store_id as id, name FROM x` | id ✅ (alias) | (id) | Çalışır |
+
+### Uygulama Kuralları
+
+1. **Frontend**: Unique kolon dropdown zorunlu, algılama + manuel seçim
+2. **Backend**: Validation, unique kolon yoksa 400 hata
+3. **ETL Worker**: ORDER BY her zaman unique kolondan
+4. **Hata mesajı**: Türkçe, anlaşılır
+
+---
+
+## 🔴 KRİTİK KURAL: DİNAMİK KOLON SEÇİMİ (HARDCODED YASAK!)
+
+### MUTLAK KURAL: Hiçbir kolon adı hardcoded olamaz! Kullanıcı seçecek!
+
+**Prensip:** `id`, `code`, `date` gibi kolon adları kodda sabit yazılamaz.
+Kullanıcı UI'dan hangi kolonu kullanacağını seçer.
+
+### Etkilenen Özellikler
+
+| Özellik | Kullanıcı Seçer | API Parametresi |
+|---------|----------------|-----------------|
+| Veri Doğrulama (Compare) | PK/ID Kolonu | `?pkColumn=id` |
+| Eksik ID Aralıkları | PK/ID Kolonu | `?pkColumn=id` |
+| Eksik Veri Sync | PK/ID Kolonu | `body: { pkColumn: 'id' }` |
+| Duplicate Kontrolü | PK/ID Kolonu | `?pkColumn=id` |
+| Tarih Bazlı Silme | Tarih Kolonu | `body: { dateColumn }` |
+
+### UI Kuralları
+
+1. **Her dinamik işlem öncesi kolon seçici göster**
+2. Dropdown: Tablonun tüm kolonlarını listele
+3. Varsayılan: `id` veya `code` (varsa)
+4. Kolon seçilmeden buton aktif olmasın
+
+### Backend Kuralları
+
+```javascript
+// ✅ DOĞRU - Kullanıcıdan al
+const pkColumn = req.query.pkColumn || 'id';
+await clickhouse.query(`SELECT MIN(${pkColumn}), MAX(${pkColumn}) FROM table`);
+
+// ❌ YANLIŞ - Hardcoded
+await clickhouse.query(`SELECT MIN(id), MAX(id) FROM table`);
+```
+
+### Güvenlik
+
+- Kolon adı SQL injection'a karşı sanitize edilmeli
+- Sadece alfanumerik ve underscore kabul et
+- Kolon tabloda yoksa hata dön
+
+### Örnek Akış
+
+```
+UI: Veri Doğrula sekmesi açıldı
+  ↓
+UI: "PK Kolonu" dropdown gösterildi [id, code, transaction_id, ...]
+  ↓
+Kullanıcı: "transaction_id" seçti
+  ↓
+API: /compare?pkColumn=transaction_id
+  ↓
+Backend: SELECT MIN(transaction_id), MAX(transaction_id) FROM table
+```
+
+---
+
+## 🚀 v2.0.0 - ENTERPRISE READY (25 Aralık 2025)
+
+### Bu Sürümde Neler Var?
+
+**STABİLİTE & PERFORMANS**
+- ✅ PM2 Cluster Mode desteği (4x kapasite artışı)
+- ✅ PostgreSQL max_connections: 100 → 200
+- ✅ Redis maxclients: 10,000 + 1GB memory
+- ✅ Production-ready Docker Compose
+- ✅ Audit Logging altyapısı
+
+**GÜVENLİK**
+- ✅ Audit logs tablosu (kim, ne zaman, ne yaptı)
+- ✅ shared/audit.ts helper modülü
+- ✅ Enterprise logging altyapısı
+
+**DESIGNER & UI**
+- ✅ DesignerPage sağ panel düzeltildi
+- ✅ Widget seçiliyken Tasarım Ayarları görünür
+- ✅ Kaydet butonu her zaman erişilebilir
+
+### Yeni Dosyalar
+
+| Dosya | Açıklama |
+|-------|----------|
+| `ecosystem.config.js` | PM2 Cluster Mode konfigürasyonu |
+| `scripts/start-production.sh` | Production başlatma scripti |
+| `docker/docker-compose.production.yml` | Optimize edilmiş Docker config |
+| `docker/Dockerfile.service.production` | PM2 container şablonu |
+| `docker/init-scripts/postgres/04-audit-logs.sql` | Audit tablosu |
+| `shared/src/audit.ts` | Audit logging helper |
+| `logs/` | Log klasörü |
+
+### Kapasite Karşılaştırması
+
+| Bileşen | v1.x | v2.0.0 | Artış |
+|---------|------|--------|-------|
+| PostgreSQL bağlantı | 100 | 200 | 2x |
+| Redis memory | 512MB | 1GB | 2x |
+| Gateway instance | 1 | 4 | 4x |
+| Analytics instance | 1 | 4 | 4x |
+| Eşzamanlı kullanıcı | ~100 | ~400+ | 4x |
+
+### PM2 Cluster Konfigürasyonu
+
+```javascript
+// ecosystem.config.js
+{
+  name: 'gateway',      instances: 4, exec_mode: 'cluster'
+  name: 'analytics',    instances: 4, exec_mode: 'cluster'
+  name: 'auth',         instances: 2, exec_mode: 'cluster'
+  name: 'core',         instances: 2, exec_mode: 'cluster'
+  name: 'data',         instances: 2, exec_mode: 'cluster'
+  name: 'notification', instances: 1, exec_mode: 'fork'
+  name: 'etl-worker',   instances: 1, exec_mode: 'fork'
+}
+```
+
+### Audit Logging Kullanımı
+
+```typescript
+import { audit } from '@clixer/shared';
+
+// Login kaydı
+await audit.logLogin(userId, email, tenantId, req.ip, req.headers['user-agent']);
+
+// CRUD kaydı
+await audit.logCrud('CREATE', 'design', designId, userId, tenantId, { name: 'Yeni Dashboard' });
+
+// Hata kaydı
+await audit.logError(userId, tenantId, 'dataset', 'Sync başarısız', { reason: 'Timeout' });
+```
+
+### Production Deploy
+
+```bash
+# Seçenek 1: Docker Compose
+docker-compose -f docker/docker-compose.production.yml up -d
+
+# Seçenek 2: Script ile
+./scripts/start-production.sh
+
+# PM2 komutları
+pm2 status          # Durumu gör
+pm2 logs            # Logları izle
+pm2 monit           # Canlı monitoring
+pm2 restart all     # Yeniden başlat
+```
+
+### Müşteri Gereksinimleri
+
+```
+✅ Docker
+✅ Docker Compose
+(Ekstra kurulum YOK - PM2 container içinde)
+```
+
+---
+
+## 🎨 UI/UX İYİLEŞTİRME PLANI (Sonraki Adım)
+
+### Hedef: Profesyonel Dashboard Görünümü
+
+**Widget Boyut Standartları:**
+| Tip | Grid Boyut | Kullanım |
+|-----|------------|----------|
+| Mini KPI | w:3, h:2 | Tek değer |
+| Kompakt KPI | w:4, h:2 | Değer + trend |
+| Trend Kart | w:6, h:3 | Sparkline |
+| Liste Kart | w:6, h:4 | Top 5 |
+| Grafik Kart | w:8, h:5 | Chart |
+
+**KPI Kart Yapısı:**
+```
+┌─────────────────────────────────────┐
+│  💰 Başlık              [Önbellek]  │
+│                                     │
+│  ₺14.326.602                        │  ← Ana Değer
+│                                     │
+│  Son 30 gün           ↗ 12.5%       │  ← Trend
+└─────────────────────────────────────┘
+```
+
+**Renk Paleti:**
+- Teal (#14B8A6): Ana marka rengi
+- Emerald (#10B981): Pozitif/Artış
+- Rose (#EF4444): Negatif/Düşüş
+- Amber (#F59E0B): Uyarı
+- Blue (#3B82F6): Bilgi/Nötr
+
+---
+
+## 📦 BACKUP BİLGİLERİ
+
+### v2.0.0 Backup
+- **Tarih**: 25 Aralık 2025
+- **Konum**: `backups/v2.0.0_YYYYMMDD_HHMMSS/`
+- **İçerik**: Kod, PostgreSQL dump, ClickHouse metadata, Redis keys
+
+### Önceki Backuplar
+- v1.0.12: `backups/v1.0.12_20251225_231817/`
+- v1.0.11: `backups/v1.0.11_*`
+- v1.0.0: `backups/VERSION_1.0.0_RELEASE_*`
+
+---
+
+## 🔴 KRİTİK: TASARIM STÜDYOSU STABİLİTE KURALI
+
+### ASLA DEĞİŞTİRME! (DesignerPage.tsx)
+
+**Sorun:** `react-grid-layout` paketi v2.x'te API değiştirdi. `WidthProvider` kaldırıldı.
+
+**Çözüm:** Paket versiyonu SABİT tutulmalı:
+```json
+"react-grid-layout": "^1.4.4"
+```
+
+**ASLA YAPMA:**
+1. ❌ `react-grid-layout` paketini güncelleme
+2. ❌ DesignerPage.tsx import'larını değiştirme
+3. ❌ `compactType`, `preventCollision` ayarlarını değiştirme
+4. ❌ `loadDesign`, `handleLayoutChange` fonksiyonlarını değiştirme
+
+**Stabil Import (v1.4.4):**
+```typescript
+import RGL, { WidthProvider, Layout as GridLayout, Layouts } from 'react-grid-layout'
+const ResponsiveGridLayout = WidthProvider(RGL.Responsive)
+```
+
+**Grid Ayarları (DEĞİŞTİRME!):**
+```typescript
+compactType={null}           // Widget'ları sıkıştırma
+preventCollision={true}      // Çarpışmayı önle
+```
+
+**Layout Yönetimi:**
+- Widget koordinatları (x, y, w, h) API'den gelir
+- `loadDesign` fonksiyonu koordinatları `layouts` state'ine aktarır
+- `handleLayoutChange` fonksiyonu sürükleme/boyutlandırma sonrası günceller
+- `widgetsRef` kayıt için güncel pozisyonları tutar
+
+**Test Kriterleri:**
+1. ✅ Var olan tasarım yüklendiğinde tüm widget'lar kayıtlı konumlarında
+2. ✅ Yeni widget ekleme - önceki widget'ın altına (üst üste değil)
+3. ✅ Widget sürükleme - yeni konum kaydedilmeli
+4. ✅ Tasarım yeniden açıldığında konumlar korunmalı
+
+---
+
+## 📅 v2.1.1 - 26 Aralık 2025
+
+**Tasarım Stüdyosu Stabilite Düzeltmesi**
+
+1. ✅ `react-grid-layout` v1.4.4'e downgrade edildi (WidthProvider desteği)
+2. ✅ v2.0.0 yedekten orijinal DesignerPage.tsx geri yüklendi
+3. ✅ Stabilite kuralı .cursorrules'a eklendi
+4. ✅ Paket versiyonu sabitlendi
+
+**Öğrenilen Ders:**
+> "react-grid-layout v2.x API'si tamamen farklı! WidthProvider kaldırıldı.
+> ASLA paketi güncelleme, ASLA import'ları değiştirme.
+> Çalışan koda dokunma!"
+
+---
+
+## 📅 v2.1.2 - 26 Aralık 2025
+
+**Grafik Kartları & UI İyileştirmeleri**
+
+### 1. ✅ Tüm Grafik Tipleri Aktif
+| Grafik Tipi | Durum | Açıklama |
+|-------------|-------|----------|
+| bar_chart | ✅ | Çubuk grafik (dikey) |
+| line_chart | ✅ | Çizgi grafik |
+| area_chart | ✅ | Alan grafik (gradient dolgulu) |
+| pie_chart | ✅ | Pasta grafik (tam daire) |
+| donut_chart | ✅ | Halka grafik (ortası boş) |
+| kpi_card | ✅ | KPI değer kartı |
+| data_grid | ✅ | Veri tablosu |
+
+### 2. ✅ Metrik Görselleştirme Tipi Düzeltmesi
+- `metric_visualization_type` backend'den frontend'e doğru aktarılıyor
+- Widget mapping'de `metric_visualization_type` alanı eklendi
+- `AnalysisPage.tsx` ve `DashboardPage.tsx` güncellendi
+
+### 3. ✅ Dinamik İkon Desteği
+- Widget'lara özel ikon atanabiliyor
+- İkonlar `lucide-react` kütüphanesinden geliyor
+- Desteklenen ikonlar: BarChart3, LineChart, PieChart, TrendingUp, DollarSign, Users, ShoppingCart, Store, Package, Activity, Target, Zap, Award, Clock, Calendar, CreditCard, Wallet, Receipt, ArrowUpRight, ArrowDownRight
+
+### 4. ✅ Karşılaştırma Sistemi (Comparison)
+- YoY (Year-over-Year): Geçen yıl aynı gün
+- MoM (Month-over-Month): Geçen ay aynı gün
+- WoW (Week-over-Week): Geçen hafta
+- YTD (Year-to-Date): Yılbaşından bugüne
+- LFL (Like-for-Like): Karşılaştırılabilir günler (her iki dönemde satış olan günler)
+
+### 5. ✅ Recharts Entegrasyonu
+- BarChart, LineChart, AreaChart, PieChart tam entegre
+- Responsive container desteği
+- Tooltip ve Legend aktif
+- Area chart için gradient dolgu
+
+### 6. ✅ Modern Kart Tasarımı
+- `rounded-[20px]` köşeler
+- Multi-layer shadow efektleri
+- Üst kenar accent bar
+- Trend badge (yeşil/kırmızı)
+- Detay butonu (↗)
+
+**Değiştirilen Dosyalar:**
+- `frontend/src/pages/AnalysisPage.tsx` - Grafik render, ikon, metric_visualization_type
+- `frontend/src/pages/DashboardPage.tsx` - Grafik render, modern kart stili
+- `frontend/src/pages/MetricsPage.tsx` - Karşılaştırma tipi seçimi
+- `services/analytics-service/src/index.ts` - LFL hesaplama, comparison logic
+
+**Yeni Özellikler:**
+- Metrik oluştururken karşılaştırma tipi seçilebilir
+- Widget'a ikon atanabilir
+- Tüm grafik tipleri çalışıyor
+
+---
+
+## 📅 VERSİYON GEÇMİŞİ (Özet)
+
+| Tarih | Versiyon | Açıklama |
+|-------|----------|----------|
+| 2025-12-20 | v0.0.1 | Proje oluşturuldu |
+| 2025-12-21 | v1.0.0 | İlk release, ETL, Dashboard |
+| 2025-12-22 | v1.0.1-v1.0.3 | Big Data, Dil Paketi, Finans |
+| 2025-12-23 | v1.0.4-v1.0.5 | Azure SQL, SQL Modu |
+| 2025-12-24 | v1.0.6-v1.0.10 | ID-Based Sync, Progress Bar, Stuck Job |
+| 2025-12-25 | v1.0.11-v1.0.12 | Master Veriler, RLS Sistemi |
+| 2025-12-25 | v2.0.0 | Enterprise Ready - PM2, Audit Log |
+| 2025-12-26 | v2.1.1 | Tasarım Stüdyosu Stabilite |
+| 2025-12-26 | v2.1.2 | Grafik Kartları & UI İyileştirmeleri |
+| 2025-12-27 | v2.1.3 | Widget Görselleştirme İyileştirmeleri |
+| 2025-12-27 | v3.0.0 | Tüm Metrik Tipleri Test Edildi |
+| 2025-12-27 | v3.0.1 | Performans Optimizasyonları |
+| 2025-12-27 | v3.0.2 | Güvenlik İyileştirmeleri |
+| 2025-12-27 | v4.0.0 | Tarih Filtresi & UI İyileştirmeleri |
+| 2025-12-27 | **v4.1.0** | **2FA, IP Whitelist, Password Policy, Session Mgmt, Harita, Self-Healing** |
+
+---
+
+## 📅 v2.1.3 - 27 Aralık 2025
+
+**Widget Görselleştirme İyileştirmeleri**
+
+### 1. ✅ İlerleme Kartı Duplicate Değer Düzeltmesi
+- **Sorun**: İlerleme kartında ana değer 2 kez görünüyordu
+- **Çözüm**: Özel görselleştirme tipleri için fallback KPI render'ı kapatıldı
+- Progress, Gauge, Sparkline, Trend tiplerinde artık sadece ilgili görsel gösteriliyor
+
+### 2. ✅ Progress Bar Renk Ayrımı
+- Dolu kısım: Widget rengi (mavi vb.)
+- Kalan kısım: Belirgin gri (`#cbd5e1` light / `#475569` dark)
+- Artık %80 tamamlandığında kalan %20 net görünüyor
+
+### 3. ✅ Gauge (Gösterge) SVG Yeniden Tasarım
+- CSS conic-gradient yerine SVG path kullanılıyor
+- Yarım daire şeklinde net görünüm
+- Dolu kısım: Widget rengi
+- Kalan kısım: Belirgin gri arka plan
+- Animasyonlu geçiş efekti
+
+### 4. ✅ Sparkline/Trend için Zorunlu Tarih Kolonu UI
+- Mini Kart, Sparkline, Trend Kartı seçildiğinde otomatik "Zaman Serisi Ayarları" bölümü açılıyor
+- Tarih kolonu seçimi zorunlu hale getirildi
+- Backend'den gerçek veri çekiliyor (son 12 gün)
+
+### 5. ✅ Hedef Kolon Desteği (Backend)
+- `target_column` artık backend'de işleniyor
+- Sabit değer veya kolondan dinamik hedef seçilebilir
+- ClickHouse'dan toplam değer çekilerek hedef belirleniyor
+
+**Değiştirilen Dosyalar:**
+- `frontend/src/pages/AnalysisPage.tsx` - Progress bar, Gauge SVG, Sparkline debug
+- `frontend/src/pages/MetricsPage.tsx` - Zaman Serisi Ayarları UI
+- `services/analytics-service/src/index.ts` - target_column, sparkline chart_config
+
+**Debug Logları:**
+- `📊 Sparkline Debug` - Sparkline veri kaynağı kontrolü
+- `📈 Trend Debug` - Trend veri kaynağı kontrolü
+- `isDemo: true` → Demo veri kullanılıyor
+- `isDemo: false` → Gerçek veri geliyor
+
+---
+
+## 🔴 METRİK VERİ FORMAT KURALLARI
+
+### MUTLAK KURAL: Dataset verileri doğru formatta olmalı!
+
+Metrikler ve karşılaştırmalar çalışması için kaynak veri formatları kritik öneme sahiptir.
+
+### 1. TARİH KOLONU FORMATLARI
+
+| Kaynak Format | ClickHouse'da | Karşılaştırma | Notlar |
+|---------------|---------------|---------------|--------|
+| `YYYY-MM-DD HH:mm:ss` | String | ✅ `toDate()` ile | En yaygın format |
+| `YYYY-MM-DD` | Date | ✅ Direkt | İdeal format |
+| `DD/MM/YYYY` | String | ⚠️ Dönüşüm gerekir | Türkiye formatı |
+| `MM/DD/YYYY` | String | ⚠️ Dönüşüm gerekir | ABD formatı |
+| `20251227` | String | ⚠️ `toDate()` ile | Kompakt format |
+| Unix timestamp | UInt64 | ⚠️ `toDateTime()` ile | Epoch saniye |
+
+**Karşılaştırma (YoY, MoM, WoW, YTD) için:**
+- Tarih kolonu **ZORUNLU**
+- Backend'de `toDate(kolon)` kullanılarak dönüşüm yapılır
+- String formatında tarihler desteklenir: `YYYY-MM-DD*` (örn: `2025-12-27 12:00:00`)
+
+### 2. ID KOLONU FORMATLARI
+
+| Kaynak Tip | ClickHouse Tip | Kullanım |
+|------------|----------------|----------|
+| int, bigint | Int32, Int64 | ✅ Sayısal ID (önerilen) |
+| uuid, uniqueidentifier | String | ✅ UUID formatı |
+| varchar | String | ⚠️ ID-based sync'te dikkat |
+
+**ID-Based Sync için:**
+- ID kolonu **ZORUNLU** (ORDER BY için)
+- Sayısal ID önerilir (performans için)
+- String ID'lerde `toInt64OrZero()` kullanılır
+
+### 3. SAYISAL KOLONLAR
+
+| Kaynak Tip | ClickHouse Tip | Aggregation |
+|------------|----------------|-------------|
+| decimal, numeric | Float64 | ✅ SUM, AVG |
+| float, real | Float32 | ✅ SUM, AVG |
+| int, bigint | Int32, Int64 | ✅ SUM, COUNT |
+| varchar (sayı) | String | ❌ Aggregation ÇALIŞMAZ! |
+
+**KRİTİK:** Sayısal değerler (ciro, tutar, adet) **ASLA String tipinde olmamalı!**
+
+### 4. GRUP KOLONLARI (Group By)
+
+| Kullanım | Önerilen Tip | Örnek |
+|----------|--------------|-------|
+| Mağaza kodu | String | `store_id`, `magaza_kodu` |
+| Bölge | String | `region_id`, `bolge` |
+| Kategori | String | `category`, `urun_grubu` |
+| Tarih grubu | Date | `sale_date`, `tarih` |
+
+### 5. METRİK TİPİNE GÖRE GEREKSİNİMLER
+
+| Metrik Tipi | Gerekli Kolon | Format |
+|-------------|---------------|--------|
+| KPI Kartı | Sayısal kolon | Float64/Int |
+| Grafik | Sayısal + Group By | Float64 + String |
+| Karşılaştırma | Sayısal + Tarih | Float64 + Date/String |
+| Sıralama | Sayısal + Label | Float64 + String |
+| Sparkline/Trend | Sayısal + Tarih | Float64 + Date |
+| İlerleme/Gösterge | Sayısal + Hedef | Float64 + Float64 |
+
+### 6. ÖRNEK DOĞRU TABLO YAPISI
+
+```sql
+CREATE TABLE sales (
+  id Int64,                    -- ✅ Sayısal ID
+  created_at DateTime,         -- ✅ Tarih (veya String 'YYYY-MM-DD HH:mm:ss')
+  store_id String,             -- ✅ Grup kolonu
+  product_name String,         -- ✅ Label kolonu
+  quantity Int32,              -- ✅ Sayısal
+  unit_price Float64,          -- ✅ Sayısal
+  line_total Float64,          -- ✅ Sayısal (aggregation için)
+  _synced_at DateTime          -- ✅ ETL timestamp
+)
+ENGINE = ReplacingMergeTree(_synced_at)
+ORDER BY (id)
+```
+
+### 7. HATALI FORMAT ÖRNEKLERİ
+
+```sql
+-- ❌ YANLIŞ
+amount VARCHAR(50)        -- Sayı String olarak
+created_date VARCHAR(10)  -- Tarih formatı belirsiz
+id VARCHAR(100)           -- ID String (UUID değilse)
+
+-- ✅ DOĞRU
+amount DECIMAL(18,2)      -- Sayı decimal
+created_date DATE         -- Tarih Date
+id BIGINT                 -- ID sayısal
+```
+
+### 8. UI'DA GÖSTERİLECEK UYARILAR
+
+Metrik oluştururken kullanıcıya gösterilmeli:
+
+1. **Karşılaştırma seçildiğinde:**
+   > ⚠️ Tarih kolonu `YYYY-MM-DD` veya `YYYY-MM-DD HH:mm:ss` formatında olmalıdır.
+
+2. **Sparkline/Trend seçildiğinde:**
+   > ⚠️ Zaman serisi için tarih kolonu zorunludur. Format: `YYYY-MM-DD` veya DateTime.
+
+3. **İlerleme/Gösterge seçildiğinde:**
+   > ⚠️ Hedef değer sayısal olmalıdır. Kolondan seçilecekse kolon tipi Float/Int olmalı.
+
+4. **Sıralama Listesi seçildiğinde:**
+   > ⚠️ Sıralama için sayısal bir değer kolonu gereklidir.
+
+---
+
+## 🔴 KARŞILAŞTIRMA METRİK MİMARİSİ
+
+### Otomatik Tarih Filtresi
+
+Karşılaştırma modu aktif olduğunda:
+1. **Ana değer** otomatik olarak "bugün" için filtrelenir
+2. **Önceki değer** seçilen karşılaştırma tipine göre hesaplanır
+
+```
+MoM Örnek (27 Aralık 2025):
+├─ Güncel: toDate(created_at) = '2025-12-27' → 169.96M ₺
+├─ Önceki: toDate(created_at) = '2025-11-27' → 169.50M ₺
+└─ Trend: +0.27%
+```
+
+### Backend Akışı
+
+```javascript
+// 1. Ana metrik sorgusu (karşılaştırma modunda tarih filtreli)
+if (metric.comparison_enabled && chartConfig.comparisonColumn) {
+  sql += ` WHERE toDate(${dateColumn}) = '${todayStr}'`;
+}
+
+// 2. Karşılaştırma hesaplaması
+// - Güncel dönem değeri zaten hesaplandı (ana sorgu)
+// - Önceki dönem değeri ayrıca hesaplanır
+// - Trend yüzdesi hesaplanır
+// - metadata.previousValue ve metadata.trend eklenir
+```
+
+### Desteklenen Veritabanları
+
+| Kaynak DB | Tarih Formatı | Dönüşüm | Karşılaştırma |
+|-----------|---------------|---------|---------------|
+| SQL Server | `YYYY-MM-DD HH:mm:ss.nnn` | `toDate()` | ✅ |
+| PostgreSQL | `YYYY-MM-DD HH:mm:ss.nnnnnn` | `toDate()` | ✅ |
+| MySQL | `YYYY-MM-DD HH:mm:ss` | `toDate()` | ✅ |
+| Oracle | `DD-MON-YY` | ⚠️ ETL'de dönüşüm | ✅ |
+| Excel/CSV | Çeşitli | ⚠️ ETL'de dönüşüm | ✅ |
+
+### Karşılaştırma Tipleri
+
+| Tip | Hesaplama | Örnek (27 Aralık 2025) |
+|-----|-----------|------------------------|
+| YoY | Geçen yıl aynı gün | 27 Aralık 2024 |
+| MoM | Geçen ay aynı gün | 27 Kasım 2025 |
+| WoW | Geçen hafta aynı gün | 20 Aralık 2025 |
+| YTD | Yılbaşından bugüne | 1 Ocak - 27 Aralık |
+| LFL | Ortak satış günleri | Her iki dönemde satış olan günler |
+
+### LFL (Like-for-Like) Özel Hesaplama
+
+```sql
+-- Sadece her iki dönemde de satış olan günleri karşılaştır
+-- Yeni açılan mağazalar veya kapalı günler hariç tutulur
+SELECT 
+  SUM(CASE WHEN year = current_year THEN value ELSE 0 END) as current,
+  SUM(CASE WHEN year = previous_year THEN value ELSE 0 END) as previous
+FROM (
+  SELECT year, day_of_year, SUM(amount) as value
+  FROM sales
+  GROUP BY year, day_of_year
+  HAVING COUNT(DISTINCT year) = 2  -- Her iki yılda da veri var
+)
+```
+
+### Kritik Kurallar
+
+1. **Tarih kolonu ZORUNLU** - Karşılaştırma için mutlaka tarih/zaman kolonu seçilmeli
+2. **Format standart olmalı** - `YYYY-MM-DD` veya `YYYY-MM-DD HH:mm:ss`
+3. **String tarihler de çalışır** - Backend'de `toDate()` ile dönüşüm yapılır
+4. **Otomatik filtreleme** - Karşılaştırma modunda ana değer de tarih bazlı filtrelenir
+5. **Memory optimizasyonu** - WHERE olmadan 47M+ satır taranamaz
+
+---
+
+## 📅 v2.1.4 - 27 Aralık 2025
+
+**Karşılaştırma Metrikleri Tam Çalışır Hale Getirildi**
+
+1. ✅ **Otomatik tarih filtresi** - Karşılaştırma modunda ana metrik "bugün" için filtrelenir
+2. ✅ **chart_config parse** - JSONB ve String formatları desteklenir
+3. ✅ **Memory optimizasyonu** - Büyük tablolarda WHERE zorunlu
+4. ✅ **MoM, YoY, WoW, YTD, LFL** - Tüm karşılaştırma tipleri çalışır
+5. ✅ **UI format uyarıları** - Kırmızı uyarı kutuları eklendi
+6. ✅ **Evrensel destek** - SQL Server, PostgreSQL, MySQL, Oracle, Excel
+
+**Değiştirilen Dosyalar:**
+- `services/analytics-service/src/index.ts` - Otomatik tarih filtresi, chart_config parse
+- `frontend/src/pages/MetricsPage.tsx` - Format uyarı kutuları
+- `.cursorrules` - Veri format kuralları dokümantasyonu
+
+**Test Sonuçları:**
+- MoM karşılaştırma: 169.96M (bugün) vs 169.50M (geçen ay) = +0.27% ✅
+
+---
+
+## 📅 v3.0.0 - 27 Aralık 2025 (STABLE RELEASE)
+
+**Tüm Metrik Tipleri Test Edildi ve Çalışıyor**
+
+### Aktif Metrik Tipleri (13 adet)
+
+| # | Tip | Backend | Frontend | Test |
+|---|-----|---------|----------|------|
+| 1 | KPI Card | ✅ | ✅ | ✅ |
+| 2 | Comparison | ✅ | ✅ | ✅ |
+| 3 | Ranking List | ✅ | ✅ | ✅ |
+| 4 | Progress Bar | ✅ | ✅ | ✅ |
+| 5 | Gauge | ✅ | ✅ | ✅ |
+| 6 | Sparkline | ✅ | ✅ | ✅ |
+| 7 | Trend Card | ✅ | ✅ | ✅ |
+| 8 | Bar Chart | ✅ | ✅ | ✅ |
+| 9 | Line Chart | ✅ | ✅ | ✅ |
+| 10 | Pie Chart | ✅ | ✅ | ✅ |
+| 11 | Donut Chart | ✅ | ✅ | ✅ |
+| 12 | Area Chart | ✅ | ✅ | ✅ |
+| 13 | Data Grid | ✅ | ✅ | ✅ |
+
+### Karşılaştırma Tipleri (5 adet)
+
+| Tip | Hesaplama | Test |
+|-----|-----------|------|
+| YoY | Geçen yıl aynı gün | ✅ |
+| MoM | Geçen ay aynı gün | ✅ |
+| WoW | Geçen hafta | ✅ |
+| YTD | Yılbaşından bugüne | ✅ |
+| LFL | Ortak satış günleri | ✅ |
+
+### Güvenlik & Yetkilendirme
+
+| Özellik | Durum |
+|---------|-------|
+| RLS (Row-Level Security) | ✅ |
+| Pozisyon bazlı yetki | ✅ |
+| Tasarım yetkilendirme | ✅ |
+| JWT Token | ✅ |
+| Tenant Isolation | ✅ |
+
+### Bekleyen Özellik: Tarih Filtresi
+
+⚠️ **Tarih filtresi frontend'de var ama backend'e gönderilmiyor!**
+- `filterStore.ts` - Tarih mantığı ✅
+- `FilterBar.tsx` - UI ✅
+- Dashboard/Analysis sayfaları - **Filtreyi kullanmıyor ❌**
+
+Bu özellik v3.1.0'da eklenecek.
+
+---
+
+## 📅 v3.0.1 - 27 Aralık 2025
+
+**Performans Optimizasyonları**
+
+### 1. ✅ ClickHouse Performance Tuning
+- `CLICKHOUSE_MAX_MEMORY_USAGE`: 8GB (query başına)
+- `CLICKHOUSE_MAX_MEMORY_USAGE_FOR_ALL_QUERIES`: 16GB (toplam)
+- `CLICKHOUSE_MAX_EXECUTION_TIME`: 30 saniye
+- Container memory limit: 20GB, reservation: 8GB
+
+### 2. ✅ PostgreSQL Performance Tuning
+- `max_connections`: 200 (önceki: 100)
+- `shared_buffers`: 256MB
+- `effective_cache_size`: 768MB
+- `work_mem`: 16MB
+- `maintenance_work_mem`: 128MB
+- Container memory limit: 2GB
+
+### 3. ✅ Redis Performance Tuning
+- `maxmemory`: 2GB (önceki: 512MB)
+- `maxclients`: 10,000
+- Container memory limit: 3GB
+
+### 4. ✅ Node.js Connection Pool
+- PostgreSQL pool max: 50 (önceki: 20)
+
+### 5. ✅ Query Timeout
+- ClickHouse query timeout: 10 saniye (default)
+- AbortController ile timeout mekanizması
+- Timeout hatası için özel error handling
+
+### Değiştirilen Dosyalar
+- `docker/docker-compose.yml` - ClickHouse, PostgreSQL, Redis config
+- `shared/src/db.ts` - PostgreSQL pool max artırıldı
+- `shared/src/clickhouse.ts` - Query timeout eklendi
+
+### Kapasite Karşılaştırması
+
+| Bileşen | v3.0.0 | v3.0.1 | Artış |
+|---------|--------|--------|-------|
+| PostgreSQL bağlantı | 100 | 200 | 2x |
+| PostgreSQL pool | 20 | 50 | 2.5x |
+| Redis memory | 512MB | 2GB | 4x |
+| Redis maxclients | 1000 | 10000 | 10x |
+| ClickHouse memory | - | 16GB | ∞ |
+| ClickHouse query timeout | - | 10s | ✅ |
+
+**Hedef:** 400+ eşzamanlı kullanıcı desteği ✅
+
+---
+
+## 📅 v3.0.2 - 27 Aralık 2025
+
+**Güvenlik İyileştirmeleri (Security Hardening)**
+
+### 1. ✅ SQL Injection Koruması
+- `shared/src/security.ts` modülü oluşturuldu
+- `sanitizeTableName()` - Tablo adı whitelist kontrolü
+- `sanitizeColumnName()` - Kolon adı whitelist kontrolü
+- `sanitizeAggFunction()` - Aggregation fonksiyonu strict whitelist
+- `sanitizeDateString()` - Tarih formatı kontrolü (YYYY-MM-DD)
+- `containsDangerousSQLKeywords()` - Tehlikeli SQL keyword tespiti
+
+### 2. ✅ Input Validation
+- `isValidEmail()` - Email format kontrolü
+- `isValidUUID()` - UUID format kontrolü
+- `sanitizeString()` - XSS koruması (HTML escape)
+- `sanitizeNumber()` - Sayısal değer kontrolü
+- `sanitizeLimit()` / `sanitizeOffset()` - Pagination güvenliği
+
+### 3. ✅ Gateway Güvenlik Başlıkları (Helmet.js)
+- Content Security Policy (CSP) aktif
+- HSTS (HTTP Strict Transport Security) 1 yıl
+- X-Frame-Options, X-Content-Type-Options otomatik
+
+### 4. ✅ CORS Kısıtlama
+- Development: `*` (açık)
+- Production: Whitelist (`clixer.app`, `app.clixer.com`)
+- Preflight cache: 24 saat
+
+### 5. ✅ Suspicious Request Detection
+- SQL Injection pattern tespiti
+- XSS pattern tespiti
+- Path traversal tespiti
+- Otomatik blok + log
+
+### 6. ✅ Request Tracing
+- Her request için unique X-Trace-Id
+- Yavaş istek uyarısı (>5s)
+- IP logging
+
+### Yeni Dosyalar
+- `shared/src/security.ts` - Güvenlik helper modülü
+
+### Değiştirilen Dosyalar
+- `shared/src/index.ts` - Security export
+- `gateway/src/index.ts` - CSP, CORS, Suspicious detection
+- `services/analytics-service/src/index.ts` - Security import
+
+### Güvenlik Matrisi
+
+| Tehdit | Koruma | Durum |
+|--------|--------|-------|
+| SQL Injection | Whitelist + Parameterized | ✅ |
+| XSS | Helmet CSP + sanitizeString | ✅ |
+| Brute Force | Rate limiting (10/15dk) | ✅ |
+| DDoS | Rate limiting (200/dk) | ✅ |
+| CSRF | CORS restriction | ✅ |
+| Path Traversal | Pattern detection | ✅ |
+| Session Hijacking | JWT (15dk expire) | ✅ |
+| Password Cracking | bcrypt (12 rounds) | ✅ |
+| Data Exposure | Tenant isolation + RLS | ✅ |
+
+---
+
+## 📅 v4.0.0 - 27 Aralık 2025 (STABLE RELEASE)
+
+**Tarih Filtresi & UI İyileştirmeleri**
+
+### 1. ✅ Tarih Filtresi Entegrasyonu
+- FilterBar'dan seçilen tarih aralığı backend'e gönderiliyor
+- `startDate` ve `endDate` parametreleri tüm metrik sorgularına ekleniyor
+- ClickHouse'da `toDate()` ile tarih karşılaştırması yapılıyor
+- "Tüm Zamanlar" seçeneği eklendi (tarih filtresi olmadan tüm veri)
+
+### 2. ✅ Filtre Entegrasyonu (Tüm Sayfalar)
+- `DashboardPage.tsx` - Tarih, bölge, mağaza, mağaza tipi filtreleri
+- `AnalysisPage.tsx` - Tarih, bölge, mağaza, mağaza tipi filtreleri
+- `StoresPage.tsx` - FilterBar eklendi
+- `OperationsPage.tsx` - FilterBar eklendi
+- `FinancePage.tsx` - FilterBar eklendi
+
+### 3. ✅ Kart Renk Modları (3 Seçenek)
+| Mod | Açıklama | Görünüm |
+|-----|----------|---------|
+| **Sade** | Tema uyumlu, çizgisiz | Düz arka plan |
+| **Accent (Üst Bar)** | Renkli üst çizgi | 3px border-top |
+| **Tam Renk** | Google Analytics tarzı | Seçilen renk arka plan |
+
+### 4. ✅ "Renk Yok" Seçeneği
+- Renk paletine "Renk Yok" seçeneği eklendi
+- Çapraz kırmızı çizgi ile görsel olarak belirtiliyor
+- Seçildiğinde kart tamamen tema renklerini kullanır
+
+### 5. ✅ Full Renk Modunda Okunabilirlik
+- Tüm metin renkleri beyaz/beyaz-şeffaf olarak ayarlandı
+- Label, value, trend, period bilgileri okunabilir durumda
+
+### 6. ✅ UI Temizliği
+- "İndir" ve "Paylaş" butonları AnalysisPage'den kaldırıldı
+- FilterBar her zaman görünür (tasarım seçildiğinde de)
+
+**Değiştirilen Dosyalar:**
+- `frontend/src/pages/MetricsPage.tsx` - Renk modları, renk yok seçeneği
+- `frontend/src/pages/AnalysisPage.tsx` - Tarih filtresi, renk modları, UI temizliği
+- `frontend/src/pages/DashboardPage.tsx` - Tarih filtresi, renk modları
+- `frontend/src/pages/StoresPage.tsx` - FilterBar eklendi
+- `frontend/src/pages/OperationsPage.tsx` - FilterBar eklendi
+- `frontend/src/pages/FinancePage.tsx` - FilterBar eklendi
+- `frontend/src/stores/filterStore.ts` - "Tüm Zamanlar" preset
+- `frontend/src/stores/dashboardStore.ts` - Tarih parametreleri
+- `services/analytics-service/src/index.ts` - Tarih ve filtre parametreleri
+
+---
+
+## 📅 v4.1.0 - 27 Aralık 2025
+
+**Güvenlik & Self-Healing Güncellemesi**
+
+### Eklenen Özellikler
+
+1. ✅ **2FA (TOTP)** - İki faktörlü doğrulama
+   - `POST /api/auth/2fa/setup` - QR kod oluştur
+   - `POST /api/auth/2fa/verify` - Kodu doğrula ve aktifleştir
+   - `POST /api/auth/2fa/disable` - 2FA'yı kapat
+   - `GET /api/auth/2fa/status` - Durum kontrolü
+
+2. ✅ **IP Whitelist** - Admin panel için IP kısıtlama
+   - `system_settings.admin_ip_whitelist` ayarı
+   - Gateway middleware ile kontrol
+   - `["*"]` = Tümüne izin (varsayılan)
+
+3. ✅ **Password Policy** - Güçlü şifre zorunluluğu
+   - Min 8 karakter, büyük/küçük harf, rakam, özel karakter
+   - `shared/src/security.ts` - validatePassword()
+
+4. ✅ **Session Management** - Aktif oturum yönetimi
+   - `GET /api/auth/sessions` - Aktif oturumları listele
+   - `DELETE /api/auth/sessions/:id` - Tek oturumu sonlandır
+   - `DELETE /api/auth/sessions` - Tüm oturumları sonlandır
+
+5. ✅ **Harita Görselleştirme** - Leaflet entegrasyonu
+   - `frontend/src/components/MapChart.tsx`
+   - Metrik tiplerinde "Harita" seçeneği
+
+6. ✅ **Self-Healing Endpoint'leri** - No-code servis yönetimi
+   - `POST /api/admin/redis/reconnect` - Redis bağlantısını yenile
+   - `POST /api/admin/postgres/reconnect` - PostgreSQL pool yenile
+   - `POST /api/admin/clickhouse/reconnect` - ClickHouse client yenile
+
+### Düzeltmeler
+- Gateway route sıralaması düzeltildi (spesifik route'lar önce)
+- ioredis paketi data-service'e eklendi
+- Sistem Sağlık sayfasındaki "Yeniden Bağlan" butonları artık çalışıyor
+
+---
+
+## 📅 v4.2.0 - 27 Aralık 2025
+
+**Gelişmiş Görselleştirme Widget'ları**
+
+### Yeni Widget Tipleri (5 adet)
+
+| Widget | Açıklama | Kullanım Alanı |
+|--------|----------|----------------|
+| **Combo Chart** | Bar + Line (2 eksenli) | Satış + Kar marjı karşılaştırması |
+| **Scatter Plot** | Dağılım grafiği | Korelasyon analizi |
+| **Treemap** | Hiyerarşik alan grafiği | Kategori ağırlıkları |
+| **Funnel Chart** | Huni grafiği | Satış hunisi, dönüşüm |
+| **Heatmap** | Isı haritası | Yoğunluk analizi, saat/gün |
+
+### Toplam Widget Sayısı: 19
+
+| # | Widget | Kategori |
+|---|--------|----------|
+| 1 | KPI Card | Özet |
+| 2 | Big Number | Özet |
+| 3 | Comparison | Karşılaştırma |
+| 4 | Ranking List | Karşılaştırma |
+| 5 | Progress Bar | Trend |
+| 6 | Gauge | Trend |
+| 7 | Sparkline | Trend |
+| 8 | Trend Card | Trend |
+| 9 | Bar Chart | Grafik |
+| 10 | Line Chart | Grafik |
+| 11 | Area Chart | Grafik |
+| 12 | Pie Chart | Grafik |
+| 13 | Donut Chart | Grafik |
+| 14 | Map Chart | Grafik |
+| 15 | **Combo Chart** | Grafik (YENİ) |
+| 16 | **Scatter Plot** | Grafik (YENİ) |
+| 17 | **Treemap** | Grafik (YENİ) |
+| 18 | **Funnel Chart** | Grafik (YENİ) |
+| 19 | **Heatmap** | Grafik (YENİ) |
+
+### Değiştirilen Dosyalar
+
+- `services/analytics-service/src/index.ts` - 5 yeni visualization type eklendi
+- `frontend/src/pages/AnalysisPage.tsx` - Recharts ComposedChart, ScatterChart, Treemap, FunnelChart import ve render
+- `frontend/src/pages/DashboardPage.tsx` - Aynı widget'ların kokpit sayfası desteği
+- Mevcut hiçbir kod değiştirilmedi, sadece ekleme yapıldı
+
+---
+
+## 📅 v4.3.0 - 27 Aralık 2025
+
+**Drill-Down & Cross-Filter - BI Kritik Özellikler**
+
+### 1. ✅ Drill-Down (Detaya İnme)
+Widget'ta bir değere tıklandığında o değerin detaylarını gösteren modal.
+
+- `POST /metrics/:metricId/drill-down` endpoint'i eklendi
+- Frontend'de Drill-Down Modal implementasyonu
+- Tablo formatında veri gösterimi (max 100 satır)
+- `filterStore.ts`'e drillDown state eklendi
+
+### 2. ✅ Cross-Filter (Widget'lar Arası Filtre)
+Bir widget'ta tıklama yapıldığında diğer widget'ların otomatik filtrelenmesi.
+
+- `filterStore.ts`'e CrossFilter tipi ve state eklendi
+- `addCrossFilter`, `removeCrossFilter`, `clearCrossFilters` action'ları
+- Cross-filter badge'leri (aktif filtreler görünür)
+- Backend'de `_crossFilters` parametresi işleniyor
+- `executeMetric` fonksiyonuna cross-filter desteği eklendi
+
+### Değiştirilen Dosyalar:
+- `frontend/src/stores/filterStore.ts` - CrossFilter, DrillDown state & actions
+- `frontend/src/pages/AnalysisPage.tsx` - Widget onClick, Modal, Badge'ler
+- `services/analytics-service/src/index.ts` - drill-down endpoint, crossFilters işleme
+
+### Kullanım:
+1. **Bar/Pie Chart'ta tıkla** → Cross-filter uygulanır + Drill-down açılır
+2. **Cross-filter badge'ine tıkla** → Filtreyi kaldır
+3. **"Tümünü Temizle"** → Tüm cross-filtreleri sil
+
+---
+
+## 📅 v4.3.1 - 27 Aralık 2025
+
+**Grafik Veri Formatı & UI İyileştirmeleri**
+
+### 1. ✅ Grafik Veri Formatı Düzeltmesi
+- **Sorun**: Pasta/Bar/Line grafiklerinde GROUP BY sonuçları tek dilim olarak görünüyordu
+- **Neden**: Backend `value` içinde array gönderiyordu ama frontend `data` alanını arıyordu
+- **Çözüm**: `MetricResult` interface'ine `data?: any[]` eklendi
+- Backend artık hem `value` hem `data` olarak array gönderiyor
+
+### 2. ✅ Limit (Top N) Özelliği
+- Metrik formuna "Limit (Top N)" dropdown eklendi
+- Seçenekler: Top 5, 10, 20, 50, 100, Limitsiz
+- `chartConfig.limit` olarak kaydediliyor
+- Backend'de `executeMetric` fonksiyonu limit değerini okuyor
+
+### Değiştirilen Dosyalar:
+- `services/analytics-service/src/index.ts`:
+  - `MetricResult` interface'ine `data?: any[]` eklendi
+  - Result oluştururken `data: Array.isArray(value) ? value : undefined` eklendi
+  - LIMIT için `chartConfigParsed?.limit` okunuyor
+- `frontend/src/pages/MetricsPage.tsx`:
+  - `formData.limit` state eklendi
+  - UI'da Limit dropdown eklendi
+  - `chartConfig.limit` kaydediliyor
+  - SQL preview'da limit kullanılıyor
+
+### Test:
+- Pasta grafik oluştur → 5 farklı dilim görünmeli
+- Bar grafik oluştur → Top N kadar bar görünmeli
+
+---
+
+## 📅 v4.3.2 - 27 Aralık 2025
+
+**Cross-Filter Tam Çalışır Hale Getirildi**
+
+### 1. ✅ Cross-Filter Filtreleme Düzeltmesi
+- **Sorun**: Badge ekleniyor ama grafikler filtrelenmiyordu
+- **Neden**: `addCrossFilter` çağrıldığında veriler yeniden yüklenmiyordu
+- **Çözüm**: `addCrossFilter`, `removeCrossFilter`, `clearCrossFilters` sonrası `loadDesignDetail` çağrılıyor
+
+### 2. ✅ Düzeltilen Yerler
+- Pie Chart onClick → `addCrossFilter` + `loadDesignDetail`
+- Bar Chart onClick → `addCrossFilter` + `loadDesignDetail`
+- Badge ✕ onClick → `removeCrossFilter` + `loadDesignDetail`
+- "Tümünü Temizle" onClick → `clearCrossFilters` + `loadDesignDetail`
+
+### 3. ✅ Beklenen Davranış
+| Aksiyon | Sonuç |
+|---------|-------|
+| Çubuğa/Dilime tıkla | Sadece o öğe görünür + Badge eklenir + Drill-Down açılır |
+| Badge ✕ tıkla | Tüm öğeler geri gelir |
+| "Tümünü Temizle" | Tüm öğeler geri gelir |
+
+### Değiştirilen Dosyalar:
+- `frontend/src/pages/AnalysisPage.tsx`:
+  - `handlePieClick` → `loadDesignDetail` eklendi
+  - `handleBarClick` → `loadDesignDetail` eklendi
+  - `removeCrossFilter` onClick → `loadDesignDetail` eklendi
+  - `clearCrossFilters` onClick → `loadDesignDetail` eklendi
+
+---
+
+## 📅 v4.3.3 - 27 Aralık 2025
+
+**Cross-Filter Zustand Subscription Düzeltmesi**
+
+### 1. ✅ Root Cause Bulundu ve Düzeltildi
+- **Sorun**: Grafiğe tıklandığında `addCrossFilter` çağrılıyordu ama `useEffect` tetiklenmiyordu
+- **Neden**: Eski kod çalışıyordu (Vite hot reload sorunu)
+- **Çözüm**: `useEffect` dependency'sine `crossFilters` eklendi, Zustand state güncellemesi düzgün çalışıyor
+
+### 2. ✅ Akış Doğrulandı
+```
+Tıklama → addCrossFilter() → Zustand state güncellenir → 
+useEffect tetiklenir → loadDesignDetail() → API çağrısı → 
+Filtrelenmiş veri döner → Widget'lar güncellenir
+```
+
+### 3. ✅ Test Sonuçları
+| Widget | Filtresiz | Filtreli (product_id=45) |
+|--------|-----------|--------------------------|
+| coreee | 61 | **1** ✅ |
+| combo | 61 | **1** ✅ |
+| ısı | 61 | **1** ✅ |
+| barchart | 61 | **1** ✅ |
+| skalater | 50 | 50 (farklı dataset) |
+| Treemap | 10 | 10 (product_id yok) |
+
+### 4. ✅ Temizlik Yapıldı
+- Debug logları kaldırıldı (🔴, 🟢, 🔥, 📥, 🌐, 📦)
+- Console temiz
+
+---
+
+## 🛠️ UZAKTAN YÖNETİM & HEALTH CHECK
+
+### SSH ile Uzaktan Bağlantı
+
+```bash
+# Müşteri sunucusuna bağlan
+ssh root@musteri-ip-adresi
+
+# Örnek:
+ssh root@185.92.150.42
+```
+
+### Health Check Script
+
+Tüm servislerin durumunu tek komutla kontrol et:
+
+```bash
+./scripts/health-check.sh
+```
+
+**Kontrol Edilen Servisler:**
+| Kategori | Servisler |
+|----------|-----------|
+| Docker Containers | PostgreSQL, ClickHouse, Redis |
+| Backend Servisleri | Gateway (4000), Auth (4001), Core (4002), Data (4003), Notification (4004), Analytics (4005) |
+| API Health | /health endpoint'leri |
+| Frontend | Vite (3000) |
+| DB Bağlantıları | PostgreSQL, ClickHouse, Redis ping |
+
+**Örnek Çıktı:**
+```
+📦 DOCKER CONTAINERS
+  ✅ PostgreSQL ÇALIŞIYOR
+  ✅ ClickHouse ÇALIŞIYOR
+  ✅ Redis ÇALIŞIYOR
+
+🔧 BACKEND SERVİSLERİ
+  ✅ API Gateway (Port 4000) AÇIK
+  ✅ Auth Service (Port 4001) AÇIK
+  ...
+
+📊 ÖZET
+  ✅ Başarılı: 18
+  ❌ Başarısız: 0
+  🎉 TÜM SİSTEMLER ÇALIŞIYOR!
+```
+
+### Diğer Yönetim Scriptleri
+
+| Script | Açıklama |
+|--------|----------|
+| `./scripts/start-all.sh` | Tüm servisleri başlat |
+| `./scripts/stop-all.sh` | Tüm servisleri durdur |
+| `./scripts/health-check.sh` | Sistem sağlık kontrolü |
+| `docker logs <container>` | Container loglarını gör |
+
+### Hata Durumunda
+
+```bash
+# 1. Hangi servis çalışmıyor?
+./scripts/health-check.sh
+
+# 2. O servisin loguna bak
+docker logs clixer_auth --tail 100
+
+# 3. Servisi yeniden başlat
+docker-compose restart auth-service
+
+# 4. Tüm sistemi yeniden başlat
+./scripts/stop-all.sh && ./scripts/start-all.sh
+```
+
+---
+
+## 📅 v5.3.0 - 30 Aralık 2025
+
+**✅ Rol vs Pozisyon Ayrımı & Profil Yönetimi**
+
+### 1. ROL ve POZİSYON AYRIMI
+
+| Kavram | Amaç | Örnek |
+|--------|------|-------|
+| **Rol (role)** | Sistem yetkileri, menü erişimi | ADMIN, MANAGER, USER, VIEWER |
+| **Pozisyon (position)** | Veri erişimi (RLS), organizasyon yapısı | GENERAL_MANAGER, REGIONAL_MANAGER, STORE_MANAGER |
+
+**Kritik Kural:** `ADMIN` rolündeki kullanıcılar pozisyon bazlı menü kısıtlamalarından **MUAFtır**.
+
+### 2. ADMIN ROL BYPASS
+
+`frontend/src/stores/settingsStore.ts` - `canViewMenu` fonksiyonu:
+```typescript
+canViewMenu: (menuKey: string) => {
+  const user = useAuthStore.getState().user
+  if (user?.role === 'ADMIN') return true  // ← ADMIN her şeyi görür
+  // ... pozisyon bazlı kontrol
+}
+```
+
+### 3. SİSTEM ROLÜ DROPDOWN
+
+Admin Panel → Kullanıcılar → Düzenle'de "Sistem Rolü" dropdown eklendi:
+- ADMIN: Tüm yetkiler, tüm menüler
+- MANAGER: Yönetici yetkileri
+- USER: Standart kullanıcı
+- VIEWER: Sadece görüntüleme
+
+### 4. PROFİL SAYFASI GÜNCELLEMELERİ
+
+| Özellik | Durum | Açıklama |
+|---------|-------|----------|
+| Ad Soyad düzenleme | ✅ | Profil → Düzenle → Kaydet |
+| Email düzenleme | ✅ | Profil → Düzenle → Kaydet (yeni email ile login gerekir) |
+| Şifre değiştirme | ✅ | Güvenlik sekmesi → Mevcut/Yeni şifre |
+| 2FA aktivasyon | ✅ | Güvenlik sekmesi → QR kod → Doğrulama kodu |
+
+### 5. EMAİL DEĞİŞTİRME
+
+Backend: `services/core-service/src/index.ts` - PUT /users/:id
+- Email değişikliği varsa duplicate kontrolü yapılır
+- Küçük harfe dönüştürülür ve trim edilir
+- Başarılı olursa authStore güncellenir
+
+### 6. ŞİFRE DEĞİŞTİRME
+
+Backend: `services/auth-service/src/index.ts` - POST /change-password
+- Mevcut şifre doğrulanır
+- Yeni şifre policy kontrolünden geçer
+- bcrypt ile hashlenir
+
+### 7. 2FA (TOTP)
+
+Backend: `services/auth-service/src/index.ts`
+- POST /2fa/setup: QR kod ve secret oluşturur
+- POST /2fa/verify: Kodu doğrular, 2FA aktifleştirir
+- POST /2fa/disable: 2FA kapatır
+
+### DEĞİŞTİRİLEN DOSYALAR
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `frontend/src/stores/settingsStore.ts` | ADMIN rol bypass |
+| `frontend/src/stores/authStore.ts` | setUser action eklendi |
+| `frontend/src/pages/AdminPage.tsx` | Sistem Rolü dropdown |
+| `frontend/src/pages/ProfilePage.tsx` | Ad, Email düzenleme + Şifre + 2FA UI |
+| `services/core-service/src/index.ts` | Email güncelleme desteği |
+| `services/auth-service/src/index.ts` | Şifre değiştirme, 2FA endpoint'leri |
+| `shared/src/index.ts` | validatePassword export düzeltmesi |
+
+### MEVCUT ADMIN BİLGİLERİ
+
+| Alan | Değer |
+|------|-------|
+| Email | `admin@clixer` |
+| Şifre | `Admin123!` |
+| Rol | ADMIN |
+| Pozisyon | GENERAL_MANAGER |
+
+---
+
+## 📅 v5.2.6 - 29 Aralık 2025
+
+**✅ Widget Responsive Düzeltmeleri**
+
+### 1. Sparkline & Trend Card Taşma Sorunu Çözüldü
+- `min-h-0` eklendi (flexbox shrink için kritik)
+- `max-h-16` ile grafik maksimum yüksekliği sınırlandırıldı
+- `overflow-hidden` hem container hem grafik div'ine eklendi
+- Üst kısım `flex-shrink-0` ile sabitlendi
+
+### 2. Sayfa Boyutu Değişince Crash Önlendi
+- Debounce süresi 150ms → 300ms'ye artırıldı
+- `isUnmounted` flag eklendi - component unmount olduysa state güncelleme engellendi
+
+### 3. Font Boyutları Tutarlı Hale Getirildi
+
+| Widget | Önceki | Sonraki |
+|--------|--------|---------|
+| İlerleme - Ana Değer | `text-3xl` | `text-2xl` |
+| Gösterge - Ana Değer | `text-3xl` | `text-2xl` |
+| Gösterge - Yüzde | `text-2xl` | `text-xl` |
+| Gösterge - SVG | `w-24 h-14` | `w-20 h-12` |
+| Sparkline - Değer | `text-3xl` | `text-2xl` |
+| Trend Card - Değer | `text-3xl` | `text-2xl` |
+
+### 4. Widget Layout Yapısı (STANDART)
+
+```jsx
+// Sparkline, Trend Card için DOĞRU yapı
+<div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+  {/* Üst: Değer + Trend - Sabit */}
+  <div className="flex-shrink-0">
+    <p className="text-2xl font-bold">₺170</p>
+    <div className="flex items-center gap-2 mt-1">
+      <span className="badge">↗ +69.8%</span>
+      <span className="text-xs">Son 30 gün</span>
+    </div>
+  </div>
+  
+  {/* Alt: Grafik - Taşmaz */}
+  <div className="flex-1 min-h-0 mt-2 max-h-16 overflow-hidden">
+    <Sparklines data={...} margin={4} height={64} style={{ width: '100%', height: '100%' }} />
+  </div>
+</div>
+```
+
+### 5. Kritik CSS Kuralları
+
+| Kural | Açıklama |
+|-------|----------|
+| `min-h-0` | Flexbox'ta shrink çalışması için ZORUNLU |
+| `flex-shrink-0` | Sabit yükseklikli elemanlar için |
+| `max-h-16` | Grafik taşmasını önler |
+| `overflow-hidden` | Taşan içerik kesilir |
+
+**Etkilenen Dosyalar:**
+- `frontend/src/pages/AnalysisPage.tsx`
+- `frontend/src/pages/DashboardPage.tsx`
+
+---
+
+## 📦 SON BACKUP
+
+- **Versiyon**: v5.3.0
+- **Tarih**: 30 Aralık 2025
+- **Konum**: `backups/v5.3.0_role_profile_YYYYMMDD_HHMMSS/`
+- **İçerik**: 
+  - Kod: frontend, services, shared, gateway
+  - PostgreSQL dump (DATA DAHİL)
+  - ClickHouse schema
+  - MSSQL data
+  - .cursorrules
+
+---
+
+## 📅 v5.2.5 - 29 Aralık 2025
+
+**✅ Sıralama Listesi Otomatik Trend Hesaplama**
+
+### Yapılan Değişiklikler
+
+1. ✅ **Otomatik Trend Hesaplama aktif edildi**
+   - `analytics-service`'de `TODO: Otomatik trend hesaplama şimdilik devre dışı` kaldırıldı
+   - MoM (Month-over-Month) trend hesaplaması çalışıyor
+
+2. ✅ **Bug Fix'ler**
+   - `chartConfig` → `rankingChartConfig` değişken adı düzeltildi
+   - Aggregate kolon regex'i iyileştirildi (`as value` alias'ı öncelikli)
+   - `tableName` artık `metric.clickhouse_table`'dan okunuyor (regex yerine)
+   - `metadata.trendSource` override sorunu düzeltildi
+
+3. ✅ **Gateway Security Fix**
+   - `/metrics/:id/execute` endpoint'i için `execute` keyword'ü güvenlik filtresinden çıkarıldı
+   - `suspiciousPatterns` regex'i güncellendi
+
+### Test Sonuçları (10M satır - TEKSTIL_SATIS)
+
+| Ürün ID | Değer | Trend |
+|---------|-------|-------|
+| 1334 | ₺50K | ↗ 141.5% |
+| 2793 | ₺49K | ↗ 168.9% |
+| 3979 | ₺49K | ↗ 73.4% |
+| 3509 | ₺49K | ↗ 87.7% |
+
+### Kullanım
+
+Metrik oluşturulurken "Otomatik Trend Hesapla" seçeneği açıksa:
+1. Backend geçen ayın aynı gününe ait verileri çeker
+2. `(current - previous) / previous * 100` formülü ile trend hesaplanır
+3. Pozitif → Yeşil ↗, Negatif → Kırmızı ↘
+
+### Değiştirilen Dosyalar
+
+- `services/analytics-service/src/index.ts` - Trend hesaplama aktif ve düzeltildi
+- `gateway/src/index.ts` - Security filter güncellendi
+
+---
+
+## 🔴 BİLİNEN SORUNLAR (v4.3.4)
+
+### Cross-Filter Frontend Render Sorunu
+
+**Durum:** ⚠️ Kısmen çalışıyor
+
+**Çalışan:**
+- Backend crossFilters parametresini alıyor ✅
+- SQL'e WHERE koşulu ekleniyor ✅
+- API doğru filtrelenmiş veri dönüyor ✅ (curl ile test edildi)
+
+**Çalışmayan:**
+- Frontend'de grafikler filtrelenmiş veriyi göstermiyor ❌
+- React state güncellenmiyor veya re-render olmuyor ❌
+
+**Denenenler:**
+1. AbortController (race condition önleme)
+2. Cache bypass (crossFilters aktifken cache okumama)
+3. useEffect dependency array düzeltmeleri
+4. Debug logları ile state takibi
+
+**Sonraki Adımlar:**
+- React DevTools ile state değişikliklerini izle
+- designWidgets state'inin gerçekten güncellenip güncellenmediğini kontrol et
+- Belki Zustand yerine useState ile test et
+
+---
+
+## 📅 VERSİYON GEÇMİŞİ (Güncel)
+
+| Tarih | Versiyon | Açıklama |
+|-------|----------|----------|
+| 2025-12-30 | **v5.3.0** | **✅ Rol vs Pozisyon Ayrımı, Profil Yönetimi, 2FA, Email Değiştirme** |
+| 2025-12-29 | v5.2.6 | Widget Responsive Düzeltmeleri - Sparkline, Gauge, Progress Stabil |
+| 2025-12-29 | v5.2.5 | Sıralama Listesi Otomatik Trend Hesaplama - 10M Satıra Kadar Çalışıyor |
+| 2025-12-29 | v5.2.4 | RLS Tip Uyumluluk Düzeltmesi - Dashboard Veri Görünümü Çalışıyor |
+| 2025-12-29 | v5.2.3 | ETL Sync Stratejileri Stabil - Full, ID-Based, Date Delete Çalışıyor |
+| 2025-12-28 | v5.2.2 | ETL Sync Tam Çalışır - ID-Based Cursor, MySQL Inline Query |
+| 2025-12-28 | v5.2.1 | Dataset LIMIT Yönetimi - Initial 10, Sync Full |
+| 2025-12-28 | v5.2.0 | Kapsamlı Tip Mapping & Multi-DB Desteği |
+| 2025-12-28 | v5.1.0 | Self-Healing ETL & Tip Dönüşüm İyileştirmeleri |
+| 2025-12-28 | v5.0.0 | 🚀 ENTERPRISE READY - Production Version |
+| 2025-12-28 | v4.8.0 | No-Code Cache Yönetimi - Admin Panel Performans Ayarları |
+| 2025-12-28 | v4.7.0 | Production Ready - TypeScript Temizliği & Build Optimizasyonu |
+| 2025-12-28 | v4.6.0 | Performans Danışmanı - Veritabanı Optimizasyon Önerileri |
+| 2025-12-27 | v4.5.2 | Ranking List 4-Kolon, Otomatik Trend (disabled), Gradient UI |
+| 2025-12-27 | v4.3.4 | Cross-Filter backend çalışıyor, frontend sorunu devam ediyor |
+| 2025-12-27 | v4.3.0 | Drill-Down & Cross-Filter implementasyonu |
+| 2025-12-27 | v4.2.0 | 5 yeni widget (Combo, Scatter, Treemap, Funnel, Heatmap) |
+| 2025-12-27 | v4.1.0 | 2FA, IP Whitelist, Session Management |
+| 2025-12-27 | v4.0.0 | Tarih Filtresi & UI İyileştirmeleri |
+
+---
+
+## 📅 v5.0.0 - 28 Aralık 2025
+
+**🚀 ENTERPRISE READY - Production Version**
+
+### Bu Sürümde Neler Var?
+
+| Kategori | Özellikler |
+|----------|------------|
+| **Widget** | 19 tip (KPI, Grafik, Harita, Combo, Treemap, Funnel, Heatmap, Scatter, vb.) |
+| **BI Özellikleri** | Drill-Down, Cross-Filter (backend çalışıyor) |
+| **Güvenlik** | RLS, 2FA, IP Whitelist, Password Policy, Session Management |
+| **Performans** | No-Code Cache Yönetimi, Performans Danışmanı, ClickHouse OPTIMIZE |
+| **UI/UX** | 5 Tema, Gradient Sidebar, Responsive, Glassmorphism |
+| **ETL** | Streaming, ID-Based Sync, Progress Bar, Stuck Job Detection |
+| **Veritabanı** | PostgreSQL OLTP + ClickHouse OLAP + Redis Cache |
+
+### Kapasiteler
+
+| Metrik | Değer |
+|--------|-------|
+| Eşzamanlı Kullanıcı | 400+ |
+| ClickHouse Satır | 100M+ |
+| Dashboard Yüklenme | <500ms (cache'li) |
+| Widget Sayısı | 19 |
+| Tema Sayısı | 5 |
+
+### Yedekleme
+
+- **Backup**: `backups/v5.0.0_enterprise_ready_20251228_192423/`
+- **Boyut**: 1.3 GB
+- **İçerik**: Frontend, Services, Shared, Gateway, Docker, Scripts, PostgreSQL, ClickHouse schema, Redis keys
+
+---
+
+## 📅 v4.8.0 - 28 Aralık 2025
+
+**No-Code Cache Yönetimi - Admin Panel Performans Ayarları**
+
+### Yeni Özellikler
+
+1. ✅ **Admin Panel → Performans Sekmesi**
+   - Cache aktif/pasif toggle
+   - Redis bellek limiti seçimi (512MB - 8GB)
+   - Eviction politikası seçimi (LRU, LFU, TTL)
+   - Cache temizleme butonları (Tüm, Dashboard, Metrikler)
+
+2. ✅ **Cache TTL Ayarları (Parametrik)**
+   - Dashboard cache süresi (1dk - 1saat)
+   - KPI kartları cache süresi (1dk - 15dk)
+   - Grafik cache süresi (5dk - 1saat)
+   - Tablo cache süresi (15dk - 2saat)
+
+3. ✅ **ETL Sonrası Cache Invalidation**
+   - Otomatik cache temizleme toggle
+   - ETL tamamlandığında ilgili cache silinir
+
+4. ✅ **Redis İstatistikleri (Real-time)**
+   - Kullanılan bellek
+   - Toplam key sayısı
+   - Hit rate (%)
+   - Uptime
+
+5. ✅ **Backend API Endpoint'leri**
+   - `GET /data/performance/redis` - Redis bilgileri
+   - `POST /data/cache/clear` - Cache temizle
+
+6. ✅ **ClickHouse OPTIMIZE**
+   - Part sayısı azaltıldı (verimlilik artışı)
+   - 47M satırlık tablo: 4 part → 1 part
+
+### system_settings'e Eklenen Ayarlar
+
+| Key | Açıklama | Varsayılan |
+|-----|----------|------------|
+| cache_enabled | Cache aktif/pasif | true |
+| cache_redis_max_memory | Redis bellek limiti | 2gb |
+| cache_redis_policy | Eviction politikası | allkeys-lru |
+| cache_dashboard_ttl | Dashboard cache süresi | 900 (15dk) |
+| cache_kpi_ttl | KPI cache süresi | 300 (5dk) |
+| cache_chart_ttl | Grafik cache süresi | 900 (15dk) |
+| cache_table_ttl | Tablo cache süresi | 1800 (30dk) |
+| cache_invalidate_on_etl | ETL sonrası temizle | true |
+
+### Yedekleme
+
+- **Backup**: `backups/v4.8.0_performance_ui_20251228_182759/`
+- **İçerik**: Frontend, Services, Shared, PostgreSQL dump
+
+---
+
+## 📅 v4.7.0 - 28 Aralık 2025
+
+**Production Ready - TypeScript Temizliği & Build Optimizasyonu**
+
+### Düzeltilen Hatalar (69 → 0)
+
+1. ✅ **Tema Property'leri Eklendi**
+   - Tüm temalara `border` property'si eklendi (light, dark, corporate, midnight, ember)
+   - `inputBorder` eksik olan temalara (light, dark) eklendi
+
+2. ✅ **Vite TypeScript Desteği**
+   - `vite-env.d.ts` dosyası oluşturuldu
+   - `ImportMeta.env` tipi tanımlandı
+
+3. ✅ **DashboardPage.tsx Düzeltmeleri**
+   - `widgetColor` tanımsız değişken hatası → `CHART_COLORS[0]` ile değiştirildi
+   - React UMD global hatası → `import React` eklendi
+
+4. ✅ **AdminPage.tsx Düzeltmeleri**
+   - `filter_value` eksik property → userForm state'ine eklendi
+   - Duplicate property hatası düzeltildi
+
+5. ✅ **DataPage.tsx Düzeltmeleri**
+   - `partition_column` → Dataset interface'ine eklendi
+   - `api_auth_config` → Connection interface'ine eklendi
+   - Tip karşılaştırma sorunları → Connection type genişletildi
+
+### Production Build
+
+- ✅ TypeScript: 0 hata
+- ✅ Vite build: Başarılı (2.53s)
+- ✅ Bundle size: 1.32 MB (gzip: 335 KB)
+
+### Yedekleme
+
+- **Backup**: `backups/v4.7.0_production_ready_20251228_180021/`
+- **İçerik**: Frontend, Services, Shared, Gateway, PostgreSQL dump
+
+---
+
+## 📅 v4.6.0 - 28 Aralık 2025
+
+**Performans Danışmanı - Self-Service Veritabanı Optimizasyonu**
+
+### Yeni Özellikler
+
+1. ✅ **Veri Bağlantıları → Performans Danışmanı Tabı**
+   - Yeni "Performans Danışmanı" tabı eklendi (DataPage)
+   - PostgreSQL, ClickHouse, Müşteri DB'leri için analiz
+
+2. ✅ **PostgreSQL Analizi**
+   - Kullanılmayan index'lerin listesi ve silme butonu
+   - Dead tuple tespiti ve VACUUM butonu
+   - Seq scan fazla olan tablolar (index eksik uyarısı)
+   - Bağlantı durumu (aktif/max)
+   - Veritabanı boyutu
+
+3. ✅ **ClickHouse Analizi**
+   - Tablo boyutları ve part sayısı
+   - OPTIMIZE gerekli tablolar
+   - Yavaş sorgular (son 24 saat, >3s)
+   - "Tümünü Optimize Et" butonu
+   - Partition dağılımı
+
+4. ✅ **ETL Performans Analizi**
+   - Dataset bazlı sync süreleri
+   - Başarı/başarısızlık oranları
+   - Sık karşılaşılan hata patternleri
+   - Toplam işlenen satır sayısı
+
+5. ✅ **Müşteri Veri Kaynakları**
+   - MSSQL: Missing index önerileri (SQL Server'ın kendi önerdiği)
+   - MSSQL: Fragmented index tespiti
+   - MySQL: Tablo boyutları ve index durumu
+   - PostgreSQL (uzak): Index ve vacuum analizi
+   - Her bağlantı için "Analiz Et" butonu
+
+### API Endpoint'leri
+
+| Endpoint | Metod | Açıklama |
+|----------|-------|----------|
+| `/data/performance/postgres` | GET | PostgreSQL analizi |
+| `/data/performance/postgres/vacuum/:table` | POST | VACUUM çalıştır |
+| `/data/performance/postgres/index/:name` | DELETE | Index sil |
+| `/data/performance/clickhouse` | GET | ClickHouse analizi |
+| `/data/performance/clickhouse/optimize-all` | POST | Tüm tabloları optimize et |
+| `/data/performance/connections/:id` | GET | Müşteri DB analizi |
+| `/data/performance/etl` | GET | ETL performans analizi |
+
+### Değiştirilen Dosyalar
+
+- `services/data-service/src/index.ts` - 7 yeni endpoint
+- `frontend/src/pages/DataPage.tsx` - Performans Danışmanı UI
+
+### Rakip Karşılaştırması
+
+| Özellik | Clixer | Power BI | Tableau | Qlik |
+|---------|--------|----------|---------|------|
+| Sistem performans monitörü | ✅ | ❌ | ❌ | ❌ |
+| Müşteri DB index analizi | ✅ | ❌ | ❌ | ❌ |
+| Otomatik optimize önerileri | ✅ | ❌ | ❌ | ❌ |
+| No-code index yönetimi | ✅ | ❌ | ❌ | ❌ |
+
+### Yedekleme
+
+- **Backup**: `backups/v4.6.0_performance_advisor_20251228_172338/`
+- **İçerik**: Frontend, Services, Shared, PostgreSQL dump
+
+---
+
+## 🔴 KRİTİK: BACKUP VE VERİ KORUMA KURALLARI
+
+### 📦 BACKUP KURALLARI (HER ZAMAN DATA DAHİL!)
+
+**Backup alırken SADECE şema değil, VERİLER de dahil edilmeli:**
+
+```bash
+# ✅ DOĞRU BACKUP KOMUTU
+BACKUP_DIR="backups/vX.X.X_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+# 1. Kod backup
+cp -r frontend services shared gateway scripts .cursorrules .env "$BACKUP_DIR/"
+
+# 2. PostgreSQL (DATA DAHİL!)
+docker exec clixer_postgres pg_dump -U clixer -d clixer --no-owner > "$BACKUP_DIR/postgresql_full.sql"
+
+# 3. ClickHouse schema + tablo bilgileri
+mkdir -p "$BACKUP_DIR/clickhouse"
+curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025" \
+  --data "SELECT name, total_rows FROM system.tables WHERE database='clixer_analytics'" \
+  > "$BACKUP_DIR/clickhouse/tables_info.txt"
+
+# 4. Redis keys
+docker exec clixer_redis redis-cli KEYS "*" > "$BACKUP_DIR/redis_keys.txt"
+```
+
+**Backup İçeriği Kontrol Listesi:**
+| Bileşen | Dahil mi? | Kontrol |
+|---------|-----------|---------|
+| Kod (frontend, services, shared) | ✅ | `ls $BACKUP_DIR/frontend` |
+| PostgreSQL DATA | ✅ | `wc -l postgresql_full.sql` > 1000 satır |
+| ClickHouse schema | ✅ | `ls clickhouse/*.sql` |
+| .cursorrules | ✅ | Dokümantasyon |
+| .env | ✅ | Şifreler |
+
+---
+
+### ASLA YAPMA - VERİ KAYBI OLUR!
+
+```bash
+# ❌ ASLA ÇALIŞTIRMA - TÜM VERİLER SİLİNİR!
+docker volume rm docker_postgres_data
+docker volume rm docker_clickhouse_data
+docker volume rm docker_redis_data
+
+# ❌ ASLA YAPMA
+docker-compose down -v  # -v flag'i volume'ları siler!
+```
+
+### ✅ RESTART SONRASI BAŞLATMA PROSEDÜRÜ
+
+```bash
+# 1. Docker container'ları kontrol et
+docker ps
+
+# 2. Container'lar çalışmıyorsa başlat
+cd /Users/cihanadar/Downloads/clixer/docker
+docker-compose up -d
+
+# 3. Servisleri başlat
+./scripts/start-all.sh
+
+# 4. Test MySQL container (opsiyonel)
+docker-compose -f docker-compose.test.yml up -d test-mysql
+```
+
+### 📋 VERİTABANI ŞİFRELERİ
+
+| Veritabanı | Host | Port | User | Password |
+|------------|------|------|------|----------|
+| **PostgreSQL (Clixer)** | localhost | 5432 | clixer | clixer_secret_2025 |
+| **ClickHouse** | localhost | 8123 | clixer | clixer_click_2025 |
+| **Redis** | localhost | 6379 | - | - |
+| **MySQL Test** | localhost | 3307 | testuser | TestPassword123! |
+| **MySQL Root** | localhost | 3307 | root | TestPassword123! |
+
+### 📋 TEST VERİTABANLARI
+
+| Veritabanı | İçerik | Kayıt |
+|------------|--------|-------|
+| `pa_clixer` (PostgreSQL) | 9M Satış, Mağazalar, Ürünler | 9M+ |
+| `test_university` (MySQL) | Öğrenci, Fatura, Fakülte | 50K öğrenci, 50K fatura |
+| `test_erp` (MySQL) | ERP test verileri | Değişken |
+
+### 🔧 MySQL TÜRKÇE KARAKTER KURALI
+
+MySQL bağlantısı ve tablo oluşturma sırasında **ZORUNLU**:
+
+```sql
+-- Veritabanı oluşturma
+CREATE DATABASE dbname CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Tablo oluşturma
+CREATE TABLE tablo (...) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Sorgu öncesi
+SET NAMES utf8mb4;
+```
+
+```javascript
+// Node.js MySQL bağlantısı
+{
+  charset: 'utf8mb4',
+  // veya
+  // --default-character-set=utf8mb4 (CLI)
+}
+```
+
+### 🔧 KAPSAMLI TİP DÖNÜŞÜM KURALLARI (ZORUNLU)
+
+**PostgreSQL, MySQL, SQL Server (MSSQL), Oracle → ClickHouse dönüşümü:**
+
+#### INTEGER TİPLERİ
+| Kaynak Tip | ClickHouse Tip | Kaynak DB |
+|------------|----------------|-----------|
+| int, int4, integer | Int32 | PostgreSQL, MySQL, MSSQL |
+| int2, smallint | Int16 | PostgreSQL, MySQL, MSSQL |
+| int8, bigint | Int64 | PostgreSQL, MySQL, MSSQL |
+| tinyint | Int8 | MySQL, MSSQL |
+| mediumint | Int32 | MySQL |
+| serial, bigserial, smallserial | Int32/Int64/Int16 | PostgreSQL |
+| oid | UInt32 | PostgreSQL |
+| year | Int16 | MySQL |
+| number, pls_integer, binary_integer | Float64/Int32 | Oracle |
+
+#### FLOAT TİPLERİ
+| Kaynak Tip | ClickHouse Tip | Kaynak DB |
+|------------|----------------|-----------|
+| float, float8, double, double precision | Float64 | Tümü |
+| float4, real | Float32 | PostgreSQL |
+| decimal, numeric, money | Float64 | Tümü |
+| **newdecimal** | **Float64** | **MySQL (internal type 246)** |
+| smallmoney | Float64 | MSSQL |
+| binary_float | Float32 | Oracle |
+| binary_double | Float64 | Oracle |
+
+#### STRING TİPLERİ
+| Kaynak Tip | ClickHouse Tip | Kaynak DB |
+|------------|----------------|-----------|
+| text, varchar, char | String | Tümü |
+| character varying, character, bpchar | String | PostgreSQL |
+| name, uuid, json, jsonb, xml | String | PostgreSQL |
+| citext, inet, cidr, macaddr | String | PostgreSQL |
+| tinytext, mediumtext, longtext | String | MySQL |
+| enum, set | String | MySQL |
+| nvarchar, nchar, ntext | String | MSSQL |
+| uniqueidentifier, sql_variant, sysname | String | MSSQL |
+| varchar2, nvarchar2, clob, nclob, long, rowid | String | Oracle |
+
+#### TARİH/ZAMAN TİPLERİ
+| Kaynak Tip | ClickHouse Tip | Kaynak DB |
+|------------|----------------|-----------|
+| date | Date | Tümü |
+| newdate | Date | MySQL |
+| time, timetz, interval | String | PostgreSQL |
+| timestamp, timestamptz | DateTime | PostgreSQL |
+| timestamp without/with time zone | DateTime | PostgreSQL |
+| datetime | DateTime | MySQL, MSSQL |
+| datetime2, smalldatetime, datetimeoffset | DateTime | MSSQL |
+| timestamp with local time zone | DateTime | Oracle |
+
+#### BOOLEAN TİPLERİ
+| Kaynak Tip | ClickHouse Tip | Kaynak DB |
+|------------|----------------|-----------|
+| boolean, bool | UInt8 | PostgreSQL, MySQL |
+| bit | UInt8 | MSSQL |
+
+#### BINARY TİPLERİ
+| Kaynak Tip | ClickHouse Tip | Kaynak DB |
+|------------|----------------|-----------|
+| bytea | String | PostgreSQL |
+| blob, tinyblob, mediumblob, longblob | String | MySQL |
+| binary, varbinary | String | MySQL, MSSQL |
+| image | String | MSSQL |
+| raw, long raw, bfile | String | Oracle |
+
+#### GEOMETRY TİPLERİ
+| Kaynak Tip | ClickHouse Tip | Kaynak DB |
+|------------|----------------|-----------|
+| geometry, geography | String | MSSQL, PostgreSQL |
+| point, linestring, polygon | String | MySQL, PostgreSQL |
+
+### 🔧 SAYISAL KOLON OTOMATİK ALGILAMA
+
+Kolon adında aşağıdaki kelimeler geçiyorsa → **Float64** olarak tanımla:
+
+```javascript
+const numericPatterns = [
+  'amount', 'tutar', 'price', 'fiyat', 'total', 'toplam', 
+  'adet', 'quantity', 'miktar', 'indirim', 'discount', 
+  'brut', 'net', 'gross', 'ucret', 'maas', 'salary', 'fee',
+  'cost', 'maliyet', 'borc', 'alacak', 'bakiye', 'balance'
+];
+```
+
+### 🔧 UNIQUE KOLON ALGILA (Türkçe Dahil)
+
+```javascript
+const uniqueCandidates = [
+  'id', 'code', 'kod',  // ← Türkçe 'kod' eklendi
+  'uuid', 'pk', 'primary_key', '_id', 'key', 'unique_id',
+  'magaza_kodu', 'store_code'  // ← Özel kolonlar
+];
+```
+
+### 🔧 POSTGRESQL OID → TİP ADI DÖNÜŞÜMÜ
+
+```javascript
+const pgTypeMap: Record<number, string> = {
+  16: 'bool', 20: 'int8', 21: 'int2', 23: 'int4', 25: 'text',
+  700: 'float4', 701: 'float8', 1042: 'char', 1043: 'varchar',
+  1082: 'date', 1114: 'timestamp', 1184: 'timestamptz', 1700: 'numeric'
+};
+```
+
+### 🔧 MYSQL TYPE ID → TİP ADI DÖNÜŞÜMÜ
+
+```javascript
+const mysqlTypeMap: Record<number, string> = {
+  0: 'decimal', 1: 'tinyint', 2: 'smallint', 3: 'int', 4: 'float', 5: 'double',
+  6: 'null', 7: 'timestamp', 8: 'bigint', 9: 'mediumint', 10: 'date', 11: 'time',
+  12: 'datetime', 13: 'year', 14: 'newdate', 15: 'varchar', 16: 'bit',
+  245: 'json', 246: 'newdecimal', 247: 'enum', 248: 'set', 249: 'tinyblob',
+  250: 'mediumblob', 251: 'longblob', 252: 'blob', 253: 'varchar', 254: 'char',
+  255: 'geometry'
+};
+```
+
+### 🔧 TİP DÖNÜŞÜM UYGULANMA YERLERİ
+
+| Dosya | Değişken/Fonksiyon | Amaç |
+|-------|-------------------|------|
+| `frontend/src/pages/DataPage.tsx` | `SQL_TO_CLICKHOUSE_TYPE` | UI'da tip önizleme |
+| `services/data-service/src/index.ts` | `SQL_TO_CLICKHOUSE_TYPE` | API endpoint'lerde tip dönüşüm |
+| `services/etl-worker/src/index.ts` | `SQL_TO_CLICKHOUSE_TYPE` + `mapSourceTypeToClickHouse()` | ETL sırasında tablo oluşturma |
+| `services/data-service/src/index.ts` | `pgTypeMap` | PostgreSQL OID → Tip Adı |
+| `services/data-service/src/index.ts` | `mysqlTypeMap` | MySQL Type ID → Tip Adı |
+
+---
+
+## 🔄 DATASET OLUŞTURMA & SYNC AKIŞI
+
+### 🔴 MUTLAK KURAL: KAYNAK NE OLURSA OLSUN MANTIK AYNI!
+
+**PostgreSQL, MySQL, MSSQL, Oracle, API** - Fark etmez. Akış her zaman:
+
+```
+AŞAMA 1: DATASET OLUŞTURMA (UI'dan)
+┌─────────────────────────────────────────────────────────────┐
+│ SQL Editör → SELECT * FROM faturalar LIMIT 10               │
+│              ↓                                               │
+│ Çalıştır → 10 satır + kolon tipleri görüntülenir            │
+│              ↓                                               │
+│ Dataset Oluştur → source_query LIMIT dahil kaydedilir       │
+│              ↓                                               │
+│ ClickHouse → BOŞ TABLO oluşturulur (VERİ YOK!)              │
+│              ↓                                               │
+│ ⚠️ initial_sync TETİKLENMEZ! Kullanıcı bekler...           │
+└─────────────────────────────────────────────────────────────┘
+
+AŞAMA 2: MANUEL SYNC (Kullanıcı Butona Basar)
+┌─────────────────────────────────────────────────────────────┐
+│ Kullanıcı → "▶ Sync Başlat" butonuna basar                  │
+│              ↓                                               │
+│ ETL Worker → source_query'den LIMIT/TOP KALDIRILIR          │
+│              ↓                                               │
+│ Full Refresh → TRUNCATE + TÜM veri çekilir                  │
+│ ID-Based → Cursor/Pagination (5000'erlik batch)             │
+│ Timestamp → Son değişenler                                   │
+│              ↓                                               │
+│ row_limit varsa uygulanır (örn: 10M satır)                  │
+│              ↓                                               │
+│ ClickHouse'a streaming yazılır                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Neden Bu Kurgu?
+
+1. **50M satırlık tablo olabilir** - Direkt TÜM veriyi çekmek tehlikeli
+2. **Tip uyumsuzluğu olabilir** - 50M satır çektikten sonra hata vermesi felaket
+3. **LIMIT 10 ile önce test** - Tipler uyumlu mu, INSERT çalışıyor mu?
+4. **Sonra Full Refresh** - Sorun yoksa TÜM veriyi çek
+
+### ❗ KRİTİK: İLK OLUŞTURMA vs SYNC (v5.2.1 - 28 Aralık 2025)
+
+**1. Dataset Oluşturma (İlk Adım) - SADECE TABLO OLUŞTUR:**
+- `source_query` LIMIT DAHİL kaydedilir (örn: `SELECT * FROM faturalar LIMIT 10`)
+- ClickHouse'da BOŞ tablo oluşturulur (kolon tipleri belirlenir)
+- ⚠️ **VERİ YAZILMAZ!** `initial_sync` TETİKLENMEZ!
+- Kullanıcı kolonları ve tipleri UI'da görür
+
+**2. Manuel Sync (Kullanıcı Butona Basar):**
+- Kullanıcı "Sync Başlat" butonuna basar
+- ETL Worker `source_query`'deki LIMIT'i **KALDIRIR**
+- `sync_strategy`'ye göre:
+  - **Full Refresh:** TRUNCATE + TÜM veri (LIMIT yok)
+  - **ID-Based:** Cursor/Pagination (5000'erlik batch)
+  - **Timestamp-Based:** Son değişen kayıtlar
+- `row_limit` varsa o kadar satır çekilir (örn: 10M)
+
+**3. NEDEN initial_sync KALDIRILDI?**
+- ESKİ HATA: Dataset oluşturulunca otomatik Full Refresh yapılıyordu
+- SONUÇ: LIMIT 10 yazsan bile 50K veri geliyordu!
+- YENİ: Kullanıcı ne zaman isterse o zaman sync yapar
+
+**ETL Worker'da LIMIT Temizleme (sync sırasında):**
+```javascript
+// PostgreSQL, MySQL için:
+query = query.replace(/\s+LIMIT\s+\d+\s*/gi, ' ').trim();
+
+// MSSQL için:
+query = query.replace(/\bSELECT\s+TOP\s*\(?(\d+)\)?\s+/gi, 'SELECT ').trim();
+
+// Kullanıcının row_limit'i varsa yeniden ekle
+if (rowLimit) {
+  query += ` LIMIT ${rowLimit}`; // veya TOP için regex
+}
+```
+
+### Uygulanan Dosyalar
+
+| Dosya | Fonksiyon | Açıklama |
+|-------|-----------|----------|
+| `frontend/src/pages/DataPage.tsx` | `handleCreateDataset()` | LIMIT dahil kaydeder (ilk test) |
+| `etl-worker/src/index.ts` | `streamingPostgreSQLSync()` | Sync'te LIMIT kaldırır |
+| `etl-worker/src/index.ts` | `mssqlSync()` | Sync'te TOP kaldırır |
+| `etl-worker/src/index.ts` | `mysqlSync()` | Sync'te LIMIT kaldırır |
+
+### 🔴 ÖZET: BU KURGU DEĞİŞMEZ! (v5.2.2 - 28 Aralık 2025)
+
+| Kaynak DB | Test Sorgusu | Kaydedilen (source_query) | İlk Oluşturma (initial_sync) | Sonraki Sync |
+|-----------|--------------|---------------------------|------------------------------|--------------|
+| PostgreSQL | `SELECT * LIMIT 10` | `SELECT * LIMIT 10` | ✅ **10 satır** | TÜM VERİ |
+| MySQL | `SELECT * LIMIT 10` | `SELECT * LIMIT 10` | ✅ **10 satır** | TÜM VERİ |
+| MSSQL | `SELECT TOP 10 *` | `SELECT TOP 10 *` | ✅ **10 satır** | TÜM VERİ |
+| Oracle | `WHERE ROWNUM <= 10` | `WHERE ROWNUM <= 10` | ✅ **10 satır** | TÜM VERİ |
+| API | `?limit=10` | `?limit=10` | ✅ **10 satır** | TÜM VERİ |
+
+**Prensip:** 
+1. Dataset oluşturulunca → `initial_sync` tetiklenir → LIMIT korunarak 10 satır yazılır
+2. Manuel Sync'te → LIMIT kaldırılır → Strateji'ye göre (Full/ID-Based/Timestamp) veri çekilir
+3. ID-Based Sync → `WHERE id > max_id` ile sadece YENİ kayıtlar eklenir (TRUNCATE yok!)
+
+---
+
+## 🔄 ID-BASED SYNC - CURSOR/PAGINATION MANTIĞI
+
+### Problem
+```javascript
+// ❌ ESKİ KOD (YANLIŞ - Bellek patlar!)
+const query = `SELECT * FROM table WHERE id > ? LIMIT 10000000`;
+const [rows] = await conn.execute(query); // 10M satır BELLEĞE!
+```
+
+### Çözüm: Cursor/Pagination + Inline Query (MySQL için)
+```javascript
+// ✅ YENİ KOD (DOĞRU - 5000'erlik parçalar)
+// ⚠️ MySQL prepared statement LIMIT hatası nedeniyle değerler inline yazılıyor!
+const BATCH_SIZE = 5000;
+let currentMaxId = maxId;
+
+// MySQL için YANLIŞ (prepared statement hatası):
+// const query = `SELECT * FROM table WHERE id > ? LIMIT ?`;
+// await conn.execute(query, [currentMaxId, BATCH_SIZE]); // ❌ HATA!
+
+// MySQL için DOĞRU (inline values):
+const query = `SELECT * FROM table WHERE id > ${currentMaxId} LIMIT ${BATCH_SIZE}`;
+await conn.query(query); // ✅ ÇALIŞIR!
+
+while (hasMoreData) {
+  const [rows] = await conn.execute(
+    `SELECT * FROM table WHERE id > ? ORDER BY id LIMIT ?`,
+    [currentMaxId, BATCH_SIZE]
+  );
+  
+  if (rows.length === 0) break;
+  
+  await clickhouse.insert(table, rows);
+  currentMaxId = rows[rows.length - 1].id;
+  totalInserted += rows.length;
+}
+```
+
+### Avantajları
+| Özellik | Eski Yapı | Yeni Yapı |
+|---------|-----------|-----------|
+| Bellek kullanımı | 10M satır = PATLAMA | 5K satır = OK |
+| 50M satır sync | ❌ Timeout/OOM | ✅ Çalışır |
+| Progress bar | Anlık değil | Gerçek zamanlı |
+| Hata durumu | Tüm veri kaybolur | Kaldığı yerden devam |
+
+### Uygulanan Dosyalar
+- `etl-worker/src/index.ts` → `syncById()` fonksiyonu
+- MSSQL, MySQL, PostgreSQL için cursor mantığı eklendi
+
+---
+
+## 📅 v5.2.2 - 28 Aralık 2025
+
+**✅ ETL Sync Tam Çalışır Hale Getirildi**
+
+### Düzeltilen Sorunlar
+
+1. ✅ **MySQL Prepared Statement Hatası**
+   - **Sorun**: `Incorrect arguments to mysqld_stmt_execute` hatası
+   - **Neden**: MySQL `LIMIT` ile prepared statement parametrelerini kabul etmiyor
+   - **Çözüm**: `conn.execute` yerine `conn.query` kullanıldı, değerler inline yazıldı
+
+2. ✅ **Initial Sync ile 10 Satır Yazma**
+   - Dataset oluşturulunca `initial_sync` tetikleniyor
+   - `initialTestSync` fonksiyonu LIMIT'i koruyarak 10 satır yazıyor
+   - Tip testi başarılı olursa kullanıcı manuel sync başlatabilir
+
+3. ✅ **ID-Based Sync Cursor/Pagination**
+   - 5000'erlik batch'lerle veri çekme aktif
+   - `WHERE id > currentMaxId` ile sadece yeni kayıtlar
+   - TRUNCATE yok, mevcut verilere ekleme yapılıyor
+
+4. ✅ **Duplicate Temizliği**
+   - `OPTIMIZE TABLE FINAL` her sync sonrası çalıştırılıyor
+   - ReplacingMergeTree ile duplicate'lar otomatik merge ediliyor
+
+### Test Sonuçları (MySQL - 50.000 satır)
+
+| Adım | Beklenen | Gerçekleşen | Durum |
+|------|----------|-------------|-------|
+| İlk oluşturma | 10 satır | 10 satır | ✅ |
+| ID-Based 1. sync | 49.990 satır | 49.990 satır | ✅ |
+| ID-Based 2. sync | 0 satır | 0 satır | ✅ |
+| Toplam | 50.000 satır | 50.000 satır | ✅ |
+
+### Değiştirilen Dosyalar
+
+- `services/etl-worker/src/index.ts`:
+  - `syncById` için `conn.query` kullanımı (inline values)
+  - `initialTestSync` fonksiyonu eklendi
+  - `OPTIMIZE TABLE FINAL` eklendi
+- `.cursorrules` - Dokümantasyon güncellemesi
+
+---
+
+## 🔄 ETL SYNC STRATEJİLERİ - STABİL YAPI (v5.2.3 - 29 Aralık 2025)
+
+### ✅ TEST EDİLMİŞ VE ÇALIŞAN STRATEJİLER
+
+| Strateji | Kod | Davranış | Test Durumu |
+|----------|-----|----------|-------------|
+| **Full Refresh** | `full_refresh` | Tüm veriyi sil, tamamını yeniden yaz | ✅ Çalışıyor |
+| **ID-Based** | `id` | Cursor/pagination ile sadece yeni kayıtları ekle | ✅ Çalışıyor |
+| **Date Delete & Insert** | `date_delete_insert` | Son X günü sil, son X günü yeniden yaz | ✅ Çalışıyor |
+| **Timestamp-Based** | `timestamp` | Son sync'ten sonra değişenleri güncelle | ⏳ Test edilecek |
+
+### 📊 FULL REFRESH
+
+```
+Akış: TRUNCATE → Tüm veriyi çek → INSERT
+Kullanım: Küçük tablolar, referans veriler
+Avantaj: En basit, tutarlı
+Dezavantaj: Büyük tablolarda yavaş
+```
+
+### 🔢 ID-BASED SYNC (Cursor/Pagination)
+
+```javascript
+// 5000'lik batch'lerle çeker - BELLEK DOLMAZ!
+const BATCH_SIZE = 5000;
+let currentMaxId = await getMaxIdFromClickHouse();
+
+while (hasMoreData) {
+  // MySQL için INLINE QUERY (prepared statement hatası!)
+  const query = `SELECT * FROM table WHERE id > ${currentMaxId} ORDER BY id LIMIT ${BATCH_SIZE}`;
+  const rows = await conn.query(query);
+  
+  await clickhouse.insert(table, rows);
+  currentMaxId = rows[rows.length - 1].id;
+}
+```
+
+**Kritik Kurallar:**
+- MySQL: `conn.query()` kullan, `conn.execute()` HATALI (prepared statement LIMIT sorunu)
+- PostgreSQL: `client.query(sql, [params])` kullan - prepared statement ÇALIŞIR
+- MSSQL: `pool.request().query()` kullan - inline query ÇALIŞIR
+- Her batch sonrası progress güncelle
+- 50M+ satır bile çekilebilir
+
+### 📅 DATE DELETE & INSERT
+
+```javascript
+// 1. ClickHouse'tan son X günü SİL
+await clickhouse.execute(`
+  ALTER TABLE ${table} DELETE WHERE toDate(${dateColumn}) >= '${startDate}'
+`);
+
+// 2. Kaynak DB'den son X günü ÇEK
+// MySQL:
+WHERE ${dateColumn} >= DATE_SUB(CURDATE(), INTERVAL ${days} DAY)
+
+// PostgreSQL:
+WHERE ${dateColumn} >= CURRENT_DATE - INTERVAL '${days} days'
+
+// MSSQL:
+WHERE ${dateColumn} >= DATEADD(day, -${days}, CAST(GETDATE() AS DATE))
+```
+
+**Gün Hesaplama Mantığı:**
+| UI Seçeneği | delete_days | Formül | Örnek (Bugün 28 Aralık) |
+|-------------|-------------|--------|-------------------------|
+| Bugün | 0 | `= CURDATE()` | 28 Aralık (1 gün) |
+| Son 1 gün | 1 | `>= CURDATE() - 1` | 27-28+ Aralık (2+ gün) |
+| Son 3 gün | 3 | `>= CURDATE() - 3` | 25-28+ Aralık (4+ gün) |
+| Son 7 gün | 7 | `>= CURDATE() - 7` | 21-28+ Aralık (8+ gün) |
+| Son 30 gün | 30 | `>= CURDATE() - 30` | 28 Kasım-28+ Aralık |
+
+**Kritik:** `toDate()` fonksiyonu SAAT DİKKATE ALMAZ, sadece tarih bazlı çalışır!
+
+### 🔧 TÜM DB TİPLERİ İÇİN AYNI MANTIK
+
+| Özellik | MySQL | PostgreSQL | MSSQL |
+|---------|-------|------------|-------|
+| Cursor/Pagination | ✅ | ✅ | ✅ |
+| Batch Size | 5000 | 5000 | 5000 |
+| Query Tipi | Inline (conn.query) | Prepared (client.query) | Inline (pool.request) |
+| Date Filter | DATE_SUB(CURDATE()...) | CURRENT_DATE - INTERVAL | DATEADD(day, -, CAST...) |
+| LIMIT Syntax | LIMIT N | LIMIT N | TOP N |
+
+### 📋 DATASET OLUŞTURMA AKIŞI
+
+```
+1. UI'da SQL yaz: SELECT * FROM tablo LIMIT 10
+2. Çalıştır → 10 satır görüntülenir, tipler algılanır
+3. Dataset Oluştur → source_query LIMIT DAHİL kaydedilir
+4. initial_sync tetiklenir → 10 satır ClickHouse'a yazılır (tip testi)
+5. Kullanıcı "Sync Başlat" der → LIMIT kaldırılır, strateji'ye göre sync yapılır
+```
+
+### 🛡️ DUPLICATE ÖNLEME
+
+1. **ReplacingMergeTree Engine** - Aynı ORDER BY key'e sahip satırlardan en yeni kalır
+2. **OPTIMIZE TABLE FINAL** - Her sync sonrası çalıştırılır
+3. **Unique Kolon Zorunlu** - ORDER BY için (View'larda composite key)
+
+### ⚠️ VIEW'LAR İÇİN ÖZEL DURUM
+
+- View'larda unique kolon OLMAZ → Uyarı ile devam edilebilir
+- Composite ORDER BY kullanılır (ilk 5 kolon)
+- **ID-Based sync ÇALIŞMAZ** → Full Refresh veya Date Delete kullan
+
+### 📁 ETL WORKER DOSYA KONUMLARI
+
+| Fonksiyon | Dosya | Satır (yaklaşık) |
+|-----------|-------|------------------|
+| `fullRefresh` | etl-worker/src/index.ts | 800-900 |
+| `syncById` | etl-worker/src/index.ts | 1550-1850 |
+| `syncByDateDeleteInsert` | etl-worker/src/index.ts | 1970-2130 |
+| `syncByTimestamp` | etl-worker/src/index.ts | 1400-1500 |
+| `mysqlSync` | etl-worker/src/index.ts | 2800-3000 |
+| `streamingPostgreSQLSync` | etl-worker/src/index.ts | 1030-1280 |
+| `mssqlSync` | etl-worker/src/index.ts | 2500-2700 |
+
+---
+
+## 📅 v5.2.0 - 28 Aralık 2025
+
+**Kapsamlı Tip Mapping & Multi-DB Desteği**
+
+### Eklenen Özellikler
+
+1. ✅ **Kapsamlı Tip Mapping** - 80+ SQL tipi → ClickHouse karşılıkları
+2. ✅ **Multi-Database Desteği** - PostgreSQL, MySQL, MSSQL, Oracle
+3. ✅ **ETL Worker Tip Dönüşüm** - `mapSourceTypeToClickHouse()` fonksiyonu
+4. ✅ **Sayısal Kolon Algılama Genişletildi** - 20+ Türkçe/İngilizce pattern
+5. ✅ **Binary Tip Desteği** - blob, bytea, image, raw → String
+6. ✅ **Geometry Tip Desteği** - geometry, geography, point → String
+7. ✅ **Oracle Tip Desteği** - varchar2, number, clob, nclob
+
+### Güncellenen Dosyalar
+
+- `frontend/src/pages/DataPage.tsx` - 80+ tip mapping
+- `services/data-service/src/index.ts` - 80+ tip mapping
+- `services/etl-worker/src/index.ts` - `mapSourceTypeToClickHouse()` + 80+ tip mapping
+- `.cursorrules` - Kapsamlı tip mapping dokümantasyonu
+
+---
+
+## 📅 v5.1.0 - 28 Aralık 2025
+
+**Self-Healing ETL & Tip Dönüşüm İyileştirmeleri**
+
+### Eklenen Özellikler
+
+1. ✅ **Self-Healing ETL** - Tablo yoksa otomatik oluştur (`ensureTableExists`)
+2. ✅ **PostgreSQL OID → Tip Adı** - 1043→varchar, 23→int4
+3. ✅ **MySQL Type ID → Tip Adı** - 246→newdecimal, 3→int
+4. ✅ **newdecimal → Float64** - Frontend ve Backend
+5. ✅ **Türkçe Unique Kolon** - 'kod' algılama
+6. ✅ **Sayısal Kolon Algılama** - tutar, adet, indirim → Float64
+7. ✅ **ClickHouse Yeniden Bağlan** - UI butonu eklendi
+
+### Düzeltilen Sorunlar
+
+1. ✅ ClickHouse health check authentication hatası
+2. ✅ PostgreSQL OID sayısal ID gösterme sorunu
+3. ✅ MySQL newdecimal → String dönüşüm hatası
+4. ✅ Türkçe karakter sorunu (utf8mb4)
+5. ✅ Tablo yoksa sync hatası → Otomatik oluşturma
+
+### Değiştirilen Dosyalar
+
+- `services/data-service/src/index.ts` - OID mapping, newdecimal
+- `services/etl-worker/src/index.ts` - ensureTableExists, sayısal algılama
+- `services/core-service/src/index.ts` - ClickHouse auth fix
+- `frontend/src/pages/DataPage.tsx` - newdecimal, kod algılama, yeniden bağlan
+
+asla geçiçi çözümler uygulanmyacak. bir hata keşfedildiyse bunun çözümü kalıcı olarak uygulamada yapılacak.
+
+---
+
+## 📅 v6.4.0 - 31 Aralık 2025
+
+**Login Sayfası Clixer Teması & JWT Fix & Schedule Fix**
+
+### 1. ✅ Login Sayfası Clixer Temasına Uyumlandı
+
+| Öğe | Değer |
+|-----|-------|
+| Arka Plan | Coal (#0F1116) |
+| Kart | Anthracite (#181B21) |
+| Border | Surface Highlight (#2F3542) |
+| Input | Surface (#21252E) |
+| Accent | Neon Cyan (#00CFDE) |
+| Buton | Neon Cyan gradient |
+
+### 2. ✅ Logo Silüeti Kart İçine Taşındı
+
+- `logo-dark.png` eklendi (koyu arka planlı logo)
+- Siluet kart içinde, formun arkasında %6 opacity
+- Sayfa arka planında da büyük siluet mevcut
+
+### 3. ✅ JWT Secret Uyumsuzluğu Düzeltildi
+
+**Problem:** Auth Service ve Data Service farklı JWT_SECRET kullanıyordu
+- Auth Service: `.env`'den okuyordu
+- Data Service: Default fallback kullanıyordu
+
+**Çözüm:** Tüm servisler yeniden başlatıldığında `.env`'den okuyorlar
+
+### 4. ✅ Schedule next_run_at Düzeltmesi
+
+**Problem:** Schedule oluşturulduğunda `next_run_at` ayarlanmıyordu, gelecek tarihe atanıyordu
+
+**Çözüm:** `data-service/src/index.ts`'de:
+```sql
+-- Schedule oluşturulurken
+INSERT INTO etl_schedules (..., next_run_at) VALUES (..., NOW())
+
+-- Schedule güncellenirken  
+UPDATE etl_schedules SET next_run_at = NOW(), ...
+```
+
+### 5. ✅ Token Geçerlilik Kontrolü
+
+- `App.tsx`: Sayfa açıldığında token geçerliliği kontrol ediliyor
+- `api.ts`: Login endpoint'inde 401 gelirse logout yapmıyor
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `frontend/src/pages/LoginPage.tsx` | Clixer teması, siluet logo |
+| `frontend/src/App.tsx` | Token geçerlilik kontrolü |
+| `frontend/src/services/api.ts` | Login 401 bypass |
+| `frontend/public/logo-dark.png` | Yeni logo dosyası |
+| `services/data-service/src/index.ts` | next_run_at = NOW() |
+
+### Login Bilgileri
+
+```
+Email: admin@clixer
+Şifre: Admin1234!
+```
+
+---
+
+## 📅 v6.5.0 - 2 Ocak 2026
+
+**Production Ready - Debug Temizliği & Güvenlik Kontrolü**
+
+### 1. ✅ Console.log Temizliği (34+ log kaldırıldı)
+
+| Dosya | Temizlenen |
+|-------|------------|
+| DesignerPage.tsx | 12 emoji debug log |
+| App.tsx | 3 [APP] log |
+| MetricsPage.tsx | 7 debug log |
+| AnalysisPage.tsx | 1 filtre log |
+| DashboardPage.tsx | 1 filtre log |
+| DataPage.tsx | 2 API log |
+| Layout.tsx | 1 render log |
+| AdminPage.tsx | 2 ayar log |
+| authStore.ts | 1 rehydrate log |
+| settingsStore.ts | 3 settings log |
+| filterStore.ts | 1 filter log |
+
+### 2. ✅ Güvenlik Kontrolü Tamamlandı
+
+| Özellik | Durum |
+|---------|-------|
+| Helmet.js | ✅ CSP, HSTS aktif |
+| CORS | ✅ Production whitelist |
+| Rate Limiting | ✅ 200/dk genel, 10/15dk login |
+| SQL Injection | ✅ shared/security.ts |
+| XSS | ✅ CSP + React escape |
+| JWT | ✅ 15dk access, 7 gün refresh |
+| Hardcoded Secrets | ✅ .env'de, gitignore'da |
+
+### 3. ✅ Build Kontrolü
+
+```
+TypeScript: 0 hata
+Vite build: 2.78s
+Bundle: 1.34MB (gzip: 340KB)
+```
+
+### Yedekleme
+
+- **Backup**: `backups/v6.5.0_production_ready_20260102_113720/`
+- **İçerik**: Frontend, Services, Shared, Gateway, PostgreSQL dump
+
+---
+
+## 📋 VERSİYON GEÇMİŞİ (Özet - Güncel)
+
+| Tarih | Versiyon | Açıklama |
+|-------|----------|----------|
+| 2026-01-04 | **v2.0-prod** | **🚀 Production Ready - Ubuntu Kurulum, Nginx, SSL, Firewall** |
+| 2026-01-04 | v1.1 | Kod + PostgreSQL veritabanı yedeği |
+| 2026-01-04 | v1 | İlk Windows kurulum sürümü |
+| 2026-01-02 | v6.5.0 | Production Ready - Debug Temizliği & Güvenlik Kontrolü |
+| 2025-12-31 | v6.4.0 | Login Clixer Teması, JWT Fix, Schedule Fix |
+| 2025-12-31 | v6.3.0 | Konuşma geçmişi, Clixer varsayılan tema |
+| 2025-12-30 | v6.2.0 | Clixer teması tasarımı |
+| 2025-12-30 | v6.1.0 | API POST Sync |
+| 2025-12-30 | v6.0.0 | Logo entegrasyonu |
+
+---
+
+## 📅 v2.0-prod - 4 Ocak 2026
+
+**🚀 Production Ready - Müşteri Ubuntu Sunucusu için Hazır**
+
+### GitHub Repository
+- **URL**: https://github.com/absadama/clixer_windows
+- **Branch**: main
+- **Tags**: v1, v1.1, v2.0
+
+### Eklenen Production Dosyaları
+
+| Dosya | Açıklama |
+|-------|----------|
+| `deploy/install-ubuntu.sh` | Tek komutla Ubuntu kurulum scripti |
+| `deploy/README-PRODUCTION.md` | Production kurulum dökümanı |
+| `db-backup/postgresql_full.sql` | PostgreSQL veritabanı yedeği |
+| `docker/clickhouse/users.xml` | ClickHouse clixer kullanıcısı |
+
+### Ubuntu Sunucu Kurulumu (SSH ile)
+
+```bash
+# 1. Sunucuya bağlan
+ssh root@SUNUCU_IP
+
+# 2. Tek komutla kur
+curl -fsSL https://raw.githubusercontent.com/absadama/clixer_windows/main/deploy/install-ubuntu.sh | sudo bash
+
+# 3. SSL sertifikası al
+sudo certbot --nginx -d analytics.domain.com
+```
+
+### Kurulum Scripti Neler Yapar?
+
+1. ✅ Sistem güncellemesi
+2. ✅ Docker + Docker Compose kurulumu
+3. ✅ Node.js 20 kurulumu
+4. ✅ Clixer kullanıcısı oluşturma (/opt/clixer)
+5. ✅ GitHub'dan kod çekme
+6. ✅ .env dosyası oluşturma
+7. ✅ PostgreSQL, ClickHouse, Redis başlatma
+8. ✅ Veritabanı yedeğini yükleme
+9. ✅ npm install tüm servislerde
+10. ✅ Nginx reverse proxy yapılandırma
+11. ✅ UFW Firewall (22, 80, 443)
+12. ✅ Fail2ban güvenlik
+
+### Giriş Bilgileri
+
+| Alan | Değer |
+|------|-------|
+| URL | http://SUNUCU_IP veya https://domain.com |
+| Email | admin@clixer |
+| Şifre | Admin1234! |
+
+---
+
+## 🔴 GITHUB YEDEKLEMEYİ GİTMEYENLER (KRİTİK!)
+
+GitHub'a `.gitignore` nedeniyle GİTMEYEN dosyalar:
+
+| Dosya/Klasör | Neden | Çözüm |
+|--------------|-------|-------|
+| `.env` | Güvenlik (şifreler) | `.env.example` kopyala |
+| `node_modules/` | Çok büyük | `npm install` |
+| `docker/*_data/` | Veritabanı verileri | Docker oluşturur |
+| `dist/`, `build/` | Derlenen dosyalar | `npm run build` |
+| `backups/` | Yedekler | Çok büyük |
+
+### Yeni Kurulumda Yapılacaklar
+
+```bash
+# 1. .env oluştur
+cp .env.example .env
+
+# 2. Bağımlılıkları kur
+cd shared && npm install && npm run build && cd ..
+npm install --prefix gateway
+npm install --prefix services/auth-service
+# ... diğer servisler
+
+# 3. PostgreSQL yedeğini yükle (varsa)
+docker exec -i clixer_postgres psql -U clixer -d clixer < db-backup/postgresql_full.sql
+```
+
+---
+
+## 📦 FULL YEDEK KURALI
+
+"Full yedek al" dediğinde:
+1. ✅ Tüm kod GitHub'a push
+2. ✅ PostgreSQL dump alınıp `db-backup/` klasörüne eklenmeli
+3. ✅ ClickHouse tablolar varsa dump alınmalı
+4. ✅ GitHub'a commit + push + tag
+
+---
+
+## 🔴 PRODUCTION PRE-DEPLOYMENT KONTROL LİSTESİ (ZORUNLU!)
+
+### MUTLAK KURAL: Yedek almadan ve production'a deploy etmeden önce bu kontroller ZORUNLU!
+
+**"Yedek al" veya "GitHub'a gönder" dediğinde şu kontroller OTOMATİK yapılmalı:**
+
+### 1. API Testleri (api-tester)
+```powershell
+# Tüm servisler çalışıyor mu?
+- Gateway (4000): /health
+- Auth (4001): /health
+- Core (4002): /health
+- Data (4003): /health
+- Notification (4004): /health
+- Analytics (4005): /health
+- Login test: POST /api/auth/login
+```
+
+### 2. Veritabanı Sağlığı (db-health)
+```powershell
+# Tüm veritabanları erişilebilir mi?
+- PostgreSQL: pg_isready
+- ClickHouse: SELECT 1
+- Redis: PING → PONG
+```
+
+### 3. Güvenlik Denetimi (security-audit)
+```powershell
+# Güvenlik önlemleri aktif mi?
+- CORS yapılandırılmış mı?
+- Helmet.js security headers aktif mi?
+- Rate limiting çalışıyor mu?
+- .env dosyası gitignore'da mı?
+- Hardcoded şifre var mı? (grep ile kontrol)
+```
+
+### 4. Production Dosyaları (deploy-checker)
+```powershell
+# Production için gerekli dosyalar mevcut mu?
+- deploy/install-ubuntu.sh
+- deploy/README-PRODUCTION.md
+- db-backup/postgresql_full.sql (güncel mi?)
+- .env.example
+- docker/docker-compose.yml
+```
+
+### 5. Build Kontrolü
+```powershell
+# TypeScript hatasız build oluyor mu?
+cd shared && npm run build
+cd frontend && npm run build
+```
+
+### 6. GitHub Sync
+```powershell
+# Tüm değişiklikler commit edilmiş mi?
+git status --porcelain
+# Boş dönmeli, değişiklik varsa UYAR!
+```
+
+### Kontrol Başarısız Olursa:
+❌ **YEDEK ALINMAZ!**
+❌ **GITHUB'A PUSH YAPILMAZ!**
+❌ **PRODUCTION'A DEPLOY EDİLMEZ!**
+
+Önce sorun çözülür, sonra tekrar kontrol edilir.
+
+---
+
+## 🎯 PRODUCTION MİNDSET (HER ZAMAN HATIRLA!)
+
+### MUTLAK KURAL: Her hamle müşteri sunucusu düşünülerek yapılacak!
+
+1. **Kod değişikliği yaparken:**
+   - "Bu değişiklik müşteri sunucusunda çalışır mı?"
+   - "Ubuntu'da Docker ile sorunsuz çalışır mı?"
+   - ".env bağımlılığı var mı? .env.example güncellendi mi?"
+
+2. **Yeni özellik eklerken:**
+   - "GitHub'dan çekildiğinde çalışır mı?"
+   - "npm install yeterli mi, yoksa başka kurulum gerekli mi?"
+   - "Database migration gerekiyor mu?"
+
+3. **Yedek alırken:**
+   - "PostgreSQL dump güncel mi?"
+   - "Tüm testler geçiyor mu?"
+   - "Security audit temiz mi?"
+
+4. **Deploy öncesi:**
+   - "install-ubuntu.sh scripti güncel mi?"
+   - "README-PRODUCTION.md doğru mu?"
+   - "Tüm servisler health check geçiyor mu?"
+
+### Müşteri Sunucusu Düşüncesi:
+```
+Her commit = Müşteriye gidecek kod
+Her push = Production'a deploy edilebilir olmalı
+Her tag = Stabil, test edilmiş sürüm
+```
+
+---
+
+## 🤖 CLIXER AI AGENT SİSTEMİ
+
+### Agent Dosyaları: `.claude/agents/`
+
+| Agent | Dosya | Görev |
+|-------|-------|-------|
+| api-tester | `api-tester.md` | Tüm API endpoint'lerini test eder |
+| db-health | `db-health.md` | PostgreSQL, ClickHouse, Redis durumu |
+| deploy-checker | `deploy-checker.md` | Production öncesi kontroller |
+| security-audit | `security-audit.md` | Güvenlik açıkları taraması |
+| etl-validator | `etl-validator.md` | ETL job'ları ve veri tutarlılığı |
+| verify-app | `verify-app.md` | Uygulama çalışıyor mu doğrulaması |
+
+### Kullanım:
+- "API testlerini çalıştır"
+- "Veritabanları sağlıklı mı?"
+- "Production'a deploy edebilir miyiz?"
+- "Güvenlik açığı var mı?"
+- "Uygulama çalışıyor mu?"
+
+---
+
+## 📋 SLASH KOMUTLARI (Gelecek Özellik)
+
+`.claude/commands/` klasöründe tanımlanacak:
+
+| Komut | Açıklama |
+|-------|----------|
+| `/full-backup` | Tüm kontroller + PostgreSQL dump + GitHub push + tag |
+| `/deploy-check` | Production öncesi tüm kontrolleri çalıştır |
+| `/health-check` | Tüm servislerin sağlık durumunu kontrol et |
+| `/security-scan` | Güvenlik taraması yap |
+
+---
+
+## 🔄 PostToolUse Hook (Gelecek Özellik)
+
+Kod yazıldıktan sonra otomatik format düzeltme:
+
+```json
+{
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "npm run format || true"
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## 📅 v2.1-prod - 4 Ocak 2026
+
+**Production Mindset & Pre-Deployment Kontrolleri**
+
+1. ✅ Production pre-deployment kontrol listesi eklendi
+2. ✅ AI Agent sistemi dokümante edildi
+3. ✅ "Her hamle müşteri sunucusu düşünülerek" kuralı eklendi
+4. ✅ Yedek almadan önce zorunlu kontroller tanımlandı
+5. ✅ Slash komutları ve PostToolUse hook planlandı

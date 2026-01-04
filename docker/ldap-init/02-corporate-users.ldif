@@ -1,0 +1,254 @@
+# ============================================
+# CLIXER LDAP - KURUMSAL YAPI (AD UYUMLU)
+# Tavuk Dünyası benzeri örnek organizasyon
+# ============================================
+
+# ============================================
+# ORGANİZASYONEL BİRİMLER (OU)
+# ============================================
+
+# Departmanlar
+dn: ou=Departments,dc=clixer,dc=local
+objectClass: organizationalUnit
+ou: Departments
+description: Tüm departmanlar
+
+dn: ou=Yonetim,ou=Departments,dc=clixer,dc=local
+objectClass: organizationalUnit
+ou: Yonetim
+description: Üst Yönetim
+
+dn: ou=BilgiTeknolojileri,ou=Departments,dc=clixer,dc=local
+objectClass: organizationalUnit
+ou: BilgiTeknolojileri
+description: Bilgi Teknolojileri Departmanı
+
+dn: ou=Operasyon,ou=Departments,dc=clixer,dc=local
+objectClass: organizationalUnit
+ou: Operasyon
+description: Operasyon Departmanı
+
+dn: ou=Finans,ou=Departments,dc=clixer,dc=local
+objectClass: organizationalUnit
+ou: Finans
+description: Finans Departmanı
+
+dn: ou=Magazalar,ou=Departments,dc=clixer,dc=local
+objectClass: organizationalUnit
+ou: Magazalar
+description: Mağaza Yönetimi
+
+# Gruplar
+dn: ou=Groups,dc=clixer,dc=local
+objectClass: organizationalUnit
+ou: Groups
+description: Kullanıcı grupları
+
+# Kullanıcılar
+dn: ou=Users,dc=clixer,dc=local
+objectClass: organizationalUnit
+ou: Users
+description: Tüm kullanıcılar
+
+# ============================================
+# GRUPLAR (POZİSYONLAR)
+# ============================================
+
+dn: cn=GenelMudur,ou=Groups,dc=clixer,dc=local
+objectClass: groupOfNames
+cn: GenelMudur
+description: Genel Müdür grubu
+member: uid=vmumcu,ou=Users,dc=clixer,dc=local
+
+dn: cn=Direktor,ou=Groups,dc=clixer,dc=local
+objectClass: groupOfNames
+cn: Direktor
+description: Direktörler grubu
+member: uid=cadar,ou=Users,dc=clixer,dc=local
+
+dn: cn=BolgeMuduru,ou=Groups,dc=clixer,dc=local
+objectClass: groupOfNames
+cn: BolgeMuduru
+description: Bölge Müdürleri grubu
+member: uid=dtopkaya,ou=Users,dc=clixer,dc=local
+member: uid=eturhan,ou=Users,dc=clixer,dc=local
+
+dn: cn=MagazaMuduru,ou=Groups,dc=clixer,dc=local
+objectClass: groupOfNames
+cn: MagazaMuduru
+description: Mağaza Müdürleri grubu
+member: uid=mkabatas,ou=Users,dc=clixer,dc=local
+member: uid=kerol,ou=Users,dc=clixer,dc=local
+
+dn: cn=Analist,ou=Groups,dc=clixer,dc=local
+objectClass: groupOfNames
+cn: Analist
+description: Analistler grubu
+member: uid=sozkum,ou=Users,dc=clixer,dc=local
+
+# ============================================
+# KULLANICILAR (AD FORMATI)
+# ============================================
+
+# Genel Müdür
+dn: uid=vmumcu,ou=Users,dc=clixer,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+uid: vmumcu
+cn: Volkan Mumcu
+sn: Mumcu
+givenName: Volkan
+displayName: Volkan Mumcu
+mail: volkan.mumcu@sirket.com
+telephoneNumber: +905551234567
+mobile: +905551234567
+title: Genel Müdür
+description: Genel Müdür
+o: Demo Şirket A.Ş.
+departmentNumber: YON
+userPassword: Admin123!
+
+# CIO / IT Direktörü
+dn: uid=cadar,ou=Users,dc=clixer,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+uid: cadar
+cn: Cihan Adar
+sn: Adar
+givenName: Cihan
+displayName: Cihan Adar
+mail: cihan.adar@sirket.com
+telephoneNumber: +905359624771
+mobile: +905359624771
+title: CIO
+description: Chief Information Officer
+o: Demo Şirket A.Ş.
+departmentNumber: BT
+manager: uid=vmumcu,ou=Users,dc=clixer,dc=local
+userPassword: Admin123!
+
+# IT Operasyon Müdürü (Bölge Müdürü seviyesi)
+dn: uid=dtopkaya,ou=Users,dc=clixer,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+uid: dtopkaya
+cn: Doğan Topkaya
+sn: Topkaya
+givenName: Doğan
+displayName: Doğan Topkaya
+mail: dogan.topkaya@sirket.com
+telephoneNumber: +905426825100
+mobile: +905426825100
+title: Teknoloji Operasyonları Müdürü
+description: Teknoloji Operasyonları Müdürü
+o: Demo Şirket A.Ş.
+departmentNumber: BT
+manager: uid=cadar,ou=Users,dc=clixer,dc=local
+userPassword: Admin123!
+
+# Bölge Müdürü - Marmara
+dn: uid=eturhan,ou=Users,dc=clixer,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+uid: eturhan
+cn: Emir Turhan
+sn: Turhan
+givenName: Emir
+displayName: Emir Turhan
+mail: emir.turhan@sirket.com
+telephoneNumber: +905551112233
+mobile: +905551112233
+title: Marmara Bölge Müdürü
+description: Marmara Bölge Müdürü
+o: Demo Şirket A.Ş.
+departmentNumber: OP
+manager: uid=dtopkaya,ou=Users,dc=clixer,dc=local
+userPassword: Admin123!
+
+# Mağaza Müdürü 1
+dn: uid=mkabatas,ou=Users,dc=clixer,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+uid: mkabatas
+cn: Musa Kabataş
+sn: Kabataş
+givenName: Musa
+displayName: Musa Kabataş
+mail: musa.kabatas@sirket.com
+telephoneNumber: +905552223344
+mobile: +905552223344
+title: Mağaza Müdürü
+description: Kadıköy Mağaza Müdürü
+o: Demo Şirket A.Ş.
+departmentNumber: MAG
+manager: uid=eturhan,ou=Users,dc=clixer,dc=local
+userPassword: Admin123!
+
+# Mağaza Müdürü 2
+dn: uid=kerol,ou=Users,dc=clixer,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+uid: kerol
+cn: Kübra Erol
+sn: Erol
+givenName: Kübra
+displayName: Kübra Erol
+mail: kubra.erol@sirket.com
+telephoneNumber: +905553334455
+mobile: +905553334455
+title: Mağaza Müdürü
+description: Beşiktaş Mağaza Müdürü
+o: Demo Şirket A.Ş.
+departmentNumber: MAG
+manager: uid=eturhan,ou=Users,dc=clixer,dc=local
+userPassword: Admin123!
+
+# Analist
+dn: uid=sozkum,ou=Users,dc=clixer,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+uid: sozkum
+cn: Saadet Özkum
+sn: Özkum
+givenName: Saadet
+displayName: Saadet Özkum
+mail: saadet.ozkum@sirket.com
+telephoneNumber: +905554445566
+mobile: +905554445566
+title: Veri Analisti
+description: Veri Analisti
+o: Demo Şirket A.Ş.
+departmentNumber: BT
+manager: uid=cadar,ou=Users,dc=clixer,dc=local
+userPassword: Admin123!
+
+# Finans Direktörü
+dn: uid=fyilmaz,ou=Users,dc=clixer,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+uid: fyilmaz
+cn: Fatma Yılmaz
+sn: Yılmaz
+givenName: Fatma
+displayName: Fatma Yılmaz
+mail: fatma.yilmaz@sirket.com
+telephoneNumber: +905555556677
+mobile: +905555556677
+title: Finans Direktörü
+description: Finans Direktörü
+o: Demo Şirket A.Ş.
+departmentNumber: FIN
+manager: uid=vmumcu,ou=Users,dc=clixer,dc=local
+userPassword: Admin123!
+
+
+
+

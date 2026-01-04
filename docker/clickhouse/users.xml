@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <users>
+        <!-- Default user (şifresiz) -->
+        <default>
+            <password></password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </default>
+        
+        <!-- Clixer user (şifreli) -->
+        <clixer>
+            <password>clixer_click_2025</password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </clixer>
+    </users>
+</clickhouse>

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://claude.ai/settings-schema.json",
+  "name": "Clixer AI Settings",
+  "description": "Clixer Enterprise Analytics Platform için Claude AI ayarları",
+  
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(npx *)",
+      "Bash(docker *)",
+      "Bash(docker-compose *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git pull *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git tag *)",
+      "Bash(node *)",
+      "Bash(curl *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(ls *)",
+      "Bash(cd *)",
+      "Bash(echo *)",
+      "Bash(test *)",
+      "Bash(pwd)",
+      "Write(*)",
+      "Edit(*)",
+      "Read(*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(sudo rm *)",
+      "Bash(chmod 777 *)",
+      "Bash(> /dev/*)"
+    ]
+  },
+  
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit",
+      "filePattern": "*.ts|*.tsx|*.js|*.jsx",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "npm run format 2>/dev/null || npx prettier --write ${file} 2>/dev/null || true",
+          "description": "Otomatik kod formatlama"
+        }
+      ]
+    },
+    {
+      "matcher": "Write|Edit",
+      "filePattern": "*.json",
+      "hooks": [
+        {
+          "type": "command", 
+          "command": "npx prettier --write ${file} 2>/dev/null || true",
+          "description": "JSON formatlama"
+        }
+      ]
+    }
+  ],
+  
+  "PreCommit": [
+    {
+      "type": "command",
+      "command": "npm run lint 2>/dev/null || true",
+      "description": "Commit öncesi lint kontrolü"
+    }
+  ],
+  
+  "variables": {
+    "PROJECT_NAME": "Clixer",
+    "GITHUB_REPO": "https://github.com/absadama/clixer_windows",
+    "ADMIN_EMAIL": "admin@clixer",
+    "DEFAULT_PORTS": {
+      "frontend": 3000,
+      "gateway": 4000,
+      "auth": 4001,
+      "core": 4002,
+      "data": 4003,
+      "notification": 4004,
+      "analytics": 4005,
+      "postgres": 5432,
+      "clickhouse": 8123,
+      "redis": 6379
+    }
+  }
+}
+

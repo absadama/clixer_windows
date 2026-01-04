@@ -1,0 +1,52 @@
+# ============================================
+# CLIXER - Production Dockerfile for Services
+# PM2 Cluster Mode ile 4x kapasite
+# 
+# Kullanım:
+#   Bu dosyayı her servisin Dockerfile.production olarak kopyalayın
+#   veya services/ altında ortak kullanın
+# ============================================
+
+FROM node:20-alpine
+
+# PM2 global kurulum
+RUN npm install pm2 -g
+
+# Çalışma dizini
+WORKDIR /app
+
+# Bağımlılıkları önce kopyala (cache için)
+COPY package*.json ./
+
+# Bağımlılıkları kur (production only)
+RUN npm ci --only=production
+
+# Kaynak kodu kopyala
+COPY . .
+
+# TypeScript build
+RUN npm run build || true
+
+# PM2 ecosystem dosyası oluştur (dinamik instance sayısı)
+RUN echo 'module.exports = { \
+  apps: [{ \
+    name: "app", \
+    script: "./dist/index.js", \
+    instances: process.env.PM2_INSTANCES || 1, \
+    exec_mode: process.env.PM2_INSTANCES > 1 ? "cluster" : "fork", \
+    max_memory_restart: "500M" \
+  }] \
+}' > ecosystem.config.js
+
+# Non-root user (güvenlik)
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
+
+USER nodejs
+
+# PM2 runtime ile başlat
+CMD ["pm2-runtime", "start", "ecosystem.config.js"]
+
+
+
