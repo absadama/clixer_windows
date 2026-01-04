@@ -2601,7 +2601,7 @@ app.get('/dashboard/:designId/full', authenticate, tenantIsolation, async (req: 
                       widgetResult.sparklineData = [5, 10, 8, 15, 12, 20, 18, 25, 22, 30, 28, 35];
                     }
                   } catch (chErr: any) {
-                    console.log('ClickHouse sparkline hatası (sessiz):', chErr.message?.substring(0, 100));
+                    // Sessiz hata - demo veri kullan
                     widgetResult.sparklineData = [5, 10, 8, 15, 12, 20, 18, 25, 22, 30, 28, 35];
                   }
                 } else {
@@ -2609,7 +2609,6 @@ app.get('/dashboard/:designId/full', authenticate, tenantIsolation, async (req: 
                   widgetResult.sparklineData = [5, 10, 8, 15, 12, 20, 18, 25, 22, 30, 28, 35];
                 }
               } catch (sparkErr: any) {
-                console.log('Sparkline veri çekimi hatası:', sparkErr.message);
                 // Hata durumunda demo veri kullan
                 widgetResult.sparklineData = [5, 10, 8, 15, 12, 20, 18, 25, 22, 30, 28, 35];
               }

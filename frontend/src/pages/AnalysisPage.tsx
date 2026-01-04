@@ -794,14 +794,9 @@ export default function AnalysisPage() {
                       // Lazy load MapChart component
                       const MapChart = React.lazy(() => import('../components/MapChart'));
                       
-                      // DEBUG: Ham veri kontrolü
-                      console.log('🗺️ Harita chartData:', chartData);
-                      console.log('🗺️ Harita chartData[0]:', chartData[0]);
-                      
                       // chartData'yı harita formatına dönüştür
                       // Önce koordinat zenginleştirme yap (şehir isimlerinden koordinat bul)
                       const enrichedData = enrichWithCoordinates(chartData);
-                      console.log('🗺️ Zenginleştirilmiş veri:', enrichedData);
                       
                       const mapData = enrichedData.map((item: any, idx: number) => {
                         const keys = Object.keys(item);
