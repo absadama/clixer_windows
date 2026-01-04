@@ -1,4 +1,4 @@
-import { ReactNode, useState, createContext, useContext, useEffect } from 'react'
+import { ReactNode, useState, createContext, useContext, useEffect, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -27,21 +27,35 @@ import {
 import clsx from 'clsx'
 import { UserRole } from '../types'
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+
 interface LayoutProps {
   children: ReactNode
 }
 
-// Tüm menü öğeleri
-// NOT: Sistem Sağlığı artık Veri Bağlantıları içinde tab olarak mevcut
-const allMenuItems = [
-  { id: 'dashboard', name: 'Kokpit', href: '/dashboard', icon: LayoutDashboard, badge: null },
-  { id: 'finance', name: 'Finans', href: '/finance', icon: Wallet, badge: 'YENİ' },
-  { id: 'operation', name: 'Operasyon', href: '/operations', icon: ShieldAlert, badge: 'YENİ' },
-  { id: 'analysis', name: 'Detaylı Analiz', href: '/analysis', icon: PieChart, badge: null },
-  { id: 'stores', name: 'Mağazalar', href: '/stores', icon: Store, badge: null },
-  { id: 'settings', name: 'Tasarım Stüdyosu', href: '/designer', icon: Palette, badge: null },
-  { id: 'data', name: 'Veri Bağlantıları', href: '/data', icon: Database, badge: null },
-  { id: 'admin', name: 'Yönetim Paneli', href: '/admin', icon: Shield, badge: null },
+// Varsayılan menü etiketleri (ASCII - Türkçe karaktersiz)
+const defaultMenuLabels: Record<string, string> = {
+  dashboard: 'Kokpit',
+  finance: 'Finans',
+  operations: 'Operasyon',
+  analysis: 'Detayli Analiz',
+  stores: 'Magazalar',
+  designer: 'Tasarim Studyosu',
+  data: 'Veri Baglantilari',
+  admin: 'Yonetim Paneli',
+  profile: 'Profilim'
+}
+
+// Menü öğesi tanımı (name dinamik olacak)
+const menuItemsBase = [
+  { id: 'dashboard', key: 'dashboard', href: '/dashboard', icon: LayoutDashboard, badge: null },
+  { id: 'finance', key: 'finance', href: '/finance', icon: Wallet, badge: 'YENİ' },
+  { id: 'operation', key: 'operations', href: '/operations', icon: ShieldAlert, badge: 'YENİ' },
+  { id: 'analysis', key: 'analysis', href: '/analysis', icon: PieChart, badge: null },
+  { id: 'stores', key: 'stores', href: '/stores', icon: Store, badge: null },
+  { id: 'settings', key: 'designer', href: '/designer', icon: Palette, badge: null },
+  { id: 'data', key: 'data', href: '/data', icon: Database, badge: null },
+  { id: 'admin', key: 'admin', href: '/admin', icon: Shield, badge: null },
 ]
 
 // CLIXER TEMA PALETİ
@@ -211,11 +225,13 @@ export default function Layout({ children }: LayoutProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [currentTheme, setCurrentTheme] = useState<ThemeType>('clixer') // Default: clixer
   const [language, setLanguage] = useState<'tr' | 'en'>('tr')
+  const [menuLabels, setMenuLabels] = useState<Record<string, string>>(defaultMenuLabels)
   const location = useLocation()
   const { user, logout, accessToken } = useAuthStore()
   const { 
     loadSettings, 
-    loadMenuPermissions, 
+    loadMenuPermissions,
+    loadPositionLabels,
     canViewMenu, 
     isLoaded,
     defaultTheme,
@@ -223,12 +239,41 @@ export default function Layout({ children }: LayoutProps) {
     appName
   } = useSettingsStore()
 
+  // Menü etiketlerini yükle
+  const loadMenuLabels = useCallback(async () => {
+    if (!accessToken) return
+    try {
+      const response = await fetch(`${API_BASE}/core/labels/menu`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      if (response.ok) {
+        const result = await response.json()
+        if (result.data) {
+          setMenuLabels({ ...defaultMenuLabels, ...result.data })
+        }
+      }
+    } catch {
+      // Hata durumunda varsayılan etiketler kullanılır
+    }
+  }, [accessToken])
+
   // Ayarları ve menü izinlerini yükle
   useEffect(() => {
     if (accessToken && !isLoaded) {
       loadSettings(accessToken)
     }
   }, [accessToken, isLoaded, loadSettings])
+
+  // Menü etiketlerini yükle
+  useEffect(() => {
+    if (accessToken) {
+      loadMenuLabels()
+      loadPositionLabels(accessToken)
+    }
+  }, [accessToken, loadMenuLabels, loadPositionLabels])
 
   // Kullanıcının pozisyon koduna göre menü izinlerini yükle
   useEffect(() => {
@@ -259,6 +304,12 @@ export default function Layout({ children }: LayoutProps) {
 
   const theme = themes[currentTheme]
   const isDark = currentTheme === 'clixer'
+
+  // Dinamik menü öğelerini oluştur (etiketlerle birlikte)
+  const allMenuItems = menuItemsBase.map(item => ({
+    ...item,
+    name: menuLabels[item.key] || defaultMenuLabels[item.key] || item.key
+  }))
 
   // Menü izinlerine göre filtreleme
   const getVisibleMenuItems = () => {

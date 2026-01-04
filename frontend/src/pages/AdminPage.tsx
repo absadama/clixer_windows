@@ -30,6 +30,8 @@ import {
   HardDrive,
   MemoryStick,
   Eraser,
+  Tag,
+  Save,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { SystemSetting } from '../types'
@@ -40,6 +42,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 // Menü öğeleri - Sadeleştirilmiş
 const menuItems = [
   { id: 'settings', label: 'Sistem Ayarları', icon: Settings, category: 'SİSTEM' },
+  { id: 'labels', label: 'Etiketler', icon: Tag, category: 'SİSTEM' },
   { id: 'performance', label: 'Performans', icon: Gauge, category: 'SİSTEM' },
   { id: 'master', label: 'Master Veriler', icon: Database, category: 'SİSTEM' },
   { id: 'users', label: 'Kullanıcı Yönetimi', icon: Users, category: 'KULLANICILAR' },
@@ -194,6 +197,36 @@ export default function AdminPage() {
   const [showImportModal, setShowImportModal] = useState<'stores' | 'regions' | null>(null)
   const [importData, setImportData] = useState<any[]>([])
   const [importing, setImporting] = useState(false)
+  
+  // Etiketler States
+  const [labels, setLabels] = useState<any[]>([])
+  const [labelsLoading, setLabelsLoading] = useState(false)
+  const [labelsSaving, setLabelsSaving] = useState(false)
+  const [labelsTab, setLabelsTab] = useState<'menu' | 'position'>('menu')
+  const [editedLabels, setEditedLabels] = useState<Record<string, string>>({})
+  
+  // Varsayılan etiketler (referans için - ASCII)
+  const defaultMenuLabels: Record<string, string> = {
+    dashboard: 'Kokpit',
+    finance: 'Finans',
+    operations: 'Operasyon',
+    analysis: 'Detayli Analiz',
+    stores: 'Magazalar',
+    designer: 'Tasarim Studyosu',
+    data: 'Veri Baglantilari',
+    metrics: 'Metrik Yonetimi',
+    admin: 'Yonetim Paneli',
+    profile: 'Profilim'
+  }
+  
+  const defaultPositionLabels: Record<string, string> = {
+    GENERAL_MANAGER: 'Genel Mudur',
+    DIRECTOR: 'Direktor',
+    REGION_MANAGER: 'Bolge Muduru',
+    STORE_MANAGER: 'Magaza Muduru',
+    ANALYST: 'Analist',
+    VIEWER: 'Izleyici'
+  }
 
   // Filtrelenmiş mağazalar
   const filteredAvailableStores = availableStores.filter(store => {
@@ -287,6 +320,67 @@ export default function AdminPage() {
       setPerfLoading(false)
     }
   }, [accessToken, apiCall])
+
+  // Etiketleri yükle
+  const loadLabels = useCallback(async () => {
+    if (!accessToken) return
+    setLabelsLoading(true)
+    try {
+      const result = await apiCall('/core/labels')
+      setLabels(result.data || [])
+      
+      // Düzenleme için mevcut değerleri hazırla
+      const edited: Record<string, string> = {}
+      ;(result.data || []).forEach((l: any) => {
+        edited[`${l.label_type}:${l.label_key}`] = l.label_value
+      })
+      setEditedLabels(edited)
+    } catch (err) {
+      console.error('Etiketler yüklenemedi:', err)
+    } finally {
+      setLabelsLoading(false)
+    }
+  }, [accessToken, apiCall])
+  
+  // Etiketleri kaydet
+  const saveLabels = async () => {
+    setLabelsSaving(true)
+    try {
+      // Değişen etiketleri topla
+      const labelsToSave = Object.entries(editedLabels).map(([key, value]) => {
+        const [label_type, label_key] = key.split(':')
+        return { label_type, label_key, label_value: value }
+      })
+      
+      await apiCall('/core/labels/batch', {
+        method: 'PUT',
+        body: JSON.stringify({ labels: labelsToSave })
+      })
+      
+      // Yeniden yükle
+      await loadLabels()
+      alert('Etiketler kaydedildi!')
+    } catch (err: any) {
+      alert('Kaydetme hatası: ' + err.message)
+    } finally {
+      setLabelsSaving(false)
+    }
+  }
+  
+  // Etiket değerini güncelle
+  const updateLabel = (type: string, key: string, value: string) => {
+    setEditedLabels(prev => ({
+      ...prev,
+      [`${type}:${key}`]: value
+    }))
+  }
+  
+  // Etiket değerini al
+  const getLabelValue = (type: string, key: string): string => {
+    return editedLabels[`${type}:${key}`] || 
+           (type === 'menu' ? defaultMenuLabels[key] : defaultPositionLabels[key]) || 
+           key
+  }
 
   // Performans ayarını kaydet
   const savePerfSetting = async (key: string, value: any) => {
@@ -968,7 +1062,8 @@ export default function AdminPage() {
     loadStoreMappings()
     loadSyncLogs()
     loadPerfSettings()
-  }, [loadSettings, loadUsers, loadPositions, loadStoresAndRegions, loadLdapConfig, loadPositionMappings, loadStoreMappings, loadSyncLogs, loadPerfSettings])
+    loadLabels()
+  }, [loadSettings, loadUsers, loadPositions, loadStoresAndRegions, loadLdapConfig, loadPositionMappings, loadStoreMappings, loadSyncLogs, loadPerfSettings, loadLabels])
 
   // Kategoriye göre grupla
   const groupedMenuItems = menuItems.reduce((acc, item) => {
@@ -1031,6 +1126,150 @@ export default function AdminPage() {
 
       {/* Ana İçerik */}
       <div className="flex-1 space-y-6">
+        {/* Etiketler */}
+        {activeTab === 'labels' && (
+          <div className="space-y-6">
+            {/* Başlık */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-purple-500/20' : 'bg-purple-100')}>
+                  <Tag size={24} className={isDark ? 'text-purple-400' : 'text-purple-600'} />
+                </div>
+                <div>
+                  <h2 className={clsx('text-xl font-semibold', theme.contentText)}>Dinamik Etiketler</h2>
+                  <p className={clsx('text-sm', theme.contentTextMuted)}>Menü ve pozisyon isimlerini şirketinize göre özelleştirin</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => loadLabels()}
+                  disabled={labelsLoading}
+                  className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl', theme.buttonSecondary)}
+                >
+                  <RefreshCw size={16} className={labelsLoading ? 'animate-spin' : ''} />
+                  Yenile
+                </button>
+                <button
+                  onClick={saveLabels}
+                  disabled={labelsSaving}
+                  className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl', theme.buttonPrimary)}
+                >
+                  {labelsSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                  Kaydet
+                </button>
+              </div>
+            </div>
+
+            {/* Tab Seçici */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setLabelsTab('menu')}
+                className={clsx(
+                  'px-4 py-2 rounded-xl font-medium transition-all',
+                  labelsTab === 'menu' 
+                    ? theme.buttonPrimary 
+                    : clsx(theme.contentTextMuted, 'hover:' + theme.contentText)
+                )}
+              >
+                Menü Etiketleri
+              </button>
+              <button
+                onClick={() => setLabelsTab('position')}
+                className={clsx(
+                  'px-4 py-2 rounded-xl font-medium transition-all',
+                  labelsTab === 'position' 
+                    ? theme.buttonPrimary 
+                    : clsx(theme.contentTextMuted, 'hover:' + theme.contentText)
+                )}
+              >
+                Pozisyon Etiketleri
+              </button>
+            </div>
+
+            {labelsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 size={32} className="animate-spin text-purple-500" />
+              </div>
+            ) : (
+              <div className={clsx('p-6 rounded-2xl', theme.cardBg)}>
+                {labelsTab === 'menu' && (
+                  <div className="space-y-4">
+                    <p className={clsx('text-sm mb-4', theme.contentTextMuted)}>
+                      Sidebar menüsündeki başlıkları şirketinize uygun şekilde değiştirin. 
+                      Örneğin "Mağazalar" yerine "Restoranlar" veya "Fakülteler" yazabilirsiniz.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {Object.entries(defaultMenuLabels).map(([key, defaultValue]) => (
+                        <div key={key} className={clsx('p-4 rounded-xl border', theme.cardBg, isDark ? 'border-gray-700' : 'border-gray-200')}>
+                          <label className={clsx('block text-xs font-medium mb-1 uppercase tracking-wide', theme.contentTextMuted)}>
+                            {key}
+                          </label>
+                          <input
+                            type="text"
+                            value={getLabelValue('menu', key)}
+                            onChange={(e) => updateLabel('menu', key, e.target.value)}
+                            placeholder={defaultValue}
+                            className={clsx(
+                              'w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-500',
+                              theme.input,
+                              isDark ? 'border-gray-600' : 'border-gray-300'
+                            )}
+                          />
+                          <p className={clsx('text-xs mt-1', theme.contentTextMuted)}>Varsayılan: {defaultValue}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {labelsTab === 'position' && (
+                  <div className="space-y-4">
+                    <p className={clsx('text-sm mb-4', theme.contentTextMuted)}>
+                      Pozisyon isimlerini şirketinize uygun şekilde değiştirin. 
+                      Örneğin "Mağaza Müdürü" yerine "Restoran Müdürü" veya "Dekan" yazabilirsiniz.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {Object.entries(defaultPositionLabels).map(([key, defaultValue]) => (
+                        <div key={key} className={clsx('p-4 rounded-xl border', theme.cardBg, isDark ? 'border-gray-700' : 'border-gray-200')}>
+                          <label className={clsx('block text-xs font-medium mb-1 uppercase tracking-wide', theme.contentTextMuted)}>
+                            {key}
+                          </label>
+                          <input
+                            type="text"
+                            value={getLabelValue('position', key)}
+                            onChange={(e) => updateLabel('position', key, e.target.value)}
+                            placeholder={defaultValue}
+                            className={clsx(
+                              'w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-500',
+                              theme.input,
+                              isDark ? 'border-gray-600' : 'border-gray-300'
+                            )}
+                          />
+                          <p className={clsx('text-xs mt-1', theme.contentTextMuted)}>Varsayılan: {defaultValue}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Bilgi Kutusu */}
+            <div className={clsx('p-4 rounded-xl', isDark ? 'bg-purple-500/10 border border-purple-500/30' : 'bg-purple-50 border border-purple-200')}>
+              <div className="flex gap-3">
+                <Tag size={20} className="text-purple-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className={clsx('font-medium', theme.contentText)}>Etiket Kullanımı</p>
+                  <p className={clsx('text-sm mt-1', theme.contentTextMuted)}>
+                    Etiketler değiştirildiğinde sidebar menüsü ve pozisyon isimleri otomatik olarak güncellenir.
+                    Her müşteri (tenant) kendi etiketlerini bağımsız olarak özelleştirebilir.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Performans Ayarları */}
         {activeTab === 'performance' && (
           <div className="space-y-6">

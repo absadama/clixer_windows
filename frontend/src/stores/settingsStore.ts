@@ -45,6 +45,9 @@ interface SettingsState {
   // Menü izinleri
   menuPermissions: MenuPermission[]
   
+  // Dinamik etiketler
+  positionLabels: Record<string, string>
+  
   // Loading state
   isLoading: boolean
   isLoaded: boolean
@@ -52,14 +55,26 @@ interface SettingsState {
   // Actions
   loadSettings: (accessToken: string) => Promise<void>
   loadMenuPermissions: (accessToken: string, positionCode: string) => Promise<void>
+  loadPositionLabels: (accessToken: string) => Promise<void>
   canViewMenu: (menuKey: string) => boolean
   canEditMenu: (menuKey: string) => boolean
   canViewFinanceSection: (section: string, positionCode?: string) => boolean
   getSetting: (key: string) => string | undefined
+  getPositionLabel: (code: string) => string
 }
 
 // Tüm pozisyonlar
 const ALL_POSITIONS = ['GENERAL_MANAGER', 'DIRECTOR', 'REGION_MANAGER', 'STORE_MANAGER', 'ANALYST', 'VIEWER']
+
+// Varsayılan pozisyon etiketleri (ASCII - Türkçe karaktersiz)
+const DEFAULT_POSITION_LABELS: Record<string, string> = {
+  GENERAL_MANAGER: 'Genel Mudur',
+  DIRECTOR: 'Direktor',
+  REGION_MANAGER: 'Bolge Muduru',
+  STORE_MANAGER: 'Magaza Muduru',
+  ANALYST: 'Analist',
+  VIEWER: 'Izleyici'
+}
 
 // Varsayılan değerler
 const defaultSettings = {
@@ -91,6 +106,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Varsayılan değerler
   ...defaultSettings,
   menuPermissions: [],
+  positionLabels: DEFAULT_POSITION_LABELS,
   isLoading: false,
   isLoaded: false,
 
@@ -330,6 +346,35 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   getSetting: (key: string) => {
     const state = get() as any
     return state[key]
+  },
+
+  // Pozisyon etiketlerini yükle
+  loadPositionLabels: async (accessToken: string) => {
+    if (!accessToken) return
+    
+    try {
+      const response = await fetch(`${API_BASE}/core/labels/position`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        if (result.data) {
+          set({ positionLabels: { ...DEFAULT_POSITION_LABELS, ...result.data } })
+        }
+      }
+    } catch {
+      // Hata durumunda varsayılan etiketler kullanılır
+    }
+  },
+
+  // Pozisyon etiketi getir
+  getPositionLabel: (code: string) => {
+    const { positionLabels } = get()
+    return positionLabels[code] || DEFAULT_POSITION_LABELS[code] || code
   }
 }))
 

@@ -4308,3 +4308,130 @@ docker/init-scripts/postgres/00-schema-and-seed.sql:
 - Sadece CREATE TABLE + temel INSERT içermeli
 - Test verileri ASLA dahil edilmemeli
 ```
+
+---
+
+## 📅 v3.2 - 4 Ocak 2026
+
+**Dinamik Etiketler & Token Refresh & Route Düzeltmeleri**
+
+### 1. ✅ Dinamik Etiket Sistemi (labels tablosu)
+
+Menü başlıkları ve pozisyon isimleri artık şirketten şirkete değiştirilebilir.
+
+| Özellik | Açıklama |
+|---------|----------|
+| `labels` tablosu | PostgreSQL'de tenant bazlı etiketler |
+| CRUD Endpoint'leri | `/labels`, `/labels/:type`, `/labels/batch` |
+| Admin Panel | Yönetim Paneli → Etiketler sekmesi |
+| Sidebar | Dinamik menü isimleri |
+| Pozisyonlar | Dinamik pozisyon isimleri |
+
+**Tablo Yapısı:**
+```sql
+CREATE TABLE labels (
+  id UUID PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  label_type VARCHAR(50) NOT NULL, -- 'menu', 'position'
+  label_key VARCHAR(100) NOT NULL, -- 'stores', 'STORE_MANAGER'
+  label_value VARCHAR(200) NOT NULL, -- 'Magazalar', 'Magaza Muduru'
+  description TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP,
+  UNIQUE (tenant_id, label_type, label_key)
+);
+```
+
+**Varsayılan Etiketler (ASCII):**
+```
+Menü: Kokpit, Finans, Operasyon, Detayli Analiz, Magazalar, Tasarim Studyosu, Veri Baglantilari, Yonetim Paneli
+Pozisyon: Genel Mudur, Direktor, Bolge Muduru, Magaza Muduru, Analist, Izleyici
+```
+
+### 2. ✅ Token Refresh Mekanizması
+
+JWT token süresi dolduğunda otomatik yenileme.
+
+| Bileşen | Değişiklik |
+|---------|------------|
+| `authStore.ts` | `refreshToken` state + `refreshAccessToken()` fonksiyonu |
+| `api.ts` | Axios interceptor - 401'de otomatik refresh |
+| `auth-service` | `/refresh` endpoint (zaten mevcuttu) |
+
+**Akış:**
+```
+401 Unauthorized → refreshAccessToken() → Yeni token → İstek tekrarla
+Refresh başarısız → logout()
+```
+
+### 3. ✅ Route Sıralama Düzeltmesi
+
+**Sorun:** `/labels/batch` route'u `/labels/:id`'den SONRA tanımlıydı. Express "batch"i UUID olarak algılıyordu.
+
+**Çözüm:** `/labels/batch` artık `/labels/:id`'den ÖNCE:
+```javascript
+app.put('/labels/batch', ...)  // ÖNCELİKLİ
+app.put('/labels/:id', ...)    // SONRA
+```
+
+### 4. ✅ React Router v6 Uyarıları Düzeltildi
+
+```typescript
+<BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+```
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `docker/init-scripts/postgres/00-schema-and-seed.sql` | labels tablosu + seed |
+| `services/core-service/src/index.ts` | CRUD endpoint'leri, route sıralaması |
+| `frontend/src/pages/AdminPage.tsx` | Etiketler sekmesi UI |
+| `frontend/src/components/Layout.tsx` | Dinamik menü isimleri |
+| `frontend/src/stores/settingsStore.ts` | Pozisyon etiketleri |
+| `frontend/src/stores/authStore.ts` | refreshToken, refreshAccessToken |
+| `frontend/src/services/api.ts` | 401 interceptor + token refresh |
+| `frontend/src/main.tsx` | React Router future flags |
+| `frontend/src/App.tsx` | Manuel token check kaldırıldı |
+
+### Kullanım
+
+1. **Etiket Değiştirme:** Admin Panel → Etiketler → Düzenle → Kaydet
+2. **Örnek:** "Magazalar" → "Restoranlar" (restoran zinciri müşterisi için)
+3. **Pozisyon:** "Magaza Muduru" → "Restoran Muduru"
+
+### Yedekleme
+
+- **Backup:** `backups/v3.2_dynamic_labels_20260104/`
+- **GitHub Tag:** `v3.2`
+
+---
+
+## 🔴 ROUTE SIRALAMA KURALI (Express.js)
+
+### MUTLAK KURAL: Parametrik route'lar (:id) her zaman SONA!
+
+Express.js route'ları tanımlanma sırasına göre eşleşir. Parametrik route'lar özel route'lardan SONRA tanımlanmalı.
+
+**DOĞRU:**
+```javascript
+app.get('/users/me', ...)       // Özel route - ÖNCELİKLİ
+app.put('/labels/batch', ...)   // Özel route - ÖNCELİKLİ
+app.get('/users/:id', ...)      // Parametrik - SONDA
+app.put('/labels/:id', ...)     // Parametrik - SONDA
+```
+
+**YANLIŞ:**
+```javascript
+app.get('/users/:id', ...)      // ❌ "me" burada yakalanır!
+app.get('/users/me', ...)       // ❌ Buraya asla ulaşılmaz
+```
+
+### Etkilenen Endpoint'ler
+
+| Özel Route | Parametrik Route |
+|------------|------------------|
+| `/labels/batch` | `/labels/:id` |
+| `/users/me` | `/users/:id` |
+| `/designs/templates` | `/designs/:id` |
