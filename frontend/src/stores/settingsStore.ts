@@ -81,7 +81,7 @@ const defaultSettings = {
   appName: 'Clixer',
   appLogo: '/logo.png',
   appFavicon: '/favicon.ico',
-  defaultTheme: 'light' as const,
+  defaultTheme: 'clixer' as const, // Clixer teması varsayılan
   defaultLanguage: 'tr' as const,
   dateFormat: 'DD.MM.YYYY',
   currency: 'TRY',

@@ -205,6 +205,12 @@ export default function AdminPage() {
   const [labelsTab, setLabelsTab] = useState<'menu' | 'position'>('menu')
   const [editedLabels, setEditedLabels] = useState<Record<string, string>>({})
   
+  // Labels'dan pozisyon ismi çek (dinamik etiket desteği)
+  const getPositionLabel = useCallback((positionCode: string, defaultName: string): string => {
+    const label = labels.find(l => l.label_type === 'position' && l.label_key === positionCode)
+    return label?.label_value || defaultName
+  }, [labels])
+  
   // Varsayılan etiketler (referans için - ASCII)
   const defaultMenuLabels: Record<string, string> = {
     dashboard: 'Kokpit',
@@ -2238,7 +2244,7 @@ export default function AdminPage() {
                         className={clsx('w-full px-4 py-3 rounded-xl text-sm', theme.inputBg, theme.inputText)}
                       >
                         {positions.map(pos => (
-                          <option key={pos.code} value={pos.code}>{pos.name}</option>
+                          <option key={pos.code} value={pos.code}>{getPositionLabel(pos.code, pos.name)}</option>
                         ))}
                       </select>
                     </div>
@@ -2483,7 +2489,7 @@ export default function AdminPage() {
                 <div key={pos.code} className={clsx('rounded-2xl p-6 transition-all', theme.cardBg, theme.cardHover)}>
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h3 className={clsx('font-bold text-lg', theme.contentText)}>{pos.name}</h3>
+                      <h3 className={clsx('font-bold text-lg', theme.contentText)}>{getPositionLabel(pos.code, pos.name)}</h3>
                       <p className={clsx('text-sm', theme.contentTextMuted)}>{pos.description}</p>
                     </div>
                     <span className={clsx(

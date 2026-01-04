@@ -4435,3 +4435,35 @@ app.get('/users/me', ...)       // ❌ Buraya asla ulaşılmaz
 | `/labels/batch` | `/labels/:id` |
 | `/users/me` | `/users/:id` |
 | `/designs/templates` | `/designs/:id` |
+
+---
+
+## 🎨 VARSAYILAN TEMA: CLİXER
+
+### MUTLAK KURAL: Varsayılan tema her zaman 'clixer' olmalı!
+
+**Prensip:** Kullanıcı tema değiştirmediği sürece Clixer teması aktif olmalı.
+
+### Uygulama Yerleri
+
+| Konum | Değer | Dosya |
+|-------|-------|-------|
+| Frontend varsayılan | `'clixer'` | `Layout.tsx:226` |
+| settingsStore varsayılan | `'clixer'` | `settingsStore.ts:84` |
+| Veritabanı seed | `'clixer'` | `00-schema-and-seed.sql` |
+| system_settings | `"clixer"` | PostgreSQL |
+
+### Tema Seçenekleri
+
+| Tema | Açıklama | Renk Paleti |
+|------|----------|-------------|
+| **clixer** | Koyu tema (varsayılan) | Coal, Anthracite, Neon Cyan |
+| light | Açık tema | Beyaz, Gri, İndigo |
+| corporate | Kurumsal tema | Teal, Koyu yeşil tonları |
+
+### Değişiklik Yaparken
+
+1. Yeni tema eklenirse → Clixer varsayılan kalsın
+2. Kullanıcı tema seçerse → LocalStorage'a kaydedilir
+3. Yeni kurulum → Clixer ile açılır
+4. Veritabanı sıfırlanırsa → Clixer seed edilir
