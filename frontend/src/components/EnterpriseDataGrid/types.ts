@@ -4,7 +4,7 @@ export interface ColumnConfig {
   id: string
   accessorKey: string
   header: string
-  type: 'text' | 'number' | 'date' | 'currency' | 'percentage' | 'boolean'
+  type: 'text' | 'number' | 'date' | 'datetime' | 'currency' | 'percentage' | 'boolean'
   width?: number
   minWidth?: number
   maxWidth?: number

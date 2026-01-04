@@ -258,14 +258,14 @@ export default function DataGridDemoPage() {
   }
 
   return (
-    <div className={clsx('p-6 space-y-6', theme.pageBackground)}>
+    <div className={clsx('p-6 space-y-6', theme.mainBg)}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className={clsx('text-2xl font-bold', theme.contentText)}>
             Enterprise DataGrid Demo
           </h1>
-          <p className={clsx('text-sm mt-1', theme.mutedText)}>
+          <p className={clsx('text-sm mt-1', theme.contentTextMuted)}>
             Modern, özelleştirilebilir, kullanıcı tasarımı kaydedilebilir grid
           </p>
         </div>
@@ -403,7 +403,7 @@ export default function DataGridDemoPage() {
               className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" 
               style={{ borderColor: '#00CFDE', borderTopColor: 'transparent' }} 
             />
-            <span className={theme.mutedText}>Grid yükleniyor...</span>
+            <span className={theme.contentTextMuted}>Grid yükleniyor...</span>
           </div>
         </div>
       )}
@@ -411,7 +411,7 @@ export default function DataGridDemoPage() {
       {/* Bilgi */}
       <div className={clsx('p-4 rounded-lg border', theme.border, isDark ? 'bg-blue-500/10' : 'bg-blue-50')}>
         <h3 className={clsx('font-semibold mb-2', theme.contentText)}>💡 Kullanım İpuçları</h3>
-        <ul className={clsx('text-sm space-y-1', theme.mutedText)}>
+        <ul className={clsx('text-sm space-y-1', theme.contentTextMuted)}>
           <li>• <strong>Gruplama:</strong> Kolon başlığındaki ⊞ butonuna tıklayın veya sürükleyip bırakın</li>
           <li>• <strong>Sıralama:</strong> Kolon başlığına tıklayın (çoklu sıralama için Shift+tıklama)</li>
           <li>• <strong>Filtre:</strong> "Filtreler" butonuna tıklayarak filtre satırını açın</li>

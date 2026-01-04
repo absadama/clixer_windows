@@ -1217,7 +1217,7 @@ export default function AdminPage() {
                             placeholder={defaultValue}
                             className={clsx(
                               'w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-500',
-                              theme.input,
+                              theme.inputBg, theme.inputText,
                               isDark ? 'border-gray-600' : 'border-gray-300'
                             )}
                           />
@@ -1247,7 +1247,7 @@ export default function AdminPage() {
                             placeholder={defaultValue}
                             className={clsx(
                               'w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-500',
-                              theme.input,
+                              theme.inputBg, theme.inputText,
                               isDark ? 'border-gray-600' : 'border-gray-300'
                             )}
                           />

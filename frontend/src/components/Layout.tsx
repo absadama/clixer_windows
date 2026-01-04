@@ -108,6 +108,10 @@ export const themes = {
     success: 'text-emerald-400 bg-emerald-500/10',
     warning: 'text-[#FBBF24] bg-[#FBBF24]/10',
     error: 'text-rose-400 bg-rose-500/10',
+    // Ek property'ler (DataGrid uyumluluğu için)
+    mutedText: 'text-[#94a3b8]',
+    pageBackground: 'bg-[#0F1116]',
+    input: 'bg-[#21252E] border-[#2F3542] text-[#e2e8f0]',
   },
   // AYDINLIK TEMA
   light: {
@@ -150,6 +154,10 @@ export const themes = {
     success: 'text-emerald-600 bg-emerald-50',
     warning: 'text-amber-600 bg-amber-50',
     error: 'text-rose-600 bg-rose-50',
+    // Ek property'ler (DataGrid uyumluluğu için)
+    mutedText: 'text-slate-500',
+    pageBackground: 'bg-slate-100',
+    input: 'bg-slate-100 border-slate-200 text-slate-900',
   },
   // KURUMSAL TEMA - Teal/Mavi/Turuncu Paleti
   // #026E81 Dark Teal | #00ABBD Aqua | #0099DD Blue | #FF9933 Orange | #A1C7E0 Light Blue
@@ -193,6 +201,10 @@ export const themes = {
     success: 'text-emerald-700 bg-emerald-50',
     warning: 'text-[#FF9933] bg-orange-50',
     error: 'text-rose-700 bg-rose-50',
+    // Ek property'ler (DataGrid uyumluluğu için)
+    mutedText: 'text-slate-600',
+    pageBackground: 'bg-gradient-to-br from-slate-50 to-[#A1C7E0]/20',
+    input: 'bg-white border-[#A1C7E0] text-[#024959]',
   }
 }
 
@@ -205,6 +217,16 @@ interface ThemeContextType {
   currentTheme: ThemeType
   setCurrentTheme: (theme: ThemeType) => void
   isDark: boolean
+}
+
+// Menu item tipi
+interface MenuItem {
+  id: string
+  name: string
+  icon: React.ComponentType<any>
+  href: string
+  key: string
+  badge?: string
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null)
@@ -486,7 +508,7 @@ interface SidebarContentProps {
   setCurrentTheme: (theme: ThemeType) => void
   language: 'tr' | 'en'
   setLanguage: (lang: 'tr' | 'en') => void
-  menuItems: typeof allMenuItems
+  menuItems: MenuItem[]
   theme: ThemeColors
   isDark: boolean
   onClose?: () => void

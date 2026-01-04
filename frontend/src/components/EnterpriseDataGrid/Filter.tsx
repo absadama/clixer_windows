@@ -19,9 +19,10 @@ export const DataGridFilter: React.FC<FilterProps> = ({
   onColumnFiltersChange,
   theme,
 }) => {
-  const getFilterValue = (columnId: string) => {
+  const getFilterValue = (columnId: string): string => {
     const filter = columnFilters.find(f => f.id === columnId)
-    return filter?.value ?? ''
+    const value = filter?.value
+    return value !== undefined && value !== null ? String(value) : ''
   }
 
   const setFilterValue = (columnId: string, value: any) => {

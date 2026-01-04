@@ -122,7 +122,7 @@ const GroupingArea: React.FC<{
       <div className={clsx(
         'px-4 py-2 text-sm border-b border-dashed',
         theme.border,
-        theme.mutedText
+        theme.contentTextMuted
       )}>
         💡 Gruplamak için kolon başlığını buraya sürükleyin
       </div>
@@ -131,7 +131,7 @@ const GroupingArea: React.FC<{
 
   return (
     <div className={clsx('px-4 py-2 flex items-center gap-2 border-b', theme.border)}>
-      <span className={clsx('text-sm', theme.mutedText)}>Gruplama:</span>
+      <span className={clsx('text-sm', theme.contentTextMuted)}>Gruplama:</span>
       {grouping.map((columnId) => {
         const col = columns.find(c => c.id === columnId)
         return (
@@ -1041,7 +1041,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={columns.length} className={clsx('text-center py-8', theme.mutedText)}>
+                  <td colSpan={columns.length} className={clsx('text-center py-8', theme.contentTextMuted)}>
                     <div className="flex items-center justify-center gap-2">
                       <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                       Yükleniyor...
@@ -1050,7 +1050,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={columns.length} className={clsx('text-center py-8', theme.mutedText)}>
+                  <td colSpan={columns.length} className={clsx('text-center py-8', theme.contentTextMuted)}>
                     {emptyMessage}
                   </td>
                 </tr>
@@ -1101,7 +1101,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                               <span className={clsx('font-semibold', theme.contentText)}>
                                 {String(groupValue ?? '-')}
                               </span>
-                              <span className={clsx('text-xs', theme.mutedText)}>
+                              <span className={clsx('text-xs', theme.contentTextMuted)}>
                                 ({row.subRows.length} kayıt)
                               </span>
                               {/* Aggregated değerler */}
@@ -1225,7 +1225,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                             <span className={clsx('font-semibold', theme.contentText)}>
                               {String(groupValue ?? '-')}
                             </span>
-                            <span className={clsx('text-xs', theme.mutedText)}>
+                            <span className={clsx('text-xs', theme.contentTextMuted)}>
                               ({row.subRows.length} kayıt)
                             </span>
                             {/* Aggregated değerler */}
@@ -1442,7 +1442,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
       {/* Pagination */}
       {enablePagination && (
         <div className={clsx('flex items-center justify-between px-4 py-3 border-t', theme.border)}>
-          <div className={clsx('text-sm', theme.mutedText)}>
+          <div className={clsx('text-sm', theme.contentTextMuted)}>
             Gösterilen: {new Intl.NumberFormat('tr-TR').format(table.getFilteredRowModel().rows.length)} kayıt
             {totalRows && totalRows > data.length && (
               <span className="text-emerald-400 font-medium"> / Toplam: {new Intl.NumberFormat('tr-TR').format(totalRows)}</span>
