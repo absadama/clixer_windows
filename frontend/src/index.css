@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #dc2626;
+  --color-secondary: #f97316;
+  --color-dark: #18181b;
+  /* Clixer Theme Colors */
+  --clixer-coal: #0F1116;
+  --clixer-anthracite: #181B21;
+  --clixer-surface: #21252E;
+  --clixer-surface-highlight: #2F3542;
+  --clixer-neon-cyan: #00CFDE;
+  --clixer-neon-blue: #3B82F6;
+  --clixer-neon-purple: #A78BFA;
+  --clixer-neon-amber: #FBBF24;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #f4f4f5;
+}
+
+/* Clixer Theme Radial Glow Background */
+body.theme-clixer {
+  background-color: var(--clixer-coal);
+  background-image: radial-gradient(circle at 50% 0%, #1C2029 0%, var(--clixer-coal) 80%);
+  color: #e2e8f0;
+}
+
+/* Clixer Theme - Main content area with radial glow */
+body.theme-clixer main {
+  background-color: transparent;
+  background-image: radial-gradient(ellipse at 50% -20%, rgba(28, 32, 41, 0.8) 0%, transparent 70%);
+}
+
+/* Clixer Cards - Border-based depth, no shadow */
+body.theme-clixer .clixer-floating-card {
+  background: linear-gradient(135deg, #181B21 0%, #1a1e26 100%);
+  border: 1px solid #2F3542;
+  border-radius: 16px;
+  transition: all 0.3s ease;
+}
+
+body.theme-clixer .clixer-floating-card:hover {
+  border-color: rgba(0, 207, 222, 0.4);
+}
+
+/* Clixer Neon Glow Effects */
+.clixer-glow {
+  box-shadow: 0 0 20px rgba(0, 207, 222, 0.15), 0 0 40px rgba(0, 207, 222, 0.05);
+}
+
+.clixer-glow-text {
+  text-shadow: 0 0 10px rgba(0, 207, 222, 0.3);
+}
+
+/* Clixer Card Hover Glow */
+.clixer-card-glow:hover {
+  box-shadow: 0 4px 20px rgba(0, 207, 222, 0.15), 0 0 30px rgba(0, 207, 222, 0.05);
+  border-color: rgba(0, 207, 222, 0.3);
+}
+
+/* Clixer Button Glow */
+.clixer-btn-glow {
+  transition: all 0.3s ease;
+}
+
+.clixer-btn-glow:hover {
+  box-shadow: 0 0 20px rgba(0, 207, 222, 0.4), 0 0 40px rgba(0, 207, 222, 0.2);
+}
+
+/* Clixer Inner Shadow for depth */
+body.theme-clixer .clixer-inner-shadow {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+/* ETL Progress Bar Animations */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+@keyframes progress-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}

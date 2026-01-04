@@ -1,0 +1,279 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL - Uygulama Ayarları (OLTP)
+  # Performance optimized for 400+ concurrent users
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: clixer_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: clixer
+      POSTGRES_USER: clixer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clixer_secret_2025}
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=768MB"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clixer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # ClickHouse - Analitik Veriler (OLAP) - EMBED
+  # Performance optimized for 400+ concurrent users
+  # ============================================
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.12.1
+    container_name: clixer_clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: clixer_analytics
+      CLICKHOUSE_USER: clixer
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      # Performance Settings - Optimized for 16GB Mac
+      CLICKHOUSE_MAX_MEMORY_USAGE: 6000000000  # 6GB per query (max)
+      CLICKHOUSE_MAX_MEMORY_USAGE_FOR_ALL_QUERIES: 8000000000  # 8GB total
+      CLICKHOUSE_MAX_EXECUTION_TIME: 300  # 5 dakika (OPTIMIZE için)
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./init-scripts/clickhouse:/docker-entrypoint-initdb.d
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9000:9000"  # Native interface
+    deploy:
+      resources:
+        limits:
+          memory: 10G  # Container memory limit
+        reservations:
+          memory: 4G   # Minimum guaranteed memory
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Redis - Cache + Queue + Pub/Sub
+  # Performance optimized for 400+ concurrent users
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: clixer_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru --maxclients 10000
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+        reservations:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # API Gateway
+  # ============================================
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+    container_name: clixer_gateway
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+    depends_on:
+      - auth-service
+      - core-service
+      - data-service
+      - analytics-service
+      - notification-service
+
+  # ============================================
+  # Auth Service (Port 4001)
+  # ============================================
+  auth-service:
+    build:
+      context: ../services/auth-service
+      dockerfile: Dockerfile
+    container_name: clixer_auth
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      - NODE_ENV=production
+      - PORT=4001
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-clixer_jwt_super_secret_2025}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ============================================
+  # Core Service (Port 4002)
+  # ============================================
+  core-service:
+    build:
+      context: ../services/core-service
+      dockerfile: Dockerfile
+    container_name: clixer_core
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+    environment:
+      - NODE_ENV=production
+      - PORT=4002
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ============================================
+  # Data Service (Port 4003)
+  # ============================================
+  data-service:
+    build:
+      context: ../services/data-service
+      dockerfile: Dockerfile
+    container_name: clixer_data
+    restart: unless-stopped
+    ports:
+      - "4003:4003"
+    environment:
+      - NODE_ENV=production
+      - PORT=4003
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=clixer
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+  # ============================================
+  # Analytics Service (Port 4005)
+  # ============================================
+  analytics-service:
+    build:
+      context: ../services/analytics-service
+      dockerfile: Dockerfile
+    container_name: clixer_analytics
+    restart: unless-stopped
+    ports:
+      - "4005:4005"
+    environment:
+      - NODE_ENV=production
+      - PORT=4005
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=clixer
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ============================================
+  # Notification Service (Port 4004)
+  # ============================================
+  notification-service:
+    build:
+      context: ../services/notification-service
+      dockerfile: Dockerfile
+    container_name: clixer_notification
+    restart: unless-stopped
+    ports:
+      - "4004:4004"
+    environment:
+      - NODE_ENV=production
+      - PORT=4004
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ============================================
+  # ETL Worker (Ayrı Process - Uygulama Etkilenmez)
+  # ============================================
+  etl-worker:
+    build:
+      context: ../services/etl-worker
+      dockerfile: Dockerfile
+    container_name: clixer_etl
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=clixer
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      - REDIS_URL=redis://redis:6379
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:
+
+networks:
+  default:
+    name: clixer_network

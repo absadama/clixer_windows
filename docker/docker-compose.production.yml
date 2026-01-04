@@ -1,0 +1,345 @@
+version: '3.8'
+
+# ============================================
+# CLIXER - Production Docker Compose
+# 400+ kullanıcı desteği için optimize edilmiş
+# PM2 Cluster Mode + Artırılmış Limitler
+# ============================================
+
+services:
+  # ============================================
+  # PostgreSQL - Artırılmış Bağlantı Limiti
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: clixer_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: clixer
+      POSTGRES_USER: clixer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clixer_secret_2025}
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clixer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  # ============================================
+  # ClickHouse - Optimize Edilmiş
+  # ============================================
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clixer_clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: clixer_analytics
+      CLICKHOUSE_USER: clixer
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./init-scripts/clickhouse:/docker-entrypoint-initdb.d
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+
+  # ============================================
+  # Redis - Artırılmış Memory ve Client Limiti
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: clixer_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+      --maxclients 10000
+      --tcp-backlog 511
+      --timeout 0
+      --tcp-keepalive 300
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # ============================================
+  # API Gateway - PM2 Cluster Mode (4 instance)
+  # ============================================
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile.production
+    container_name: clixer_gateway
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - PM2_INSTANCES=4
+    depends_on:
+      - auth-service
+      - core-service
+      - data-service
+      - analytics-service
+      - notification-service
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  # ============================================
+  # Auth Service - PM2 Cluster Mode (2 instance)
+  # ============================================
+  auth-service:
+    build:
+      context: ../services/auth-service
+      dockerfile: Dockerfile.production
+    container_name: clixer_auth
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      - NODE_ENV=production
+      - PORT=4001
+      - PM2_INSTANCES=2
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # ============================================
+  # Core Service - PM2 Cluster Mode (2 instance)
+  # ============================================
+  core-service:
+    build:
+      context: ../services/core-service
+      dockerfile: Dockerfile.production
+    container_name: clixer_core
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+    environment:
+      - NODE_ENV=production
+      - PORT=4002
+      - PM2_INSTANCES=2
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # ============================================
+  # Data Service - PM2 Cluster Mode (2 instance)
+  # ============================================
+  data-service:
+    build:
+      context: ../services/data-service
+      dockerfile: Dockerfile.production
+    container_name: clixer_data
+    restart: unless-stopped
+    ports:
+      - "4003:4003"
+    environment:
+      - NODE_ENV=production
+      - PORT=4003
+      - PM2_INSTANCES=2
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=clixer
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # ============================================
+  # Analytics Service - PM2 Cluster Mode (4 instance)
+  # En ağır servis, en çok kaynak
+  # ============================================
+  analytics-service:
+    build:
+      context: ../services/analytics-service
+      dockerfile: Dockerfile.production
+    container_name: clixer_analytics
+    restart: unless-stopped
+    ports:
+      - "4005:4005"
+    environment:
+      - NODE_ENV=production
+      - PORT=4005
+      - PM2_INSTANCES=4
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=clixer
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  # ============================================
+  # Notification Service (1 instance yeterli)
+  # ============================================
+  notification-service:
+    build:
+      context: ../services/notification-service
+      dockerfile: Dockerfile.production
+    container_name: clixer_notification
+    restart: unless-stopped
+    ports:
+      - "4004:4004"
+    environment:
+      - NODE_ENV=production
+      - PORT=4004
+      - PM2_INSTANCES=1
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================
+  # ETL Worker - Ayrı Process, Yüksek Memory
+  # ============================================
+  etl-worker:
+    build:
+      context: ../services/etl-worker
+      dockerfile: Dockerfile.production
+    container_name: clixer_etl
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=clixer
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+
+  # ============================================
+  # Frontend - Static Files (Nginx)
+  # ============================================
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile.production
+    container_name: clixer_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - gateway
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:
+
+networks:
+  default:
+    name: clixer_network
+
+
+
