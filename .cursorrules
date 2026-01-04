@@ -4270,3 +4270,41 @@ Kod yazıldıktan sonra otomatik format düzeltme:
 3. ✅ "Her hamle müşteri sunucusu düşünülerek" kuralı eklendi
 4. ✅ Yedek almadan önce zorunlu kontroller tanımlandı
 5. ✅ Slash komutları ve PostToolUse hook planlandı
+
+---
+
+## 📅 v3.1 - 4 Ocak 2026
+
+**Müşteri Kurulumu Temizliği - Test Verileri Kaldırıldı**
+
+### Sorun
+`docker/init-scripts/postgres/00-schema-and-seed.sql` dosyası eski `pg_dump` çıktısıydı ve tüm test verileri (kullanıcılar, tasarımlar, metrikler, bağlantılar) içeriyordu. Docker container'ları başlatıldığında bu veriler otomatik yükleniyordu.
+
+### Çözüm
+1. ✅ Init script sadece şema + temel seed içerecek şekilde yeniden oluşturuldu
+2. ✅ Test kullanıcıları kaldırıldı (sadece admin@clixer kalıyor)
+3. ✅ Test tasarımları, metrikleri, bağlantıları kaldırıldı
+4. ✅ `db-backup/postgresql_full.sql` temiz veri ile güncellendi
+5. ✅ `docker/docker-compose.db.yml` eklendi (Windows için sadece DB container'ları)
+
+### Müşteri Kurulumunda Artık:
+| Tablo | İçerik |
+|-------|--------|
+| users | Sadece `admin@clixer` |
+| designs | BOŞ |
+| metrics | BOŞ |
+| data_connections | BOŞ |
+| datasets | BOŞ |
+| positions | 6 varsayılan pozisyon |
+
+### Giriş Bilgileri
+- **Email**: `admin@clixer`
+- **Şifre**: `Admin1234!`
+
+### Init Script Kuralı (KRİTİK!)
+```
+docker/init-scripts/postgres/00-schema-and-seed.sql:
+- ASLA pg_dump çıktısı olarak bırakılmamalı!
+- Sadece CREATE TABLE + temel INSERT içermeli
+- Test verileri ASLA dahil edilmemeli
+```
