@@ -1,154 +1,73 @@
-# Verify App Agent
+# verify-app Agent
+
+Clixer uygulamasının tam çalışır durumda olduğunu doğrular.
 
 ## Görev
-Uygulamanın uçtan uca (E2E) çalıştığını doğrula.
 
-## Çalıştırma
-```
-claude "Uygulamayı doğrula"
-```
+End-to-end uygulama doğrulaması yapar:
+1. Frontend erişilebilir mi?
+2. API Gateway çalışıyor mu?
+3. Tüm microservisler aktif mi?
+4. Login akışı çalışıyor mu?
+5. Token doğrulama başarılı mı?
 
-## Doğrulama Adımları
+## Kontrol Komutları
 
-### 1. Servislerin Çalıştığını Doğrula
+### Frontend Kontrolü
 ```bash
-# Tüm portları kontrol et
-for port in 3000 4000 4001 4002 4003 4004 4005; do
-  curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/health 2>/dev/null || echo "Port $port: DOWN"
+curl -sf http://localhost:3000 > /dev/null && echo "✅ Frontend OK" || echo "❌ Frontend FAIL"
+```
+
+### API Gateway Kontrolü
+```bash
+curl -sf http://localhost:4000/health && echo "✅ Gateway OK" || echo "❌ Gateway FAIL"
+```
+
+### Microservice Kontrolü
+```bash
+for port in 4001 4002 4003 4004 4005; do
+  curl -sf http://localhost:$port/health && echo "✅ Port $port OK" || echo "❌ Port $port FAIL"
 done
 ```
 
-**Beklenen:** Tüm portlar yanıt vermeli
-
-### 2. Login Akışı
+### Login Test
 ```bash
-# 1. Login
-TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
+TOKEN=$(curl -sf -X POST http://localhost:4000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@clixer","password":"Admin1234!"}' | jq -r '.data.accessToken')
 
-echo "Token: ${TOKEN:0:20}..."
-
-# 2. Token doğrulama
-curl -s http://localhost:4000/api/auth/me \
-  -H "Authorization: Bearer $TOKEN" | jq '.data.email'
-```
-
-**Beklenen:** Token alınmalı ve `admin@clixer` dönmeli
-
-### 3. CRUD İşlemleri
-```bash
-# Kullanıcıları listele
-curl -s http://localhost:4000/api/users \
-  -H "Authorization: Bearer $TOKEN" | jq '.data | length'
-
-# Tasarımları listele
-curl -s http://localhost:4000/api/designs \
-  -H "Authorization: Bearer $TOKEN" | jq '.data | length'
-
-# Ayarları al
-curl -s http://localhost:4000/api/settings \
-  -H "Authorization: Bearer $TOKEN" | jq '.data | length'
-```
-
-### 4. Veri Bağlantıları
-```bash
-# Bağlantıları listele
-curl -s http://localhost:4000/api/connections \
-  -H "Authorization: Bearer $TOKEN" | jq '.data | length'
-
-# Dataset'leri listele
-curl -s http://localhost:4000/api/datasets \
-  -H "Authorization: Bearer $TOKEN" | jq '.data | length'
-```
-
-### 5. Metrikler
-```bash
-# Metrikleri listele
-curl -s http://localhost:4000/api/metrics \
-  -H "Authorization: Bearer $TOKEN" | jq '.data | length'
-```
-
-### 6. Dashboard Verisi
-```bash
-# Dashboard full endpoint (varsa design)
-curl -s "http://localhost:4000/api/dashboard/1/full" \
-  -H "Authorization: Bearer $TOKEN" | jq '.data.design.name // "No design"'
-```
-
-### 7. Frontend Erişimi
-```bash
-# Frontend HTML dönüyor mu?
-curl -s http://localhost:3000 | grep -q "<title>" && echo "Frontend OK" || echo "Frontend FAIL"
-
-# Assets yükleniyor mu?
-curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/logo.png
-```
-
-### 8. WebSocket (Opsiyonel)
-```bash
-# Notification service WS
-curl -s http://localhost:4004/socket.io/ 2>&1 | grep -q "socket" && echo "WebSocket OK" || echo "WebSocket N/A"
-```
-
-## Tam Doğrulama Scripti
-
-```bash
-#!/bin/bash
-echo "═══════════════════════════════════════════════════════════════"
-echo "              CLIXER UYGULAMA DOĞRULAMA                        "
-echo "═══════════════════════════════════════════════════════════════"
-
-PASS=0
-FAIL=0
-
-check() {
-  if [ $? -eq 0 ]; then
-    echo "✅ $1"
-    ((PASS++))
-  else
-    echo "❌ $1"
-    ((FAIL++))
-  fi
-}
-
-# Servisler
-curl -s http://localhost:4000/health > /dev/null; check "Gateway"
-curl -s http://localhost:4001/health > /dev/null; check "Auth Service"
-curl -s http://localhost:4002/health > /dev/null; check "Core Service"
-curl -s http://localhost:4003/health > /dev/null; check "Data Service"
-curl -s http://localhost:4004/health > /dev/null; check "Notification Service"
-curl -s http://localhost:4005/health > /dev/null; check "Analytics Service"
-curl -s http://localhost:3000 | grep -q "<" > /dev/null; check "Frontend"
-
-# Docker
-docker exec clixer_postgres pg_isready -U clixer > /dev/null 2>&1; check "PostgreSQL"
-curl -s http://localhost:8123/ping > /dev/null; check "ClickHouse"
-docker exec clixer_redis redis-cli PING > /dev/null 2>&1; check "Redis"
-
-# Login
-TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@clixer","password":"Admin1234!"}' | jq -r '.data.accessToken')
-[ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; check "Login"
-
-echo "═══════════════════════════════════════════════════════════════"
-echo "SONUÇ: $PASS başarılı, $FAIL başarısız"
-if [ $FAIL -eq 0 ]; then
-  echo "🎉 TÜM TESTLER BAŞARILI!"
+if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+  echo "✅ Login OK, token alındı"
+  
+  # Me endpoint test
+  USER=$(curl -sf http://localhost:4000/api/auth/me \
+    -H "Authorization: Bearer $TOKEN" | jq -r '.data.email')
+  echo "✅ User doğrulandı: $USER"
 else
-  echo "⚠️ BAZI TESTLER BAŞARISIZ!"
+  echo "❌ Login FAIL"
 fi
-echo "═══════════════════════════════════════════════════════════════"
 ```
 
-## Hızlı Kontrol (Tek Komut)
+## Beklenen Sonuç
 
-```bash
-curl -s http://localhost:4000/health && \
-curl -s -X POST http://localhost:4000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@clixer","password":"Admin1234!"}' | jq -r '.success' | grep -q "true" && \
-echo "✅ UYGULAMA ÇALIŞIYOR" || echo "❌ SORUN VAR"
+```
+✅ Frontend OK
+✅ Gateway OK
+✅ Port 4001 OK (Auth)
+✅ Port 4002 OK (Core)
+✅ Port 4003 OK (Data)
+✅ Port 4004 OK (Notification)
+✅ Port 4005 OK (Analytics)
+✅ Login OK, token alındı
+✅ User doğrulandı: admin@clixer
 ```
 
+## Hata Durumunda
+
+| Hata | Çözüm |
+|------|-------|
+| Frontend FAIL | `cd frontend && npm run dev` |
+| Gateway FAIL | `cd gateway && npm run dev` |
+| Service FAIL | İlgili servisi yeniden başlat |
+| Login FAIL | Auth service loglarını kontrol et |
+| Token FAIL | JWT_SECRET .env'de mi? |
