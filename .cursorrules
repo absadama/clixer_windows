@@ -4099,3 +4099,174 @@ docker exec -i clixer_postgres psql -U clixer -d clixer < db-backup/postgresql_f
 2. ✅ PostgreSQL dump alınıp `db-backup/` klasörüne eklenmeli
 3. ✅ ClickHouse tablolar varsa dump alınmalı
 4. ✅ GitHub'a commit + push + tag
+
+---
+
+## 🔴 PRODUCTION PRE-DEPLOYMENT KONTROL LİSTESİ (ZORUNLU!)
+
+### MUTLAK KURAL: Yedek almadan ve production'a deploy etmeden önce bu kontroller ZORUNLU!
+
+**"Yedek al" veya "GitHub'a gönder" dediğinde şu kontroller OTOMATİK yapılmalı:**
+
+### 1. API Testleri (api-tester)
+```powershell
+# Tüm servisler çalışıyor mu?
+- Gateway (4000): /health
+- Auth (4001): /health
+- Core (4002): /health
+- Data (4003): /health
+- Notification (4004): /health
+- Analytics (4005): /health
+- Login test: POST /api/auth/login
+```
+
+### 2. Veritabanı Sağlığı (db-health)
+```powershell
+# Tüm veritabanları erişilebilir mi?
+- PostgreSQL: pg_isready
+- ClickHouse: SELECT 1
+- Redis: PING → PONG
+```
+
+### 3. Güvenlik Denetimi (security-audit)
+```powershell
+# Güvenlik önlemleri aktif mi?
+- CORS yapılandırılmış mı?
+- Helmet.js security headers aktif mi?
+- Rate limiting çalışıyor mu?
+- .env dosyası gitignore'da mı?
+- Hardcoded şifre var mı? (grep ile kontrol)
+```
+
+### 4. Production Dosyaları (deploy-checker)
+```powershell
+# Production için gerekli dosyalar mevcut mu?
+- deploy/install-ubuntu.sh
+- deploy/README-PRODUCTION.md
+- db-backup/postgresql_full.sql (güncel mi?)
+- .env.example
+- docker/docker-compose.yml
+```
+
+### 5. Build Kontrolü
+```powershell
+# TypeScript hatasız build oluyor mu?
+cd shared && npm run build
+cd frontend && npm run build
+```
+
+### 6. GitHub Sync
+```powershell
+# Tüm değişiklikler commit edilmiş mi?
+git status --porcelain
+# Boş dönmeli, değişiklik varsa UYAR!
+```
+
+### Kontrol Başarısız Olursa:
+❌ **YEDEK ALINMAZ!**
+❌ **GITHUB'A PUSH YAPILMAZ!**
+❌ **PRODUCTION'A DEPLOY EDİLMEZ!**
+
+Önce sorun çözülür, sonra tekrar kontrol edilir.
+
+---
+
+## 🎯 PRODUCTION MİNDSET (HER ZAMAN HATIRLA!)
+
+### MUTLAK KURAL: Her hamle müşteri sunucusu düşünülerek yapılacak!
+
+1. **Kod değişikliği yaparken:**
+   - "Bu değişiklik müşteri sunucusunda çalışır mı?"
+   - "Ubuntu'da Docker ile sorunsuz çalışır mı?"
+   - ".env bağımlılığı var mı? .env.example güncellendi mi?"
+
+2. **Yeni özellik eklerken:**
+   - "GitHub'dan çekildiğinde çalışır mı?"
+   - "npm install yeterli mi, yoksa başka kurulum gerekli mi?"
+   - "Database migration gerekiyor mu?"
+
+3. **Yedek alırken:**
+   - "PostgreSQL dump güncel mi?"
+   - "Tüm testler geçiyor mu?"
+   - "Security audit temiz mi?"
+
+4. **Deploy öncesi:**
+   - "install-ubuntu.sh scripti güncel mi?"
+   - "README-PRODUCTION.md doğru mu?"
+   - "Tüm servisler health check geçiyor mu?"
+
+### Müşteri Sunucusu Düşüncesi:
+```
+Her commit = Müşteriye gidecek kod
+Her push = Production'a deploy edilebilir olmalı
+Her tag = Stabil, test edilmiş sürüm
+```
+
+---
+
+## 🤖 CLIXER AI AGENT SİSTEMİ
+
+### Agent Dosyaları: `.claude/agents/`
+
+| Agent | Dosya | Görev |
+|-------|-------|-------|
+| api-tester | `api-tester.md` | Tüm API endpoint'lerini test eder |
+| db-health | `db-health.md` | PostgreSQL, ClickHouse, Redis durumu |
+| deploy-checker | `deploy-checker.md` | Production öncesi kontroller |
+| security-audit | `security-audit.md` | Güvenlik açıkları taraması |
+| etl-validator | `etl-validator.md` | ETL job'ları ve veri tutarlılığı |
+| verify-app | `verify-app.md` | Uygulama çalışıyor mu doğrulaması |
+
+### Kullanım:
+- "API testlerini çalıştır"
+- "Veritabanları sağlıklı mı?"
+- "Production'a deploy edebilir miyiz?"
+- "Güvenlik açığı var mı?"
+- "Uygulama çalışıyor mu?"
+
+---
+
+## 📋 SLASH KOMUTLARI (Gelecek Özellik)
+
+`.claude/commands/` klasöründe tanımlanacak:
+
+| Komut | Açıklama |
+|-------|----------|
+| `/full-backup` | Tüm kontroller + PostgreSQL dump + GitHub push + tag |
+| `/deploy-check` | Production öncesi tüm kontrolleri çalıştır |
+| `/health-check` | Tüm servislerin sağlık durumunu kontrol et |
+| `/security-scan` | Güvenlik taraması yap |
+
+---
+
+## 🔄 PostToolUse Hook (Gelecek Özellik)
+
+Kod yazıldıktan sonra otomatik format düzeltme:
+
+```json
+{
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "npm run format || true"
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## 📅 v2.1-prod - 4 Ocak 2026
+
+**Production Mindset & Pre-Deployment Kontrolleri**
+
+1. ✅ Production pre-deployment kontrol listesi eklendi
+2. ✅ AI Agent sistemi dokümante edildi
+3. ✅ "Her hamle müşteri sunucusu düşünülerek" kuralı eklendi
+4. ✅ Yedek almadan önce zorunlu kontroller tanımlandı
+5. ✅ Slash komutları ve PostToolUse hook planlandı
