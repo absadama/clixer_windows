@@ -220,6 +220,7 @@ export default function AdminPage() {
     stores: 'Magazalar',
     designer: 'Tasarim Studyosu',
     data: 'Veri Baglantilari',
+    datagrid: 'DataGrid Demo',
     metrics: 'Metrik Yonetimi',
     admin: 'Yonetim Paneli',
     profile: 'Profilim'

@@ -4873,3 +4873,184 @@ app.use('/api/core', adminIPWhitelist, createProxyMiddleware({...}))
 6. ✅ 401 Unauthorized - Gateway route sıralaması
 
 **Backup:** `backups/v3.5_datagrid_fixes_20260105/`
+
+---
+
+## 🔴 WHITELABEL & NOCODE PRENSİBİ (KRİTİK!)
+
+### MUTLAK KURAL: Clixer 100% NoCode ve WhiteLabel bir üründür!
+
+**Prensip:** Müşteriler hiçbir kod yazmadan, hiçbir teknik bilgi gerektirmeden tüm sistemi kullanabilmeli ve özelleştirebilmeli.
+
+### WhiteLabel Gereksinimleri:
+
+| Öğe | Yönetim Yeri | Özelleştirilebilir |
+|-----|-------------|-------------------|
+| Logo | Admin Panel → Sistem Ayarları | ✅ |
+| Uygulama Adı | Admin Panel → Sistem Ayarları | ✅ |
+| Menü İsimleri | Admin Panel → Etiketler | ✅ |
+| Pozisyon İsimleri | Admin Panel → Etiketler | ✅ |
+| Tema | Sidebar alt kısım | ✅ |
+| Dil | Sidebar alt kısım | ✅ |
+
+### Sidebar Menü Ekleme (4 Dosya Kuralı):
+
+Yeni bir sayfa/menü eklendiğinde ZORUNLU olarak:
+
+1. **`Layout.tsx`** - Sidebar menü tanımı
+2. **`AdminPage.tsx`** - `defaultMenuLabels` objesi
+3. **`06-labels-seed.sql`** - Veritabanı seed
+4. **Veritabanı (çalışan)** - `INSERT INTO labels` ile ekleme
+
+### NoCode Kontrol Listesi:
+
+- [ ] Tüm ayarlar UI'dan yönetilebilir mi?
+- [ ] Hardcoded metin var mı? (varsa etiket sistemine taşı)
+- [ ] Müşteri bu özelliği teknik destek olmadan kullanabilir mi?
+- [ ] Yeni özellik eklendi mi? Etiketler tablosuna eklendi mi?
+
+### ASLA YAPMA:
+
+1. ❌ Menü/sayfa adını hardcode etme
+2. ❌ Sadece kod değişikliği ile isim değiştirilebilir hale getirme
+3. ❌ Yeni özellik ekleyip etiket sistemini atla
+4. ❌ Müşterinin göreceği metni İngilizce bırakma
+
+### ÖRNEK AKIŞ (Doğru):
+
+```
+Müşteri: "Mağazalar" menüsünü "Fakülteler" yapmak istiyor
+  ↓
+Admin Panel → Etiketler → stores → "Fakulteler" yaz → Kaydet
+  ↓
+Sidebar otomatik güncellenir ✅
+```
+
+---
+
+## 🔴 EXCEL EXPORT TASARIM KURALLARI (KRİTİK!)
+
+### MUTLAK KURAL: Excel export, ekrandaki tasarımın birebir kopyası olmalı!
+
+**Prensip:** DataGrid'de görünen gruplama, sıralama, renk ve format Excel'e aynı şekilde yansımalı.
+
+### Export Gereksinimleri:
+
+| Özellik | Düz Export | Tasarımlı Export |
+|---------|------------|------------------|
+| Gruplama | ❌ | ✅ Hiyerarşik satırlar |
+| Sıralama | ❌ | ✅ Görünen sıra |
+| Kolon Görünürlüğü | ❌ | ✅ Gizli kolonlar export edilmez |
+| Kolon Sırası | ❌ | ✅ Sürüklenmiş sıra |
+| Renk/Format | ❌ | ✅ Başlık rengi, zebra çizgi |
+| Footer Toplamlar | ❌ | ✅ Sum, Avg, Count |
+
+### Multi-Sheet Export (1M+ Satır):
+
+Excel satır limiti: 1.048.576 satır
+
+```
+Eğer totalRows > 1.000.000:
+  - Sheet 1: Satır 1-1.000.000
+  - Sheet 2: Satır 1.000.001-2.000.000
+  - ... devam
+```
+
+### Grup Satırları Excel'de:
+
+```
+| A                          | B     | C      |
+|----------------------------|-------|--------|
+| ▼ Marmara Bölgesi (5 kayıt)|       |        |
+|   İstanbul Kadıköy         | 1.234 | 56.789 |
+|   İstanbul Ataşehir        | 2.345 | 67.890 |
+| ▼ Ege Bölgesi (3 kayıt)    |       |        |
+|   İzmir Bornova            | 3.456 | 78.901 |
+```
+
+### Excel Stil Kuralları:
+
+1. **Başlık satırı**: Koyu arka plan, beyaz yazı, kalın font
+2. **Grup satırları**: Açık gri arka plan, kalın font
+3. **Alt satırlar**: İndent (boşluk ile)
+4. **Footer toplamlar**: Koyu çizgi üstünde, kalın font
+
+---
+
+## 📅 v3.6 - 5 Ocak 2026
+
+**WhiteLabel/NoCode & Excel Export & Enterprise DataGrid Özellikleri**
+
+### Tamamlanan Özellikler:
+
+| # | Özellik | Açıklama |
+|---|---------|----------|
+| 1 | DataGrid Demo Etiketi | Dinamik etiket sistemine eklendi |
+| 2 | Excel Export (Tasarımlı) | Gruplama, sıralama, format desteği |
+| 3 | Excel Multi-Sheet | 1M+ satırda otomatik sayfa bölme |
+| 4 | Column Pinning | Sola/sağa kolon sabitleme |
+| 5 | Context Menu | Sağ tık menüsü (header + cell) |
+| 6 | Status Bar | Alt bilgi çubuğu (satır sayıları, durum) |
+| 7 | Clipboard | Ctrl+C ile kopyalama, Ctrl+A ile seçim |
+
+### Yeni Dosyalar:
+- `docker/init-scripts/postgres/06-labels-seed.sql` - Etiket seed'leri
+
+### Değiştirilen Dosyalar:
+- `frontend/src/components/EnterpriseDataGrid/index.tsx` - Tüm yeni özellikler
+- `frontend/src/pages/AdminPage.tsx` - `datagrid` etiketi eklendi
+
+### Bekleyen Özellik:
+- ⏳ Sparklines (Hücre içi mini grafikler) - Karmaşık, sonraya bırakıldı
+
+---
+
+## 🔴 ENTERPRISE DATAGRID KULLANIM KILAVUZU
+
+### Column Pinning (Kolon Sabitleme)
+
+```
+Sola Sabitle: Kolon başlığı hover → ◀ butonu
+Sağa Sabitle: Kolon başlığı hover → ▶ butonu
+Kaldır: Sabitlenen kolonda 📌 butonuna tıkla
+Sağ tık: Context menu → Sola/Sağa Sabitle
+```
+
+### Context Menu (Sağ Tık)
+
+**Kolon Başlığında:**
+- A'dan Z'ye / Z'den A'ya Sırala
+- Sola/Sağa Sabitle
+- Grupla / Grubu Kaldır
+- Kolonu Gizle
+
+**Hücrede:**
+- Kopyala
+- Bu Değere Göre Filtrele
+- Genel Aramaya Ekle
+
+### Clipboard (Kopyala)
+
+```
+Ctrl+C: Seçili satırları kopyala (TSV formatında)
+Ctrl+A: Tüm satırları seç
+```
+
+### Excel Export
+
+- Gruplama korunur (hiyerarşik satırlar)
+- Kolon sırası korunur
+- Footer toplamları dahil
+- 1M+ satırda otomatik sayfa bölme
+
+### Status Bar Bilgileri
+
+| İkon | Anlamı |
+|------|--------|
+| 📊 | Yüklenmiş satır sayısı |
+| 📈 | Toplam satır sayısı (server-side) |
+| 🔍 | Filtrelenmiş satır sayısı |
+| ✓ | Seçili satır sayısı |
+| ⊞ | Gruplu kolon sayısı |
+| 📌 | Sabitlenmiş kolon sayısı |
+| 👁 | Gizli kolon sayısı |

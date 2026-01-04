@@ -19,6 +19,7 @@ import {
   VisibilityState,
   ColumnOrderState,
   RowSelectionState,
+  ColumnPinningState,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
@@ -245,6 +246,21 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(
     savedDesign?.gridState?.columnWidths || {}
   )
+  const [columnPinning, setColumnPinning] = useState<ColumnPinningState>(
+    savedDesign?.gridState?.pinnedColumns 
+      ? { left: savedDesign.gridState.pinnedColumns.left, right: savedDesign.gridState.pinnedColumns.right }
+      : { left: [], right: [] }
+  )
+  
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean
+    x: number
+    y: number
+    type: 'header' | 'cell'
+    columnId: string
+    value?: any
+  } | null>(null)
 
   // Gruplanan kolonları otomatik gizle
   useEffect(() => {
@@ -320,7 +336,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
         .filter(([_, visible]) => !visible)
         .map(([id]) => id),
       columnWidths,
-      pinnedColumns: { left: [], right: [] },
+      pinnedColumns: { left: columnPinning.left || [], right: columnPinning.right || [] },
       pageSize: 50,
       density,
     }
@@ -417,6 +433,12 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
     }
     if (state.density) {
       setDensity(state.density)
+    }
+    if (state.pinnedColumns) {
+      setColumnPinning({
+        left: state.pinnedColumns.left || [],
+        right: state.pinnedColumns.right || []
+      })
     }
     
     // Parent'a tasarım ve dataset bilgisini bildir
@@ -711,6 +733,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
       columnVisibility: validColumnVisibility,
       columnOrder: validColumnOrder,
       rowSelection,
+      columnPinning,
     },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -720,6 +743,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
     onColumnVisibilityChange: setColumnVisibility,
     onColumnOrderChange: setColumnOrder,
     onRowSelectionChange: setRowSelection,
+    onColumnPinningChange: setColumnPinning,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: enableFiltering ? getFilteredRowModel() : undefined,
     getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
@@ -767,41 +791,267 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
     }
   }, [table])
 
-  // Export fonksiyonları
+  // Export fonksiyonları - Tasarıma uygun (gruplama, sıralama, format desteği)
   const exportToExcel = useCallback(() => {
-    const exportData = table.getFilteredRowModel().rows.map(row => {
-      const rowData: Record<string, any> = {}
-      row.getVisibleCells().forEach(cell => {
-        if (cell.column.id !== 'select') {
-          rowData[cell.column.columnDef.header as string] = cell.getValue()
+    const wb = XLSX.utils.book_new()
+    const EXCEL_ROW_LIMIT = 1000000 // Excel satır limiti (güvenli değer)
+    
+    // Görünen kolonları al (select hariç)
+    const visibleColumns = table.getVisibleLeafColumns().filter(col => col.id !== 'select')
+    const headers = visibleColumns.map(col => col.columnDef.header as string)
+    
+    // Gruplama var mı?
+    const hasGrouping = grouping.length > 0
+    
+    // Tüm satırları topla (gruplama dahil)
+    const allRows: any[][] = []
+    
+    // Recursive fonksiyon - grup ve alt satırları işle
+    const processRows = (rows: any[], depth: number = 0) => {
+      rows.forEach(row => {
+        if (row.getIsGrouped()) {
+          // Grup satırı
+          const groupColumn = row.groupingColumnId
+          const groupValue = row.getValue(groupColumn!)
+          const subRowCount = row.subRows.length
+          
+          // Grup başlık satırı oluştur
+          const groupRow: any[] = new Array(visibleColumns.length).fill('')
+          const indent = '  '.repeat(depth)
+          
+          // İlk kolona grup bilgisi yaz
+          const groupColConfig = columnConfigs.find(c => c.id === groupColumn)
+          const groupColName = groupColConfig?.header || groupColumn
+          groupRow[0] = `${indent}▼ ${groupColName}: ${groupValue} (${subRowCount} kayıt)`
+          
+          // Aggregated değerleri ekle
+          row.getVisibleCells().forEach((cell, idx) => {
+            if (cell.getIsAggregated() && idx > 0) {
+              const aggValue = cell.getValue()
+              if (aggValue !== null && aggValue !== undefined && typeof aggValue !== 'function') {
+                groupRow[idx] = aggValue
+              }
+            }
+          })
+          
+          allRows.push(groupRow)
+          
+          // Alt satırları işle
+          if (row.subRows.length > 0) {
+            processRows(row.subRows, depth + 1)
+          }
+        } else {
+          // Normal veri satırı
+          const rowData: any[] = []
+          const indent = hasGrouping ? '  '.repeat(depth) : ''
+          
+          visibleColumns.forEach((col, idx) => {
+            const cellValue = row.getValue(col.id)
+            // İlk kolona indent ekle (gruplama varsa)
+            if (idx === 0 && hasGrouping) {
+              rowData.push(`${indent}${cellValue ?? ''}`)
+            } else {
+              rowData.push(cellValue ?? '')
+            }
+          })
+          
+          allRows.push(rowData)
         }
       })
-      return rowData
-    })
+    }
     
-    const ws = XLSX.utils.json_to_sheet(exportData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Data')
+    // Satırları işle
+    processRows(table.getRowModel().rows)
+    
+    // Footer toplamları ekle
+    if (columnConfigs.some(c => c.aggregation)) {
+      // Boş satır
+      allRows.push(new Array(visibleColumns.length).fill(''))
+      
+      // Toplam satırı
+      const footerRow: any[] = ['Σ TOPLAM']
+      visibleColumns.slice(1).forEach(col => {
+        const config = columnConfigs.find(c => c.id === col.id)
+        if (config?.aggregation) {
+          // Server-side aggregate veya client-side hesapla
+          const serverAggKey = config.accessorKey || col.id
+          if (serverSideAggregates && serverSideAggregates[serverAggKey]) {
+            const serverAgg = serverSideAggregates[serverAggKey]
+            if (typeof serverAgg === 'object') {
+              switch (config.aggregation) {
+                case 'sum': footerRow.push(serverAgg.sum); break
+                case 'avg': footerRow.push(serverAgg.avg); break
+                case 'count': footerRow.push(serverAgg.count); break
+                case 'min': footerRow.push(serverAgg.min); break
+                case 'max': footerRow.push(serverAgg.max); break
+                default: footerRow.push('')
+              }
+            } else {
+              footerRow.push('')
+            }
+          } else {
+            footerRow.push('')
+          }
+        } else {
+          footerRow.push('')
+        }
+      })
+      allRows.push(footerRow)
+    }
+    
+    // Excel satır limitine göre sayfalara böl
+    const totalDataRows = allRows.length
+    const sheetsNeeded = Math.ceil(totalDataRows / EXCEL_ROW_LIMIT)
+    
+    for (let sheetIdx = 0; sheetIdx < sheetsNeeded; sheetIdx++) {
+      const startRow = sheetIdx * EXCEL_ROW_LIMIT
+      const endRow = Math.min(startRow + EXCEL_ROW_LIMIT, totalDataRows)
+      const sheetData = allRows.slice(startRow, endRow)
+      
+      // Header + data
+      const wsData = [headers, ...sheetData]
+      const ws = XLSX.utils.aoa_to_sheet(wsData)
+      
+      // Kolon genişlikleri ayarla
+      const colWidths = headers.map((h, idx) => {
+        const maxLen = Math.max(
+          h.length,
+          ...sheetData.map(row => String(row[idx] || '').length)
+        )
+        return { wch: Math.min(Math.max(maxLen + 2, 10), 50) }
+      })
+      ws['!cols'] = colWidths
+      
+      // Sayfa adı
+      const sheetName = sheetsNeeded > 1 ? `Sayfa ${sheetIdx + 1}` : 'Data'
+      XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    }
+    
     const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
     const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    saveAs(blob, `export_${new Date().toISOString().split('T')[0]}.xlsx`)
-  }, [table])
+    
+    // Dosya adı: tasarım varsa tasarım adı
+    const fileName = `export_${new Date().toISOString().split('T')[0]}.xlsx`
+    saveAs(blob, fileName)
+  }, [table, grouping, columnConfigs, serverSideAggregates])
 
   const exportToCSV = useCallback(() => {
-    const exportData = table.getFilteredRowModel().rows.map(row => {
-      const rowData: Record<string, any> = {}
-      row.getVisibleCells().forEach(cell => {
-        if (cell.column.id !== 'select') {
-          rowData[cell.column.columnDef.header as string] = cell.getValue()
+    // Görünen kolonları al (select hariç)
+    const visibleColumns = table.getVisibleLeafColumns().filter(col => col.id !== 'select')
+    const headers = visibleColumns.map(col => col.columnDef.header as string)
+    
+    // Gruplama var mı?
+    const hasGrouping = grouping.length > 0
+    
+    // Tüm satırları topla
+    const allRows: any[][] = []
+    
+    const processRows = (rows: any[], depth: number = 0) => {
+      rows.forEach(row => {
+        if (row.getIsGrouped()) {
+          const groupColumn = row.groupingColumnId
+          const groupValue = row.getValue(groupColumn!)
+          const subRowCount = row.subRows.length
+          const groupRow: any[] = new Array(visibleColumns.length).fill('')
+          const indent = '  '.repeat(depth)
+          const groupColConfig = columnConfigs.find(c => c.id === groupColumn)
+          const groupColName = groupColConfig?.header || groupColumn
+          groupRow[0] = `${indent}[${groupColName}: ${groupValue}] (${subRowCount} kayıt)`
+          allRows.push(groupRow)
+          if (row.subRows.length > 0) {
+            processRows(row.subRows, depth + 1)
+          }
+        } else {
+          const rowData: any[] = []
+          const indent = hasGrouping ? '  '.repeat(depth) : ''
+          visibleColumns.forEach((col, idx) => {
+            const cellValue = row.getValue(col.id)
+            if (idx === 0 && hasGrouping) {
+              rowData.push(`${indent}${cellValue ?? ''}`)
+            } else {
+              rowData.push(cellValue ?? '')
+            }
+          })
+          allRows.push(rowData)
         }
       })
-      return rowData
-    })
+    }
     
-    const ws = XLSX.utils.json_to_sheet(exportData)
+    processRows(table.getRowModel().rows)
+    
+    // CSV oluştur
+    const wsData = [headers, ...allRows]
+    const ws = XLSX.utils.aoa_to_sheet(wsData)
     const csv = XLSX.utils.sheet_to_csv(ws, { FS: ';' })
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
     saveAs(blob, `export_${new Date().toISOString().split('T')[0]}.csv`)
+  }, [table, grouping, columnConfigs])
+
+  // Context Menu Handler
+  const handleContextMenu = useCallback((e: React.MouseEvent, type: 'header' | 'cell', columnId: string, value?: any) => {
+    e.preventDefault()
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      type,
+      columnId,
+      value
+    })
+  }, [])
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null)
+  }, [])
+
+  // Document click ile context menu kapat
+  useEffect(() => {
+    const handleClick = () => closeContextMenu()
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [closeContextMenu])
+
+  // Clipboard - Ctrl+C desteği
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+C veya Cmd+C
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        const selectedRows = table.getSelectedRowModel().rows
+        if (selectedRows.length > 0) {
+          e.preventDefault()
+          
+          // Seçili satırları TSV formatında kopyala
+          const visibleColumns = table.getVisibleLeafColumns().filter(col => col.id !== 'select')
+          const headers = visibleColumns.map(col => col.columnDef.header as string).join('\t')
+          
+          const rows = selectedRows.map(row => 
+            visibleColumns.map(col => {
+              const value = row.getValue(col.id)
+              return value ?? ''
+            }).join('\t')
+          ).join('\n')
+          
+          const clipboardData = `${headers}\n${rows}`
+          navigator.clipboard.writeText(clipboardData).then(() => {
+            // Kopyalama başarılı bildirimi (opsiyonel toast)
+          }).catch(err => {
+            console.error('Kopyalama başarısız:', err)
+          })
+        }
+      }
+      
+      // Ctrl+A - Tümünü seç
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        // Grid container'ı focus'taysa tümünü seç
+        if (tableContainerRef.current?.contains(document.activeElement)) {
+          e.preventDefault()
+          table.toggleAllRowsSelected(true)
+        }
+      }
+    }
+    
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
   }, [table])
 
   // State değişikliklerini bildir
@@ -824,7 +1074,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
           .filter(([_, visible]) => !visible)
           .map(([id]) => id),
         columnWidths,
-        pinnedColumns: { left: [], right: [] },
+        pinnedColumns: { left: columnPinning.left || [], right: columnPinning.right || [] },
         pageSize: table.getState().pagination.pageSize,
         density,
       }
@@ -938,16 +1188,26 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                     items={headerGroup.headers.map(h => h.column.id)}
                     strategy={horizontalListSortingStrategy}
                   >
-                    {headerGroup.headers.map(header => (
+                    {headerGroup.headers.map(header => {
+                      const isPinnedLeft = columnPinning.left?.includes(header.column.id)
+                      const isPinnedRight = columnPinning.right?.includes(header.column.id)
+                      return (
                       <th
                         key={header.id}
                         className={clsx(
                           'px-3 text-left font-semibold border-b-2 group relative',
                           densityStyles[density],
                           theme.border,
-                          theme.contentText
+                          theme.contentText,
+                          isPinnedLeft && 'sticky left-0 z-20 bg-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.3)]',
+                          isPinnedRight && 'sticky right-0 z-20 bg-slate-800 shadow-[-2px_0_5px_rgba(0,0,0,0.3)]'
                         )}
-                        style={{ width: header.getSize() }}
+                        style={{ 
+                          width: header.getSize(),
+                          ...(isPinnedLeft && { left: 0 }),
+                          ...(isPinnedRight && { right: 0 })
+                        }}
+                        onContextMenu={(e) => handleContextMenu(e, 'header', header.column.id)}
                       >
                         {header.isPlaceholder ? null : (
                           <div className="flex items-center gap-2">
@@ -1005,6 +1265,58 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                               </button>
                             )}
                             
+                            {/* Kolon sabitleme butonu */}
+                            {header.column.id !== 'select' && (
+                              <div className="relative opacity-0 group-hover:opacity-100">
+                                {columnPinning.left?.includes(header.column.id) ? (
+                                  <button
+                                    onClick={() => setColumnPinning(prev => ({
+                                      ...prev,
+                                      left: prev.left?.filter(id => id !== header.column.id) || []
+                                    }))}
+                                    className="p-1 rounded hover:bg-yellow-500/20 text-yellow-400 transition-colors"
+                                    title="Sabitlemeyi kaldır"
+                                  >
+                                    📌
+                                  </button>
+                                ) : columnPinning.right?.includes(header.column.id) ? (
+                                  <button
+                                    onClick={() => setColumnPinning(prev => ({
+                                      ...prev,
+                                      right: prev.right?.filter(id => id !== header.column.id) || []
+                                    }))}
+                                    className="p-1 rounded hover:bg-yellow-500/20 text-yellow-400 transition-colors"
+                                    title="Sabitlemeyi kaldır"
+                                  >
+                                    📌
+                                  </button>
+                                ) : (
+                                  <div className="flex gap-1">
+                                    <button
+                                      onClick={() => setColumnPinning(prev => ({
+                                        ...prev,
+                                        left: [...(prev.left || []), header.column.id]
+                                      }))}
+                                      className="p-0.5 text-xs rounded hover:bg-blue-500/20 transition-colors"
+                                      title="Sola sabitle"
+                                    >
+                                      ◀
+                                    </button>
+                                    <button
+                                      onClick={() => setColumnPinning(prev => ({
+                                        ...prev,
+                                        right: [...(prev.right || []), header.column.id]
+                                      }))}
+                                      className="p-0.5 text-xs rounded hover:bg-blue-500/20 transition-colors"
+                                      title="Sağa sabitle"
+                                    >
+                                      ▶
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            
                             {/* Kolon gizle butonu */}
                             {enableColumnHide && header.column.id !== 'select' && (
                               <button
@@ -1031,7 +1343,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                           />
                         )}
                       </th>
-                    ))}
+                    )})}
                   </SortableContext>
                 </tr>
               ))}
@@ -1163,20 +1475,31 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                         onClick={() => onRowClick?.(row.original)}
                         onDoubleClick={() => onRowDoubleClick?.(row.original)}
                       >
-                        {row.getVisibleCells().map(cell => (
+                        {row.getVisibleCells().map(cell => {
+                          const isPinnedLeft = columnPinning.left?.includes(cell.column.id)
+                          const isPinnedRight = columnPinning.right?.includes(cell.column.id)
+                          const cellValue = cell.getValue()
+                          return (
                           <td
                             key={cell.id}
                             className={clsx(
                               'px-3',
                               densityStyles[density],
                               theme.contentText,
+                              isPinnedLeft && 'sticky left-0 z-10 bg-slate-900 shadow-[2px_0_5px_rgba(0,0,0,0.3)]',
+                              isPinnedRight && 'sticky right-0 z-10 bg-slate-900 shadow-[-2px_0_5px_rgba(0,0,0,0.3)]'
                             )}
+                            style={{
+                              ...(isPinnedLeft && { left: 0 }),
+                              ...(isPinnedRight && { right: 0 })
+                            }}
+                            onContextMenu={(e) => handleContextMenu(e, 'cell', cell.column.id, cellValue)}
                           >
                             {cell.getIsPlaceholder() ? null : (
                               flexRender(cell.column.columnDef.cell, cell.getContext())
                             )}
                           </td>
-                        ))}
+                        )})}
                       </tr>
                     )
                   })}
@@ -1286,14 +1609,29 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                       onClick={() => onRowClick?.(row.original)}
                       onDoubleClick={() => onRowDoubleClick?.(row.original)}
                     >
-                      {row.getVisibleCells().map(cell => (
+                      {row.getVisibleCells().map(cell => {
+                        const isPinnedLeft = columnPinning.left?.includes(cell.column.id)
+                        const isPinnedRight = columnPinning.right?.includes(cell.column.id)
+                        const cellValue = cell.getValue()
+                        return (
                         <td
                           key={cell.id}
-                          className={clsx('px-3', densityStyles[density], theme.contentText)}
+                          className={clsx(
+                            'px-3', 
+                            densityStyles[density], 
+                            theme.contentText,
+                            isPinnedLeft && 'sticky left-0 z-10 bg-slate-900 shadow-[2px_0_5px_rgba(0,0,0,0.3)]',
+                            isPinnedRight && 'sticky right-0 z-10 bg-slate-900 shadow-[-2px_0_5px_rgba(0,0,0,0.3)]'
+                          )}
+                          style={{
+                            ...(isPinnedLeft && { left: 0 }),
+                            ...(isPinnedRight && { right: 0 })
+                          }}
+                          onContextMenu={(e) => handleContextMenu(e, 'cell', cell.column.id, cellValue)}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
-                      ))}
+                      )})}
                     </tr>
                   )
                 })
@@ -1439,17 +1777,58 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
         </div>
       </DndContext>
 
+      {/* Status Bar */}
+      <div className={clsx('flex items-center justify-between px-4 py-2 border-t text-xs', theme.border, theme.contentTextMuted)}>
+        <div className="flex items-center gap-4">
+          {/* Satır Sayıları */}
+          <span className="flex items-center gap-1">
+            📊 <span className="font-medium">{new Intl.NumberFormat('tr-TR').format(data.length)}</span> yüklenmiş
+          </span>
+          {totalRows && totalRows > data.length && (
+            <span className="flex items-center gap-1 text-emerald-400">
+              📈 <span className="font-medium">{new Intl.NumberFormat('tr-TR').format(totalRows)}</span> toplam
+            </span>
+          )}
+          {globalFilter && (
+            <span className="flex items-center gap-1 text-yellow-400">
+              🔍 <span className="font-medium">{new Intl.NumberFormat('tr-TR').format(table.getFilteredRowModel().rows.length)}</span> filtrelenmiş
+            </span>
+          )}
+          {table.getSelectedRowModel().rows.length > 0 && (
+            <span className="flex items-center gap-1 text-blue-400">
+              ✓ <span className="font-medium">{table.getSelectedRowModel().rows.length}</span> seçili
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          {/* Gruplama & Sabitleme Durumu */}
+          {grouping.length > 0 && (
+            <span className="flex items-center gap-1 text-purple-400">
+              ⊞ {grouping.length} gruplu
+            </span>
+          )}
+          {(columnPinning.left?.length || 0) + (columnPinning.right?.length || 0) > 0 && (
+            <span className="flex items-center gap-1 text-orange-400">
+              📌 {(columnPinning.left?.length || 0) + (columnPinning.right?.length || 0)} sabit
+            </span>
+          )}
+          {Object.values(columnVisibility).filter(v => !v).length > 0 && (
+            <span className="flex items-center gap-1 text-gray-400">
+              👁 {Object.values(columnVisibility).filter(v => !v).length} gizli
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Pagination */}
       {enablePagination && (
         <div className={clsx('flex items-center justify-between px-4 py-3 border-t', theme.border)}>
           <div className={clsx('text-sm', theme.contentTextMuted)}>
-            Gösterilen: {new Intl.NumberFormat('tr-TR').format(table.getFilteredRowModel().rows.length)} kayıt
-            {totalRows && totalRows > data.length && (
-              <span className="text-emerald-400 font-medium"> / Toplam: {new Intl.NumberFormat('tr-TR').format(totalRows)}</span>
-            )}
-            {table.getSelectedRowModel().rows.length > 0 && (
-              <span> • {table.getSelectedRowModel().rows.length} seçili</span>
-            )}
+            Sayfa: {table.getState().pagination.pageIndex + 1} / {table.getPageCount()}
+            <span className="ml-2">
+              (Satır {table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1} - 
+              {Math.min((table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize, table.getFilteredRowModel().rows.length)})
+            </span>
           </div>
           
           <div className="flex items-center gap-4">
@@ -1555,6 +1934,147 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
         loading={loadingDesigns}
         theme={theme}
       />
+
+      {/* Context Menu */}
+      {contextMenu?.visible && (
+        <div
+          className={clsx(
+            'fixed z-50 min-w-48 rounded-lg shadow-xl border py-1',
+            theme.cardBg,
+            theme.border
+          )}
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {contextMenu.type === 'header' ? (
+            // Kolon Başlığı Menüsü
+            <>
+              <button
+                onClick={() => {
+                  const col = table.getColumn(contextMenu.columnId)
+                  if (col) col.toggleSorting(false)
+                  closeContextMenu()
+                }}
+                className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+              >
+                ↑ A'dan Z'ye Sırala
+              </button>
+              <button
+                onClick={() => {
+                  const col = table.getColumn(contextMenu.columnId)
+                  if (col) col.toggleSorting(true)
+                  closeContextMenu()
+                }}
+                className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+              >
+                ↓ Z'den A'ya Sırala
+              </button>
+              <div className={clsx('h-px my-1', theme.border)} />
+              {!columnPinning.left?.includes(contextMenu.columnId) && !columnPinning.right?.includes(contextMenu.columnId) ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setColumnPinning(prev => ({ ...prev, left: [...(prev.left || []), contextMenu.columnId] }))
+                      closeContextMenu()
+                    }}
+                    className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+                  >
+                    ◀ Sola Sabitle
+                  </button>
+                  <button
+                    onClick={() => {
+                      setColumnPinning(prev => ({ ...prev, right: [...(prev.right || []), contextMenu.columnId] }))
+                      closeContextMenu()
+                    }}
+                    className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+                  >
+                    ▶ Sağa Sabitle
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => {
+                    setColumnPinning(prev => ({
+                      left: prev.left?.filter(id => id !== contextMenu.columnId) || [],
+                      right: prev.right?.filter(id => id !== contextMenu.columnId) || []
+                    }))
+                    closeContextMenu()
+                  }}
+                  className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+                >
+                  📌 Sabitlemeyi Kaldır
+                </button>
+              )}
+              <div className={clsx('h-px my-1', theme.border)} />
+              {!grouping.includes(contextMenu.columnId) ? (
+                <button
+                  onClick={() => {
+                    setGrouping(prev => [...prev, contextMenu.columnId])
+                    closeContextMenu()
+                  }}
+                  className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+                >
+                  ⊞ Grupla
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setGrouping(prev => prev.filter(g => g !== contextMenu.columnId))
+                    closeContextMenu()
+                  }}
+                  className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+                >
+                  ⊟ Grubu Kaldır
+                </button>
+              )}
+              <div className={clsx('h-px my-1', theme.border)} />
+              <button
+                onClick={() => {
+                  setColumnVisibility(prev => ({ ...prev, [contextMenu.columnId]: false }))
+                  closeContextMenu()
+                }}
+                className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-red-500/20 text-red-400 flex items-center gap-2')}
+              >
+                ✕ Kolonu Gizle
+              </button>
+            </>
+          ) : (
+            // Hücre Menüsü
+            <>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(String(contextMenu.value ?? ''))
+                  closeContextMenu()
+                }}
+                className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+              >
+                📋 Kopyala
+              </button>
+              <button
+                onClick={() => {
+                  setColumnFilters(prev => [
+                    ...prev.filter(f => f.id !== contextMenu.columnId),
+                    { id: contextMenu.columnId, value: String(contextMenu.value ?? '') }
+                  ])
+                  closeContextMenu()
+                }}
+                className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+              >
+                🔍 Bu Değere Göre Filtrele
+              </button>
+              <button
+                onClick={() => {
+                  setGlobalFilter(String(contextMenu.value ?? ''))
+                  closeContextMenu()
+                }}
+                className={clsx('w-full px-4 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2', theme.contentText)}
+              >
+                🔎 Genel Aramaya Ekle
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
