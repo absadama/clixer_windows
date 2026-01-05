@@ -1,8 +1,21 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { useAuthStore } from '../stores/authStore'
 
+// Dinamik API URL - Telefon ve PC'den erişim için
+const getApiBaseUrl = () => {
+  // Eğer env'de tanımlıysa onu kullan
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL
+  }
+  
+  // Development modunda: tarayıcının hostname'ini kullan (localhost veya IP)
+  // Bu sayede telefon IP üzerinden, PC localhost üzerinden erişebilir
+  const hostname = window.location.hostname
+  return `http://${hostname}:4000/api`
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000/api',
+  baseURL: getApiBaseUrl(),
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',

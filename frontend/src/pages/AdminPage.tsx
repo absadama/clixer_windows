@@ -32,6 +32,14 @@ import {
   Eraser,
   Tag,
   Save,
+  Server,
+  Play,
+  Square,
+  RotateCcw,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Cpu,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { SystemSetting } from '../types'
@@ -42,6 +50,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 // Menü öğeleri - Sadeleştirilmiş
 const menuItems = [
   { id: 'settings', label: 'Sistem Ayarları', icon: Settings, category: 'SİSTEM' },
+  { id: 'services', label: 'Servis Yönetimi', icon: Server, category: 'SİSTEM' },
   { id: 'labels', label: 'Etiketler', icon: Tag, category: 'SİSTEM' },
   { id: 'performance', label: 'Performans', icon: Gauge, category: 'SİSTEM' },
   { id: 'master', label: 'Master Veriler', icon: Database, category: 'SİSTEM' },
@@ -1094,10 +1103,11 @@ export default function AdminPage() {
   const filteredSettings = settings.filter(s => s.category === activeSettingCategory)
 
   return (
-    <div className="flex gap-6 min-h-[calc(100vh-8rem)]">
-      {/* Sol Menü */}
-      <div className={clsx('w-72 rounded-2xl p-4 space-y-1 flex-shrink-0', theme.cardBg)}>
-        <div className="p-4 mb-4">
+    <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 min-h-[calc(100vh-8rem)]">
+      {/* Sol Menü - Mobilde yatay scroll, desktop'ta dikey */}
+      <div className={clsx('w-full lg:w-64 rounded-2xl p-3 lg:p-4 flex-shrink-0', theme.cardBg)}>
+        {/* Header - Desktop'ta göster */}
+        <div className="hidden lg:block p-4 mb-4">
           <div className="flex items-center gap-3">
             <div className={clsx('p-2 rounded-xl', isDark ? 'bg-violet-500/20' : 'bg-violet-100')}>
               <Shield size={24} className={isDark ? 'text-violet-400' : 'text-violet-600'} />
@@ -1109,26 +1119,52 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {Object.entries(groupedMenuItems).map(([category, items]) => (
-          <div key={category} className="mb-4">
-            <p className={clsx('text-[10px] font-bold uppercase tracking-wider px-3 mb-2', theme.contentTextMuted)}>{category}</p>
-            {items.map(item => (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={clsx(
-                  'flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
-                  activeTab === item.id
-                    ? theme.buttonPrimary
-                    : clsx(theme.contentTextMuted, 'hover:' + theme.contentText, isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100')
-                )}
-              >
-                <item.icon size={18} />
-                {item.label}
-              </button>
-            ))}
+        {/* Mobilde yatay scroll */}
+        <div className="lg:hidden overflow-x-auto pb-2">
+          <div className="flex gap-2 min-w-max">
+            {Object.entries(groupedMenuItems).flatMap(([_, items]) =>
+              items.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={clsx(
+                    'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all',
+                    activeTab === item.id
+                      ? theme.buttonPrimary
+                      : clsx(theme.contentTextMuted, isDark ? 'bg-slate-800' : 'bg-slate-100')
+                  )}
+                >
+                  <item.icon size={14} />
+                  {item.label}
+                </button>
+              ))
+            )}
           </div>
-        ))}
+        </div>
+
+        {/* Desktop menü */}
+        <div className="hidden lg:block space-y-1">
+          {Object.entries(groupedMenuItems).map(([category, items]) => (
+            <div key={category} className="mb-4">
+              <p className={clsx('text-[10px] font-bold uppercase tracking-wider px-3 mb-2', theme.contentTextMuted)}>{category}</p>
+              {items.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={clsx(
+                    'flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+                    activeTab === item.id
+                      ? theme.buttonPrimary
+                      : clsx(theme.contentTextMuted, 'hover:' + theme.contentText, isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100')
+                  )}
+                >
+                  <item.icon size={18} />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Ana İçerik */}
@@ -1919,6 +1955,9 @@ export default function AdminPage() {
           </>
         )}
 
+        {/* Servis Yönetimi */}
+        {activeTab === 'services' && <ServiceManagement theme={theme} isDark={isDark} accessToken={accessToken} />}
+
         {/* Sistem Ayarları */}
         {activeTab === 'settings' && (
           <>
@@ -1952,24 +1991,26 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Ayar Kategorileri */}
-            <div className={clsx('flex gap-2 p-1 rounded-2xl', isDark ? 'bg-slate-800' : 'bg-slate-100')}>
-              {settingCategories.map(cat => (
-                <button
-                  key={cat.id}
-                  onClick={() => setActiveSettingCategory(cat.id)}
-                  className={clsx(
-                    'flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all',
-                    activeSettingCategory === cat.id
-                      ? theme.buttonPrimary
-                      : clsx(theme.contentTextMuted, 'hover:' + theme.contentText)
-                  )}
-                >
-                  <cat.icon size={16} />
-                  {cat.label}
-                  <span className={clsx('ml-1 px-1.5 py-0.5 rounded text-xs', isDark ? 'bg-slate-700' : 'bg-slate-200')}>{cat.count}</span>
-                </button>
-              ))}
+            {/* Ayar Kategorileri - Mobilde yatay scroll */}
+            <div className={clsx('overflow-x-auto rounded-2xl', isDark ? 'bg-slate-800' : 'bg-slate-100')}>
+              <div className="flex gap-2 p-1 min-w-max">
+                {settingCategories.map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setActiveSettingCategory(cat.id)}
+                    className={clsx(
+                      'flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap',
+                      activeSettingCategory === cat.id
+                        ? theme.buttonPrimary
+                        : clsx(theme.contentTextMuted, 'hover:' + theme.contentText)
+                    )}
+                  >
+                    <cat.icon size={16} />
+                    <span className="hidden sm:inline">{cat.label}</span>
+                    <span className={clsx('px-1.5 py-0.5 rounded text-xs', isDark ? 'bg-slate-700' : 'bg-slate-200')}>{cat.count}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Ayarlar Tablosu */}
@@ -3497,4 +3538,356 @@ export default function AdminPage() {
       )}
     </div>
   )
+}
+
+// ============================================
+// SERVİS YÖNETİMİ BİLEŞENİ
+// ============================================
+
+interface ServiceInfo {
+  name: string;
+  displayName: string;
+  port: number | null;
+  status: 'online' | 'stopped' | 'error' | 'unknown';
+  uptime: number | null;
+  memory?: number;
+  cpu?: number;
+  restarts?: number;
+  critical: boolean;
+  canControl: boolean;
+}
+
+function ServiceManagement({ theme, isDark, accessToken }: { theme: any; isDark: boolean; accessToken: string | null }) {
+  const [services, setServices] = useState<ServiceInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<'development' | 'production'>('development');
+  const [message, setMessage] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+
+  const fetchServices = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE}/data/admin/services`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setServices(data.data);
+        setMode(data.mode);
+        setMessage(data.message || null);
+      }
+    } catch (error) {
+      console.error('Servis listesi alınamadı:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (accessToken) fetchServices();
+  }, [accessToken]);
+
+  // Otomatik yenileme (her 10 saniye)
+  useEffect(() => {
+    const interval = setInterval(fetchServices, 10000);
+    return () => clearInterval(interval);
+  }, [accessToken]);
+
+  const handleServiceAction = async (serviceName: string, action: 'start' | 'stop' | 'restart') => {
+    try {
+      setActionLoading(`${serviceName}-${action}`);
+      const response = await fetch(`${API_BASE}/data/admin/services/${serviceName}/${action}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setMessage(data.message);
+        setTimeout(() => setMessage(null), 3000);
+        await fetchServices();
+      } else {
+        setMessage(data.message);
+      }
+    } catch (error: any) {
+      setMessage('İşlem başarısız: ' + error.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleStartAll = async () => {
+    try {
+      setActionLoading('start-all');
+      const response = await fetch(`${API_BASE}/data/admin/services/start-all`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const data = await response.json();
+      setMessage(data.message);
+      setTimeout(() => setMessage(null), 5000);
+      if (data.success) await fetchServices();
+    } catch (error: any) {
+      setMessage('Toplu başlatma başarısız: ' + error.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'online': return <CheckCircle2 className="text-emerald-500" size={20} />;
+      case 'stopped': return <XCircle className="text-rose-500" size={20} />;
+      case 'error': return <AlertCircle className="text-amber-500" size={20} />;
+      default: return <Clock className="text-gray-400" size={20} />;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    const badges: Record<string, string> = {
+      online: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+      stopped: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
+      error: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+      unknown: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+    };
+    const labels: Record<string, string> = {
+      online: 'Çalışıyor',
+      stopped: 'Durduruldu',
+      error: 'Hata',
+      unknown: 'Bilinmiyor',
+    };
+    return (
+      <span className={clsx('px-2 py-1 rounded-full text-xs font-medium border', badges[status] || badges.unknown)}>
+        {labels[status] || 'Bilinmiyor'}
+      </span>
+    );
+  };
+
+  const formatUptime = (ms: number | null) => {
+    if (!ms) return '-';
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `${days}g ${hours % 24}s`;
+    if (hours > 0) return `${hours}s ${minutes % 60}dk`;
+    if (minutes > 0) return `${minutes}dk`;
+    return `${seconds}sn`;
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (!bytes) return '-';
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(1)} MB`;
+  };
+
+  const onlineCount = services.filter(s => s.status === 'online').length;
+  const totalCount = services.length;
+
+  return (
+    <>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-violet-500/20' : 'bg-violet-100')}>
+            <Server size={24} className={isDark ? 'text-violet-400' : 'text-violet-600'} />
+          </div>
+          <div>
+            <h1 className={clsx('text-xl font-bold', theme.contentText)}>Servis Yönetimi</h1>
+            <p className={clsx('text-sm', theme.contentTextMuted)}>
+              Uygulama servislerini izleyin ve yönetin
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className={clsx('px-3 py-1.5 rounded-lg text-sm font-medium', 
+            mode === 'production' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+          )}>
+            {mode === 'production' ? '🚀 Production' : '🔧 Development'}
+          </span>
+          <button
+            onClick={fetchServices}
+            disabled={loading}
+            className={clsx('p-2 rounded-xl transition-colors', theme.buttonSecondary)}
+          >
+            <RotateCcw size={18} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      {/* Bilgi Mesajı */}
+      {message && (
+        <div className={clsx('p-4 rounded-xl', 
+          message.includes('başarı') || message.includes('başlatıldı') || message.includes('yeniden')
+            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+        )}>
+          {message}
+        </div>
+      )}
+
+      {/* Özet Kartlar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className={clsx('p-4 rounded-2xl', theme.cardBg)}>
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-emerald-500/20">
+              <CheckCircle2 size={20} className="text-emerald-400" />
+            </div>
+            <div>
+              <p className={clsx('text-2xl font-bold', theme.contentText)}>{onlineCount}</p>
+              <p className={clsx('text-xs', theme.contentTextMuted)}>Çalışan</p>
+            </div>
+          </div>
+        </div>
+        <div className={clsx('p-4 rounded-2xl', theme.cardBg)}>
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-rose-500/20">
+              <XCircle size={20} className="text-rose-400" />
+            </div>
+            <div>
+              <p className={clsx('text-2xl font-bold', theme.contentText)}>{totalCount - onlineCount}</p>
+              <p className={clsx('text-xs', theme.contentTextMuted)}>Durmuş</p>
+            </div>
+          </div>
+        </div>
+        <div className={clsx('p-4 rounded-2xl', theme.cardBg)}>
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-blue-500/20">
+              <Activity size={20} className="text-blue-400" />
+            </div>
+            <div>
+              <p className={clsx('text-2xl font-bold', theme.contentText)}>{totalCount}</p>
+              <p className={clsx('text-xs', theme.contentTextMuted)}>Toplam</p>
+            </div>
+          </div>
+        </div>
+        <div className={clsx('p-4 rounded-2xl', theme.cardBg)}>
+          <button
+            onClick={handleStartAll}
+            disabled={actionLoading === 'start-all' || mode !== 'production'}
+            className={clsx(
+              'w-full h-full flex items-center justify-center gap-2 rounded-xl font-medium transition-all',
+              mode === 'production' 
+                ? 'bg-emerald-500 hover:bg-emerald-600 text-white' 
+                : 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
+            )}
+          >
+            {actionLoading === 'start-all' ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Play size={18} />
+            )}
+            Tümünü Başlat
+          </button>
+        </div>
+      </div>
+
+      {/* Servis Listesi */}
+      <div className={clsx('rounded-2xl overflow-hidden', theme.cardBg)}>
+        <div className={clsx('p-4 border-b', isDark ? 'border-slate-700' : 'border-slate-200')}>
+          <h3 className={clsx('font-bold', theme.contentText)}>Servisler</h3>
+        </div>
+        
+        {loading ? (
+          <div className="p-8 text-center">
+            <Loader2 size={32} className="animate-spin mx-auto text-indigo-500" />
+            <p className={clsx('mt-2 text-sm', theme.contentTextMuted)}>Servisler yükleniyor...</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-700/50">
+            {services.map(service => (
+              <div key={service.name} className={clsx('p-4 flex items-center justify-between gap-4', 'hover:bg-slate-800/30')}>
+                <div className="flex items-center gap-4 min-w-0">
+                  {getStatusIcon(service.status)}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className={clsx('font-medium truncate', theme.contentText)}>{service.displayName}</p>
+                      {service.critical && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400">KRİTİK</span>
+                      )}
+                    </div>
+                    <p className={clsx('text-xs truncate', theme.contentTextMuted)}>
+                      {service.port ? `Port: ${service.port}` : 'Background'} 
+                      {service.uptime && ` • Uptime: ${formatUptime(service.uptime)}`}
+                      {service.memory && ` • RAM: ${formatBytes(service.memory)}`}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {getStatusBadge(service.status)}
+                  
+                  {mode === 'production' && (
+                    <div className="flex items-center gap-1">
+                      {service.status !== 'online' && (
+                        <button
+                          onClick={() => handleServiceAction(service.name, 'start')}
+                          disabled={actionLoading === `${service.name}-start` || (service.critical && service.status !== 'stopped')}
+                          className={clsx('p-2 rounded-lg transition-colors', 
+                            service.critical ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-500/20'
+                          )}
+                          title="Başlat"
+                        >
+                          {actionLoading === `${service.name}-start` 
+                            ? <Loader2 size={16} className="animate-spin text-emerald-400" />
+                            : <Play size={16} className="text-emerald-400" />
+                          }
+                        </button>
+                      )}
+                      
+                      {service.status === 'online' && !service.critical && (
+                        <button
+                          onClick={() => handleServiceAction(service.name, 'stop')}
+                          disabled={actionLoading === `${service.name}-stop`}
+                          className="p-2 rounded-lg hover:bg-rose-500/20 transition-colors"
+                          title="Durdur"
+                        >
+                          {actionLoading === `${service.name}-stop`
+                            ? <Loader2 size={16} className="animate-spin text-rose-400" />
+                            : <Square size={16} className="text-rose-400" />
+                          }
+                        </button>
+                      )}
+                      
+                      <button
+                        onClick={() => handleServiceAction(service.name, 'restart')}
+                        disabled={actionLoading === `${service.name}-restart` || service.status !== 'online'}
+                        className={clsx('p-2 rounded-lg transition-colors',
+                          service.status === 'online' ? 'hover:bg-blue-500/20' : 'opacity-50 cursor-not-allowed'
+                        )}
+                        title="Yeniden Başlat"
+                      >
+                        {actionLoading === `${service.name}-restart`
+                          ? <Loader2 size={16} className="animate-spin text-blue-400" />
+                          : <RotateCcw size={16} className="text-blue-400" />
+                        }
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Development Modu Uyarısı */}
+      {mode === 'development' && (
+        <div className={clsx('p-4 rounded-xl border', 'bg-amber-500/10 border-amber-500/30')}>
+          <div className="flex items-start gap-3">
+            <AlertCircle className="text-amber-400 flex-shrink-0 mt-0.5" size={20} />
+            <div>
+              <p className={clsx('font-medium', 'text-amber-400')}>Development Modu</p>
+              <p className={clsx('text-sm mt-1', theme.contentTextMuted)}>
+                Servis kontrolü sadece Production modunda (PM2 ile) çalışır. 
+                Development'ta servisleri başlatmak için <code className="px-1.5 py-0.5 rounded bg-slate-700 text-xs">Clixer Başlat.bat</code> kullanın.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

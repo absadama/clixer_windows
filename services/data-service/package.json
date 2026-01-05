@@ -19,7 +19,8 @@
     "ioredis": "^5.8.2",
     "mssql": "^12.2.0",
     "mysql2": "^3.16.0",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "pm2": "^5.4.3"
   },
   "devDependencies": {
     "@types/compression": "^1.7.5",

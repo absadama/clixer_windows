@@ -113,3 +113,118 @@ body.theme-clixer .clixer-inner-shadow {
     opacity: 0.6;
   }
 }
+
+/* ============================================
+   PWA SAFE AREA SUPPORT
+   Mobile devices (iPhone X+, Android notch)
+   ============================================ */
+
+/* HTML Safe Area - iPhone notch ve home bar için */
+html {
+  /* iOS Safari için Safe Area */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* PWA Standalone Mode Optimizations */
+@media all and (display-mode: standalone) {
+  /* Standalone modda body tam ekran */
+  body {
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+  }
+  
+  /* iOS Home Bar alanı için alt padding */
+  .pwa-bottom-safe {
+    padding-bottom: env(safe-area-inset-bottom, 20px);
+  }
+  
+  /* iOS Status Bar alanı için üst padding */
+  .pwa-top-safe {
+    padding-top: env(safe-area-inset-top, 44px);
+  }
+}
+
+/* PWA Pull-to-Refresh Prevention (Overscroll) */
+body {
+  overscroll-behavior-y: contain;
+}
+
+/* PWA Touch Optimizations */
+@media (hover: none) and (pointer: coarse) {
+  /* Mobil cihazlarda daha büyük touch hedefleri */
+  button, 
+  a, 
+  [role="button"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Dropdown ve select için daha büyük alan */
+  select {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+}
+
+/* PWA Install Prompt Banner (gelecekte kullanılabilir) */
+.pwa-install-banner {
+  position: fixed;
+  bottom: env(safe-area-inset-bottom, 0);
+  left: 0;
+  right: 0;
+  background: linear-gradient(135deg, var(--clixer-anthracite) 0%, var(--clixer-coal) 100%);
+  border-top: 1px solid var(--clixer-surface-highlight);
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* PWA Offline Indicator */
+.pwa-offline-indicator {
+  position: fixed;
+  top: env(safe-area-inset-top, 0);
+  left: 0;
+  right: 0;
+  background: #f59e0b;
+  color: #000;
+  text-align: center;
+  padding: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 99999;
+}
+
+/* PWA Install Prompt Animation */
+.animate-slide-up {
+  animation: slideUpBounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes slideUpBounce {
+  0% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

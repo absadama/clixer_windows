@@ -393,6 +393,300 @@ app.get('/admin/system/status', authenticate, async (req: Request, res: Response
 });
 
 // ============================================
+// PM2 SERVİS YÖNETİMİ (UI'dan Servis Kontrolü)
+// ============================================
+
+// Servis listesi tanımları
+const CLIXER_SERVICES = [
+  { name: 'clixer-gateway', displayName: 'API Gateway', port: 4000, critical: true },
+  { name: 'clixer-auth', displayName: 'Auth Service', port: 4001, critical: true },
+  { name: 'clixer-core', displayName: 'Core Service', port: 4002, critical: true },
+  { name: 'clixer-data', displayName: 'Data Service', port: 4003, critical: true },
+  { name: 'clixer-analytics', displayName: 'Analytics Service', port: 4005, critical: true },
+  { name: 'clixer-notification', displayName: 'Notification Service', port: 4004, critical: false },
+  { name: 'clixer-etl', displayName: 'ETL Worker', port: null, critical: false },
+  { name: 'clixer-frontend', displayName: 'Frontend', port: 3000, critical: true },
+];
+
+// PM2 bağlantısı (lazy load)
+let pm2Connected = false;
+const connectPM2 = async (): Promise<boolean> => {
+  if (pm2Connected) return true;
+  
+  try {
+    const pm2 = require('pm2');
+    return new Promise((resolve) => {
+      pm2.connect((err: any) => {
+        if (err) {
+          logger.warn('PM2 bağlantısı kurulamadı (development mode olabilir)', { error: err.message });
+          resolve(false);
+        } else {
+          pm2Connected = true;
+          resolve(true);
+        }
+      });
+    });
+  } catch (e) {
+    return false;
+  }
+};
+
+// Tüm servislerin durumunu getir
+app.get('/admin/services', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (!isProduction) {
+      // Development modda - sadece port kontrolü yap
+      const services = await Promise.all(CLIXER_SERVICES.map(async (service) => {
+        let status = 'unknown';
+        let uptime = null;
+        
+        if (service.port) {
+          try {
+            const response = await fetch(`http://localhost:${service.port}/health`, { 
+              signal: AbortSignal.timeout(2000) 
+            });
+            status = response.ok ? 'online' : 'stopped';
+          } catch {
+            status = 'stopped';
+          }
+        } else {
+          // ETL Worker için özel kontrol
+          status = 'online'; // Varsayılan olarak running kabul et (aynı process)
+        }
+        
+        return {
+          name: service.name,
+          displayName: service.displayName,
+          port: service.port,
+          status,
+          uptime,
+          critical: service.critical,
+          canControl: !service.critical // Kritik olmayan servisler kontrol edilebilir
+        };
+      }));
+      
+      res.json({ 
+        success: true, 
+        mode: 'development',
+        message: 'Development modda servis kontrolü sınırlıdır. Production için PM2 kullanın.',
+        data: services 
+      });
+      return;
+    }
+    
+    // Production modda - PM2 API kullan
+    const connected = await connectPM2();
+    if (!connected) {
+      res.status(503).json({ 
+        success: false, 
+        message: 'PM2 bağlantısı kurulamadı. PM2 çalışıyor mu?' 
+      });
+      return;
+    }
+    
+    const pm2 = require('pm2');
+    pm2.list((err: any, list: any[]) => {
+      if (err) {
+        res.status(500).json({ success: false, message: 'Servis listesi alınamadı: ' + err.message });
+        return;
+      }
+      
+      const services = CLIXER_SERVICES.map(service => {
+        const pm2Process = list.find(p => p.name === service.name);
+        return {
+          name: service.name,
+          displayName: service.displayName,
+          port: service.port,
+          status: pm2Process ? pm2Process.pm2_env?.status : 'stopped',
+          uptime: pm2Process?.pm2_env?.pm_uptime ? Date.now() - pm2Process.pm2_env.pm_uptime : null,
+          memory: pm2Process?.monit?.memory || 0,
+          cpu: pm2Process?.monit?.cpu || 0,
+          restarts: pm2Process?.pm2_env?.restart_time || 0,
+          critical: service.critical,
+          canControl: !service.critical
+        };
+      });
+      
+      res.json({ success: true, mode: 'production', data: services });
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// Servis başlat
+app.post('/admin/services/:serviceName/start', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { serviceName } = req.params;
+    const service = CLIXER_SERVICES.find(s => s.name === serviceName);
+    
+    if (!service) {
+      res.status(404).json({ success: false, message: 'Servis bulunamadı' });
+      return;
+    }
+    
+    if (service.critical) {
+      res.status(403).json({ success: false, message: 'Kritik servisler UI üzerinden başlatılamaz. Sunucu yöneticisine başvurun.' });
+      return;
+    }
+    
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (!isProduction) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Development modda servis başlatma desteklenmiyor. Terminali kullanın.' 
+      });
+      return;
+    }
+    
+    const connected = await connectPM2();
+    if (!connected) {
+      res.status(503).json({ success: false, message: 'PM2 bağlantısı kurulamadı' });
+      return;
+    }
+    
+    const pm2 = require('pm2');
+    pm2.restart(serviceName, (err: any) => {
+      if (err) {
+        res.status(500).json({ success: false, message: 'Servis başlatılamadı: ' + err.message });
+      } else {
+        logger.info('Service started via UI', { service: serviceName, userId: req.user?.userId });
+        res.json({ success: true, message: `${service.displayName} başlatıldı` });
+      }
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// Servis durdur
+app.post('/admin/services/:serviceName/stop', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { serviceName } = req.params;
+    const service = CLIXER_SERVICES.find(s => s.name === serviceName);
+    
+    if (!service) {
+      res.status(404).json({ success: false, message: 'Servis bulunamadı' });
+      return;
+    }
+    
+    if (service.critical) {
+      res.status(403).json({ success: false, message: 'Kritik servisler UI üzerinden durdurulamaz. Sunucu yöneticisine başvurun.' });
+      return;
+    }
+    
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (!isProduction) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Development modda servis durdurma desteklenmiyor. Terminali kullanın.' 
+      });
+      return;
+    }
+    
+    const connected = await connectPM2();
+    if (!connected) {
+      res.status(503).json({ success: false, message: 'PM2 bağlantısı kurulamadı' });
+      return;
+    }
+    
+    const pm2 = require('pm2');
+    pm2.stop(serviceName, (err: any) => {
+      if (err) {
+        res.status(500).json({ success: false, message: 'Servis durdurulamadı: ' + err.message });
+      } else {
+        logger.info('Service stopped via UI', { service: serviceName, userId: req.user?.userId });
+        res.json({ success: true, message: `${service.displayName} durduruldu` });
+      }
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// Servis yeniden başlat
+app.post('/admin/services/:serviceName/restart', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { serviceName } = req.params;
+    const service = CLIXER_SERVICES.find(s => s.name === serviceName);
+    
+    if (!service) {
+      res.status(404).json({ success: false, message: 'Servis bulunamadı' });
+      return;
+    }
+    
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (!isProduction) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Development modda servis restart desteklenmiyor. Terminali kullanın.' 
+      });
+      return;
+    }
+    
+    const connected = await connectPM2();
+    if (!connected) {
+      res.status(503).json({ success: false, message: 'PM2 bağlantısı kurulamadı' });
+      return;
+    }
+    
+    const pm2 = require('pm2');
+    pm2.restart(serviceName, (err: any) => {
+      if (err) {
+        res.status(500).json({ success: false, message: 'Servis yeniden başlatılamadı: ' + err.message });
+      } else {
+        logger.info('Service restarted via UI', { service: serviceName, userId: req.user?.userId });
+        res.json({ success: true, message: `${service.displayName} yeniden başlatıldı` });
+      }
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// Tüm servisleri başlat (production only)
+app.post('/admin/services/start-all', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (!isProduction) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Development modda toplu başlatma desteklenmiyor. "Clixer Başlat.bat" kullanın.' 
+      });
+      return;
+    }
+    
+    const connected = await connectPM2();
+    if (!connected) {
+      res.status(503).json({ success: false, message: 'PM2 bağlantısı kurulamadı' });
+      return;
+    }
+    
+    // ecosystem.config.js dosyasını başlat
+    const pm2 = require('pm2');
+    const path = require('path');
+    const ecosystemPath = path.join('/opt/clixer', 'ecosystem.config.js');
+    
+    pm2.start(ecosystemPath, (err: any) => {
+      if (err) {
+        res.status(500).json({ success: false, message: 'Servisler başlatılamadı: ' + err.message });
+      } else {
+        logger.info('All services started via UI', { userId: req.user?.userId });
+        res.json({ success: true, message: 'Tüm servisler başlatıldı' });
+      }
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// ============================================
 // DATA CONNECTIONS
 // ============================================
 
@@ -1710,6 +2004,63 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
         rowCount: rows.length,
         totalRows,
         executionTime
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// DATASET EXPORT - Büyük Veri Export
+// ============================================
+
+// Excel export için dataset verisi çekme (pagination ile)
+app.get('/datasets/:id/export', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const limit = parseInt(req.query.limit as string) || 100000; // Varsayılan 100K
+    const offset = parseInt(req.query.offset as string) || 0;
+    const orderBy = req.query.orderBy as string || '';
+    const sortOrder = req.query.sortOrder as string || 'ASC';
+
+    const dataset = await db.queryOne(
+      'SELECT * FROM datasets WHERE id = $1 AND tenant_id = $2',
+      [id, req.user!.tenantId]
+    );
+
+    if (!dataset) {
+      throw new NotFoundError('Dataset');
+    }
+
+    if (!dataset.clickhouse_table) {
+      throw new ValidationError('Dataset henüz ClickHouse tablosu oluşturulmamış');
+    }
+
+    // Sıralama
+    let orderClause = '';
+    if (orderBy) {
+      const safeOrderBy = orderBy.replace(/[^a-zA-Z0-9_]/g, ''); // SQL injection önleme
+      orderClause = ` ORDER BY ${safeOrderBy} ${sortOrder === 'DESC' ? 'DESC' : 'ASC'}`;
+    }
+
+    // Veri çek - LIMIT ve OFFSET ile
+    const sql = `SELECT * FROM clixer_analytics.${dataset.clickhouse_table}${orderClause} LIMIT ${limit} OFFSET ${offset}`;
+    const rows = await clickhouse.query(sql);
+
+    // Toplam satır sayısı
+    const countResult = await clickhouse.query(`SELECT count() as cnt FROM clixer_analytics.${dataset.clickhouse_table}`);
+    const totalRows = countResult[0]?.cnt || 0;
+
+    res.json({ 
+      success: true, 
+      data: { 
+        rows,
+        rowCount: rows.length,
+        totalRows,
+        offset,
+        limit,
+        hasMore: offset + rows.length < totalRows
       }
     });
   } catch (error) {

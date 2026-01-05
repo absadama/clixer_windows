@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useTheme } from '../components/Layout'
 import { useAuthStore } from '../stores/authStore'
 import { useFilterStore } from '../stores/filterStore'
+import { useSocket } from '../hooks/useSocket'
 import FilterBar from '../components/FilterBar'
 import { 
   PieChart as PieChartIcon, 
@@ -67,6 +68,7 @@ import {
 const useWindowSize = () => {
   const [windowSize, setWindowSize] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
+    height: typeof window !== 'undefined' ? window.innerHeight : 800,
   })
 
   useEffect(() => {
@@ -78,7 +80,10 @@ const useWindowSize = () => {
       if (timeoutId) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
         if (!isUnmounted) {
-          setWindowSize({ width: window.innerWidth });
+          setWindowSize({ 
+            width: window.innerWidth,
+            height: window.innerHeight
+          });
         }
       }, 300);
     }
@@ -195,6 +200,10 @@ export default function AnalysisPage() {
     addCrossFilter, removeCrossFilter, clearCrossFilters,
     openDrillDown, closeDrillDown, setDrillDownData, setDrillDownLoading
   } = useFilterStore()
+  
+  // WebSocket for real-time updates
+  const { isConnected, subscribe, unsubscribe, on } = useSocket()
+  
   const [selectedReport, setSelectedReport] = useState<string | null>(null)
   const [selectedDesign, setSelectedDesign] = useState<SavedDesign | null>(null)
   const [designWidgets, setDesignWidgets] = useState<Widget[]>([])
@@ -202,14 +211,17 @@ export default function AnalysisPage() {
   const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([])
   const [loading, setLoading] = useState(false)
   const [loadingDesign, setLoadingDesign] = useState(false)
-  const { width } = useWindowSize()
+  const { width, height } = useWindowSize()
   
   // Pagination state for each widget
   const [widgetPages, setWidgetPages] = useState<Record<string, number>>({})
   
-  // Responsive breakpoints
-  const isMobile = width < 768
-  const isTablet = width >= 768 && width < 1024
+  // Responsive breakpoints - Landscape için özel kontrol
+  const isLandscape = width > height
+  const isMobilePortrait = width < 768 && !isLandscape // Dikey telefon
+  const isMobileLandscape = width < 1024 && isLandscape && height < 500 // Yatay telefon
+  const isMobile = isMobilePortrait || isMobileLandscape
+  const isTablet = width >= 768 && width < 1024 && !isMobileLandscape
 
   // Kullanıcı pozisyon kodu
   const userPositionCode = user?.positionCode || 'VIEWER'
@@ -267,6 +279,34 @@ export default function AnalysisPage() {
       loadDesignDetail(selectedDesign.id)
     }
   }, [startDate, endDate, selectedRegionId, selectedStoreIds.length, selectedStoreType])
+  
+  // WebSocket: Dashboard'a abone ol ve real-time güncellemeleri dinle
+  useEffect(() => {
+    if (!isConnected || !selectedDesign?.id) return
+    
+    // Dashboard room'una abone ol
+    subscribe('dashboard', selectedDesign.id)
+    
+    // Dashboard refresh event'ini dinle
+    const unsubRefresh = on('dashboard:refresh', (data) => {
+      if (data.designId === selectedDesign.id) {
+        loadDesignDetail(selectedDesign.id)
+      }
+    })
+    
+    // ETL tamamlandığında verileri yenile
+    const unsubEtl = on('etl:completed', () => {
+      if (selectedDesign?.id) {
+        loadDesignDetail(selectedDesign.id)
+      }
+    })
+    
+    return () => {
+      unsubscribe('dashboard', selectedDesign.id)
+      unsubRefresh()
+      unsubEtl()
+    }
+  }, [isConnected, selectedDesign?.id, subscribe, unsubscribe, on])
   
   // Drill-Down verisi çek
   const fetchDrillDownData = async (metricId: string, field: string, value: string | number) => {
@@ -441,8 +481,8 @@ export default function AnalysisPage() {
             className="relative gap-2 sm:gap-3 lg:gap-4 overflow-hidden"
             style={isMobile ? {
               display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: '8px',
+              gridTemplateColumns: isMobileLandscape ? 'repeat(2, 1fr)' : 'repeat(1, 1fr)', // Yatay: 2 kolon, Dikey: 1 kolon
+              gap: '12px',
             } : {
               display: 'grid',
               gridTemplateColumns: isTablet ? 'repeat(12, 1fr)' : 'repeat(24, 1fr)',
@@ -525,7 +565,9 @@ export default function AnalysisPage() {
                   style={{ 
                     gridColumn: isMobile ? undefined : `${gridX + 1} / span ${gridW}`,
                     gridRow: isMobile ? undefined : `${rawY + 1} / span ${gridH}`,
-                    minHeight: isMobile ? '100px' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
+                    minHeight: isMobile ? 'auto' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
+                    // Mobilde padding azalt
+                    ...(isMobile && { padding: '16px' }),
                     // Renk moduna göre stil
                     ...(isFullColorMode ? { 
                       // Gradient arka plan - yumuşak geçiş
@@ -1519,7 +1561,7 @@ export default function AnalysisPage() {
                             )} 
                             style={{ maxHeight: isMobile ? '240px' : '400px' }}
                           >
-                            <table className="w-full">
+                            <table className="w-full min-w-[400px]">
                               {/* Başlık - Sidebar rengiyle uyumlu */}
                               <thead>
                                 <tr className={clsx(
@@ -1841,7 +1883,7 @@ export default function AnalysisPage() {
           <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
             <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>Detay Tablosu</h3>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[400px]">
                 <thead className={clsx('text-xs font-bold uppercase', isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600')}>
                   <tr>
                     <th className="px-4 py-3 text-left rounded-l-lg">Kategori</th>

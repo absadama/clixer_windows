@@ -1,7 +1,11 @@
 import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster, toast } from 'sonner'
 import { useAuthStore } from './stores/authStore'
+import { useSocket } from './hooks/useSocket'
 import Layout from './components/Layout'
+import PWAOfflineIndicator from './components/PWAOfflineIndicator'
+import PWAInstallPrompt from './components/PWAInstallPrompt'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import DesignerPage from './pages/DesignerPage'
@@ -16,6 +20,60 @@ import AdminPage from './pages/AdminPage'
 import ProfilePage from './pages/ProfilePage'
 import DataGridDemoPage from './pages/DataGridDemoPage'
 import api from './services/api'
+
+// WebSocket Notifications Handler
+function WebSocketNotifications() {
+  const { isConnected, on } = useSocket()
+  
+  useEffect(() => {
+    if (!isConnected) return
+    
+    // ETL tamamlandığında bildirim
+    const unsubEtl = on('etl:completed', (data) => {
+      toast.success(`${data.datasetName || 'Dataset'} güncellendi`, {
+        description: `${data.rowsProcessed.toLocaleString('tr-TR')} satır işlendi`,
+        duration: 5000
+      })
+    })
+    
+    // Veri yenilendiğinde bildirim
+    const unsubRefresh = on('data:refresh', (data) => {
+      toast.info(data.message, {
+        description: 'Veriler güncellendi',
+        duration: 3000
+      })
+    })
+    
+    // Yeni bildirim geldiğinde
+    const unsubNotif = on('notification:new', (data) => {
+      const toastFn = data.type === 'error' ? toast.error : 
+                      data.type === 'warning' ? toast.warning : 
+                      data.type === 'success' ? toast.success : toast.info
+      
+      toastFn(data.title, {
+        description: data.message,
+        duration: 5000
+      })
+    })
+    
+    // Broadcast bildirimi
+    const unsubBroadcast = on('notification:broadcast', (data) => {
+      toast.message(data.title, {
+        description: data.message,
+        duration: 8000
+      })
+    })
+    
+    return () => {
+      unsubEtl()
+      unsubRefresh()
+      unsubNotif()
+      unsubBroadcast()
+    }
+  }, [isConnected, on])
+  
+  return null
+}
 
 function App() {
   const { isAuthenticated, hasHydrated, logout, accessToken } = useAuthStore()
@@ -46,12 +104,36 @@ function App() {
   }
 
   if (!isAuthenticated) {
-    return <LoginPage />
+    return (
+      <>
+        <Toaster 
+          position="top-right" 
+          richColors 
+          closeButton
+          toastOptions={{
+            className: 'font-sans'
+          }}
+        />
+        <LoginPage />
+      </>
+    )
   }
 
   return (
-    <Layout>
-      <Routes>
+    <>
+      <Toaster 
+        position="top-right" 
+        richColors 
+        closeButton
+        toastOptions={{
+          className: 'font-sans'
+        }}
+      />
+      <WebSocketNotifications />
+      <PWAOfflineIndicator />
+      <PWAInstallPrompt />
+      <Layout>
+        <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/finance" element={<FinancePage />} />
@@ -66,8 +148,9 @@ function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/datagrid-demo" element={<DataGridDemoPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </Layout>
+        </Routes>
+      </Layout>
+    </>
   )
 }
 

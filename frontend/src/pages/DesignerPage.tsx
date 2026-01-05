@@ -600,7 +600,20 @@ export default function DesignerPage() {
       </div>
 
       {activeTab === 'studio' && (
-        <div className="flex gap-6">
+        <>
+          {/* Mobil uyarı */}
+          <div className={clsx('lg:hidden rounded-2xl p-6 text-center', theme.cardBg)}>
+            <Monitor className={clsx('w-12 h-12 mx-auto mb-4', theme.contentTextMuted)} />
+            <h3 className={clsx('font-bold text-lg mb-2', theme.contentText)}>Tasarım Stüdyosu</h3>
+            <p className={clsx('text-sm mb-4', theme.contentTextMuted)}>
+              Tasarım düzenleme için lütfen bilgisayar veya tablet kullanın.
+            </p>
+            <p className={clsx('text-xs', theme.contentTextMuted)}>
+              Mobil cihazlarda dashboard görüntüleme özelliği mevcuttur.
+            </p>
+          </div>
+          
+          <div className="hidden lg:flex flex-row gap-6">
           {/* Left Panel - Designs & Widgets */}
           <div className={clsx('w-64 shrink-0 space-y-4', showWidgetPanel ? '' : 'hidden')}>
             {/* Design Selector */}
@@ -1174,6 +1187,7 @@ export default function DesignerPage() {
             </div>
           </div>
         </div>
+        </>
       )}
       
       {activeTab === 'metrics' && (

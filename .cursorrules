@@ -5054,3 +5054,1025 @@ Ctrl+A: Tüm satırları seç
 | ⊞ | Gruplu kolon sayısı |
 | 📌 | Sabitlenmiş kolon sayısı |
 | 👁 | Gizli kolon sayısı |
+
+---
+
+## 🔴🔴🔴 ENTERPRISE DATAGRID KRİTİK HATALAR VE ÇÖZÜMLER (v3.6)
+
+### MUTLAK KURAL: Bu hatalar ve çözümler belgelenmiştir. TEKRAR EDİLMEMELİ!
+
+Bu bölüm, Enterprise DataGrid geliştirmesi sırasında karşılaşılan kritik hataları ve **kesin çözümlerini** içerir.
+
+---
+
+### HATA 1: "Can't perform a React state update on a component that hasn't mounted yet"
+
+**Belirtiler:**
+```
+Warning: Can't perform a React state update on a component that hasn't mounted yet.
+This indicates that you have a side-effect in your render function that asynchronously 
+later calls tries to update the component. Move this work to useEffect instead.
+```
+
+**KÖK NEDEN:** 
+Async operasyonlar (API çağrıları, tasarım yükleme) component tam mount olmadan state güncellemeye çalışıyor.
+
+**ÇÖZÜM (2 Katmanlı):**
+
+1. **Sayfa seviyesinde (DataGridDemoPage.tsx):** Lazy render ile component'i mount sonrası göster:
+```typescript
+const [isPageMounted, setIsPageMounted] = useState(false);
+
+useLayoutEffect(() => {
+  const timer = requestAnimationFrame(() => {
+    setIsPageMounted(true);
+  });
+  return () => cancelAnimationFrame(timer);
+}, []);
+
+return (
+  {isPageMounted ? (
+    <EnterpriseDataGrid ... />
+  ) : (
+    <div>Yükleniyor...</div>
+  )}
+);
+```
+
+2. **Component seviyesinde (EnterpriseDataGrid/index.tsx):** Mount tracking:
+```typescript
+const isUnmountedRef = useRef(false);
+const isReady = useRef(false);
+
+useEffect(() => {
+  isUnmountedRef.current = false;
+  const timer = requestAnimationFrame(() => {
+    if (!isUnmountedRef.current) isReady.current = true;
+  });
+  return () => {
+    cancelAnimationFrame(timer);
+    isUnmountedRef.current = true;
+  };
+}, []);
+
+// Her async işlemde kontrol:
+const loadData = async () => {
+  if (isUnmountedRef.current) return;
+  const data = await fetchData();
+  if (!isUnmountedRef.current) setState(data);
+};
+```
+
+---
+
+### HATA 2: "Functions are not valid as a React child"
+
+**Belirtiler:**
+```
+Warning: Functions are not valid as a React child. This may happen if you return 
+a Component instead of <Component /> from render. Or maybe you meant to call this 
+function rather than return it.
+```
+
+**KÖK NEDEN:** 
+`@tanstack/react-table` gruplu satırlarda `flexRender` bazen fonksiyon döndürür.
+
+**ÇÖZÜM:**
+```typescript
+// ❌ YANLIŞ - Fonksiyon dönebilir!
+{flexRender(cell.column.columnDef.aggregatedCell, cell.getContext())}
+
+// ✅ DOĞRU - Değeri doğrudan al ve formatla
+{row.getVisibleCells()
+  .filter(cell => cell.getIsAggregated())
+  .map(cell => {
+    const rawValue = cell.getValue();
+    let displayValue: string = '-';
+
+    if (rawValue !== null && rawValue !== undefined && typeof rawValue !== 'function') {
+      if (typeof rawValue === 'number') {
+        displayValue = new Intl.NumberFormat('tr-TR').format(rawValue);
+      } else {
+        displayValue = String(rawValue);
+      }
+    }
+    return <span key={cell.id}>{displayValue}</span>;
+  })
+}
+```
+
+---
+
+### HATA 3: "[Table] Column with id 'xxx' does not exist"
+
+**Belirtiler:**
+```
+[Table] Column with id 'city_name' does not exist.
+[Table] Column with id 'occupancy_rate' does not exist.
+```
+
+**KÖK NEDEN:** 
+Kayıtlı tasarımda farklı dataset'ten kalan kolon ID'leri state'lerde kalıyor.
+
+**ÇÖZÜM - TÜM STATE'LERİ FİLTRELE:**
+```typescript
+// 1. Geçerli kolon ID'lerini al
+const validColumnIds = useMemo(() => columnConfigs.map(c => c.id), [columnConfigs]);
+
+// 2. TÜM state'leri filtrele (SADECE grouping DEĞİL, HEPSİ!)
+const validGrouping = useMemo(() => 
+  grouping.filter(id => validColumnIds.includes(id)), [grouping, validColumnIds]);
+
+const validSorting = useMemo(() => 
+  sorting.filter(s => validColumnIds.includes(s.id)), [sorting, validColumnIds]);
+
+const validColumnFilters = useMemo(() => 
+  columnFilters.filter(f => validColumnIds.includes(f.id)), [columnFilters, validColumnIds]);
+
+const validColumnVisibility = useMemo(() => {
+  const valid: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(columnVisibility)) {
+    if (validColumnIds.includes(key)) valid[key] = value;
+  }
+  return valid;
+}, [columnVisibility, validColumnIds]);
+
+const validColumnOrder = useMemo(() => 
+  columnOrder.filter(id => validColumnIds.includes(id)), [columnOrder, validColumnIds]);
+
+// 3. Filtrelenmiş state'leri kullan
+const table = useReactTable({
+  state: {
+    sorting: validSorting,
+    columnFilters: validColumnFilters,
+    grouping: validGrouping,
+    columnVisibility: validColumnVisibility,
+    columnOrder: validColumnOrder,
+    // ...
+  }
+});
+```
+
+---
+
+### HATA 4: Arama Yaparken Toplamlar Değişmiyor
+
+**Belirtiler:**
+Footer'daki toplamlar arama/filtre sonucuna göre güncellenmiyor.
+
+**KÖK NEDEN:** 
+Footer sadece server-side aggregates kullanıyor, client-side filtrelemeyi dikkate almıyor.
+
+**ÇÖZÜM:**
+```typescript
+const hasActiveFilters = globalFilter || columnFilters.length > 0;
+
+// Footer'da:
+if (!hasActiveFilters && serverSideAggregates) {
+  // Server-side toplam (TÜM veri)
+  aggregatedValue = serverSideAggregates[column].sum;
+} else {
+  // Client-side toplam (FİLTRELENMİŞ satırlar)
+  const rows = table.getFilteredRowModel().rows;
+  aggregatedValue = rows.reduce((sum, row) => sum + (row.getValue(column) as number), 0);
+}
+```
+
+---
+
+### HATA 5: Tarih Formatında Arama Çalışmıyor
+
+**Belirtiler:**
+`05.01.2026` formatında arama yapınca sonuç gelmiyor.
+
+**KÖK NEDEN:** 
+Varsayılan filtre fonksiyonu sadece ISO tarih formatını destekliyor.
+
+**ÇÖZÜM - Özel globalFilterFn:**
+```typescript
+const globalFilterFn = useCallback((row: any, columnId: string, filterValue: string): boolean => {
+  const value = row.getValue(columnId);
+  const searchValue = filterValue.toLowerCase().trim();
+  
+  // Normal string arama
+  if (String(value).toLowerCase().includes(searchValue)) return true;
+  
+  // Tarih kolonları için ek format kontrolleri
+  const config = columnConfigs.find(c => c.id === columnId);
+  if (config?.type === 'date' || config?.type === 'datetime') {
+    try {
+      const dateValue = new Date(value as string);
+      if (!isNaN(dateValue.getTime())) {
+        // Türkçe format: 05.01.2026
+        if (dateValue.toLocaleDateString('tr-TR').includes(searchValue)) return true;
+        // ISO format: 2026-01-05
+        if (dateValue.toISOString().split('T')[0].includes(searchValue)) return true;
+        // Kısa yıl: 05.01.26
+        const shortYear = dateValue.toLocaleDateString('tr-TR').replace(/\d{4}$/, 
+          String(dateValue.getFullYear()).slice(-2));
+        if (shortYear.includes(searchValue)) return true;
+      }
+    } catch {}
+  }
+  
+  return false;
+}, [columnConfigs]);
+
+// useReactTable'a ekle
+const table = useReactTable({
+  globalFilterFn,
+  // ...
+});
+```
+
+---
+
+### HATA 6: Export'ta "datasets/undefined/export" Hatası
+
+**Belirtiler:**
+```
+GET http://localhost:4000/api/data/datasets/undefined/export ... 500 (Internal Server Error)
+```
+
+**KÖK NEDEN:** 
+Demo veri kullanırken `datasetId` undefined oluyor.
+
+**ÇÖZÜM:**
+```typescript
+const exportToExcel = useCallback(async (exportLimit: number | 'all') => {
+  // datasetId yoksa (demo veri) mevcut grid verisini export et
+  if (!datasetId) {
+    // Mevcut tablo verisini kullan
+    const rows = table.getRowModel().rows;
+    // ... export işlemi
+    return;
+  }
+  
+  // datasetId varsa backend'den çek
+  const response = await fetch(`${API_BASE}/data/datasets/${datasetId}/export?...`);
+  // ...
+}, [datasetId, table]);
+```
+
+---
+
+### 🛡️ ÖNLEME KURALLARI
+
+1. **Yeni DataGrid geliştirmelerinde MUTLAKA bu hataları kontrol et**
+2. **Mount tracking her async operasyonda kullanılmalı**
+3. **Kayıtlı tasarım yüklenirken TÜM state'ler validColumnIds ile filtrelenmeli**
+4. **Footer hesaplamaları hasActiveFilters durumuna göre ayrılmalı**
+5. **Tarih araması için globalFilterFn override edilmeli**
+6. **Export işlemlerinde datasetId kontrolü zorunlu**
+
+---
+
+## 📅 v3.6 BACKUP BİLGİLERİ
+
+- **Tarih:** 5 Ocak 2026
+- **Backup:** `backups/v3.6_datagrid_complete_20260105_102912/`
+- **İçerik:** Frontend, Services, Shared, Gateway, PostgreSQL dump (347 KB), ClickHouse tablo bilgileri
+- **Toplam Boyut:** 460 MB
+
+---
+
+## ✅ v3.6 TAMAMLANAN ÖZELLİKLER
+
+| # | Özellik | Durum |
+|---|---------|-------|
+| 1 | Temel Grid (Virtual scroll, 100K+ satır) | ✅ |
+| 2 | Sıralama & Filtreleme | ✅ |
+| 3 | Gruplama (Hiyerarşik) | ✅ |
+| 4 | Kolon Yönetimi (Gizleme, Sıralama) | ✅ |
+| 5 | Footer Toplamlar (Sum, Avg, Count) | ✅ |
+| 6 | Tasarım Kaydetme/Yükleme | ✅ |
+| 7 | Excel Export (Tasarımlı, Multi-Sheet) | ✅ |
+| 8 | CSV Export | ✅ |
+| 9 | Column Pinning | ✅ |
+| 10 | Context Menu | ✅ |
+| 11 | Status Bar | ✅ |
+| 12 | Clipboard (Ctrl+C, Ctrl+A) | ✅ |
+| 13 | Dinamik Etiket (WhiteLabel) | ✅ |
+
+---
+
+## 🔜 SONRAKİ ADIMLAR
+
+| # | Özellik | Öncelik |
+|---|---------|---------|
+| 1 | PM2/Start Script | Orta |
+| 2 | Sparklines (Mini grafikler) | Düşük |
+| 3 | Production Deploy | Yüksek |
+
+---
+
+## 🔴🔴🔴 KRİTİK GÜVENLİK AÇIKLARI VE ÇÖZÜMLER (v3.7 - 5 Ocak 2026)
+
+### HATA 1: RAPOR YETKİLERİ (allowed_positions) ÇALIŞMIYOR
+
+**Belirtiler:**
+Tasarım Stüdyosu'nda rapor yetkisi sadece "Genel Müdür" olarak ayarlanmış olmasına rağmen, yetkisi olmayan kullanıcılar (STORE_MANAGER) raporu görebiliyor.
+
+**KÖK NEDENLER (3 FARKLI SORUN!):**
+
+#### SORUN 1: Frontend Parse Eksikliği
+`frontend/src/stores/dashboardStore.ts` - `fetchDesigns` fonksiyonunda `allowed_positions` alanı parse edilmemişti!
+
+```typescript
+// ❌ YANLIŞ - allowed_positions UNUTULMUŞ!
+const designsData = designsRaw.map((d: any) => ({
+  id: d.id,
+  name: d.name,
+  type: d.type || 'cockpit',
+  targetRoles: d.target_roles || d.targetRoles || ['ADMIN'],
+  // allowed_positions YOK!
+}))
+
+// ✅ DOĞRU - allowed_positions EKLENMELİ!
+const designsData = designsRaw.map((d: any) => ({
+  id: d.id,
+  name: d.name,
+  type: d.type || 'cockpit',
+  targetRoles: d.target_roles || d.targetRoles || ['ADMIN'],
+  allowed_positions: d.allowed_positions || d.allowedPositions || [], // 🔴 GÜVENLİK
+}))
+```
+
+#### SORUN 2: Store'da Yetkisiz Auto-Select
+`dashboardStore.ts`'de tasarım yüklendikten sonra otomatik olarak ilk tasarım seçiliyordu - KULLANICININ YETKİSİ KONTROL EDİLMEDEN!
+
+```typescript
+// ❌ YANLIŞ - Store kullanıcının pozisyonunu bilmiyor!
+const cockpitDesigns = designsData.filter((d: Design) => d.type === 'cockpit')
+const firstCockpit = cockpitDesigns[0]
+if (firstCockpit && !get().currentDesign) {
+  get().selectDesign(firstCockpit.id) // YETKİSİZ TASARIMı SEÇEBİLİR!
+}
+
+// ✅ DOĞRU - Auto-select KALDIRILMALI!
+// Store kullanıcının pozisyonunu bilmiyor, bu yüzden yetkisiz tasarımı seçebilir.
+// Auto-select işlemi DashboardPage.tsx'de accessibleDesigns ile yapılmalı.
+```
+
+#### SORUN 3: Mevcut Yetkisiz Tasarım Temizlenmiyordu
+Eğer kullanıcı daha önce yetkili olduğu bir tasarımı görüntülediyse ve sonra yetkisi kaldırıldıysa, o tasarım hala `currentDesign`'da kalıyordu.
+
+```typescript
+// ❌ YANLIŞ - Yetki kontrolü yok
+useEffect(() => {
+  const cockpitDesigns = accessibleDesigns.filter(d => d.type === 'cockpit')
+  // ... seçim logic
+}, [accessibleDesigns])
+
+// ✅ DOĞRU - Önce yetkisiz tasarımı temizle!
+useEffect(() => {
+  // 🔴 GÜVENLİK: Eğer mevcut tasarım artık erişilebilir değilse, temizle
+  if (currentDesign) {
+    const isCurrentAccessible = accessibleDesigns.some(d => d.id === currentDesign.id)
+    if (!isCurrentAccessible) {
+      useDashboardStore.setState({ currentDesign: null, widgets: [] })
+    }
+  }
+  // ... devamı
+}, [accessibleDesigns])
+```
+
+**ÇÖZÜM KONTROL LİSTESİ:**
+1. ✅ `dashboardStore.ts` - Design interface'e `allowed_positions?: string[]` ekle
+2. ✅ `dashboardStore.ts` - fetchDesigns'da `allowed_positions` parse et
+3. ✅ `dashboardStore.ts` - Auto-select kodunu KALDIR
+4. ✅ `DashboardPage.tsx` - Yetkisiz currentDesign temizleme kodu ekle
+5. ✅ `DashboardPage.tsx` - `getAccessibleDesigns()` fonksiyonu allowed_positions kontrol etmeli
+
+**MUTLAK KURAL:**
+> Store'da ASLA kullanıcı pozisyonuna bağlı işlem yapma! Store kullanıcı bilgisine sahip değil.
+> Pozisyon bazlı filtreleme SADECE sayfa componentlerinde (DashboardPage, AnalysisPage) yapılmalı.
+
+**ETKİLENEN DOSYALAR:**
+- `frontend/src/stores/dashboardStore.ts` - Design interface + fetchDesigns + auto-select kaldırma
+- `frontend/src/pages/DashboardPage.tsx` - Yetkisiz tasarım temizleme
+- `frontend/src/pages/AnalysisPage.tsx` - Aynı mantık uygulanmalı
+
+---
+
+### HATA 2: BCRYPT HASH POWERSHELL ESCAPE SORUNU
+
+**Belirtiler:**
+Kullanıcı oluşturma işlemi başarılı görünmesine rağmen login 401 veriyor.
+
+**KÖK NEDEN:**
+PowerShell terminal'inde `$` karakteri değişken olarak yorumlanıyor. Bcrypt hash'leri `$2a$12$...` formatında olduğu için hash bozuluyor.
+
+```powershell
+# ❌ YANLIŞ - PowerShell $ karakterini yorumlar!
+docker exec clixer_postgres psql -U clixer -d clixer -c "UPDATE users SET password_hash='$2a$12$abc...' WHERE email='test@gmail.com';"
+# Sonuç: password_hash = 'a2abc...' ($ sonrası siliniyor!)
+
+# ✅ DOĞRU - SQL dosyası kullan!
+# 1. fix-password.sql dosyası oluştur:
+#    UPDATE users SET password_hash='$2a$12$jBD73ILXOmLguPmon.INhOXI9RjFif641R0bXDbDj/3lwP9IkaGrO' WHERE email='test@gmail.com';
+# 2. Çalıştır:
+docker exec -i clixer_postgres psql -U clixer -d clixer < fix-password.sql
+```
+
+**DOĞRU HASH OLUŞTURMA:**
+```javascript
+// Node.js REPL'de:
+const bcryptjs = require('bcryptjs');
+const hash = await bcryptjs.hash('Admin1234!', 12);
+console.log(hash);
+// Örnek: $2a$12$jBD73ILXOmLguPmon.INhOXI9RjFif641R0bXDbDj/3lwP9IkaGrO
+```
+
+**SEED DOSYASINDA:**
+`docker/init-scripts/postgres/00-schema-and-seed.sql` dosyasında admin şifresi DOĞRU hash ile kaydedilmeli.
+
+---
+
+### HATA 3: MENÜ İZİNLERİ DİNAMİK OLMALI
+
+**Belirtiler:**
+Sidebar'a yeni menü eklendi ama Rol & Yetkiler'de görünmüyor.
+
+**KÖK NEDEN:**
+Sidebar menüleri ve AdminPage'deki izin listesi ayrı yönetiliyor.
+
+**ÇÖZÜM - 4 DOSYA KURALI:**
+
+Yeni bir sayfa/menü eklendiğinde ZORUNLU olarak 4 dosya güncellenmeli:
+
+| # | Dosya | Değişiklik |
+|---|-------|------------|
+| 1 | `Layout.tsx` | Sidebar menü tanımı |
+| 2 | `AdminPage.tsx` | `defaultMenuLabels` objesi |
+| 3 | `06-labels-seed.sql` | Veritabanı seed |
+| 4 | Veritabanı (çalışan) | `INSERT INTO labels` ile ekleme |
+
+```typescript
+// 1. Layout.tsx - menuItems array'ine ekle
+{ icon: Grid3X3, label: 'Yeni Sayfa', path: '/yeni-sayfa', key: 'yeni_sayfa' }
+
+// 2. AdminPage.tsx - defaultMenuLabels'a ekle
+const defaultMenuLabels: Record<string, string> = {
+  // ... mevcut menüler
+  'yeni_sayfa': 'Yeni Sayfa',
+}
+
+// 3. SQL - labels seed'ine ekle
+INSERT INTO labels (tenant_id, label_type, label_key, label_value) 
+VALUES ('...', 'menu', 'yeni_sayfa', 'Yeni Sayfa');
+
+// 4. menu_permissions - tüm pozisyonlara izin ekle
+INSERT INTO menu_permissions (position_code, menu_key, can_view)
+SELECT p.code, 'yeni_sayfa', CASE WHEN p.code IN ('GENERAL_MANAGER', 'DIRECTOR') THEN TRUE ELSE FALSE END
+FROM positions p;
+```
+
+**KONTROL LİSTESİ:**
+- [ ] Layout.tsx'e eklendi mi?
+- [ ] AdminPage.tsx defaultMenuLabels'a eklendi mi?
+- [ ] SQL seed'e eklendi mi?
+- [ ] menu_permissions'a tüm pozisyonlar için eklendi mi?
+- [ ] Rol & Yetkiler'de görünüyor mu? (TEST!)
+
+---
+
+### 🛡️ GENEL GÜVENLİK KURALLARI
+
+1. **PowerShell'de SQL çalıştırırken:** `$` karakterli değerler için SQL dosyası kullan
+2. **Yeni menü eklerken:** 4 Dosya Kuralı'nı uygula
+3. **API response parse ederken:** Tüm güvenlik alanlarını dahil et (`allowed_positions`, `filter_level`, vb.)
+4. **Seed dosyalarında:** Bcrypt hash'leri doğru şekilde kaydet
+
+---
+
+## 📱 MOBİL MİMARİ (PWA & CAPACITOR)
+
+### 1. Strateji: "Web-First, Native-Next"
+- **Temel:** Uygulama öncelikle bir PWA (Progressive Web App) olarak geliştirilir.
+- **Geçiş:** Market gereksinimi olduğunda Capacitor altyapısı ile native pakete dönüştürülür.
+- **Kod Bütünlüğü:** Web ve mobil için %100 aynı React kodu kullanılır.
+
+### 2. Görsel Standartlar
+- **Çözünürlük:** Tüm ikonlar ve grafikler yüksek DPI (Retina) uyumlu olmalıdır.
+- **Safe Areas:** Mobil cihazlardaki çentik (notch) ve sistem barları için `padding: env(safe-area-inset-...)` kullanılmalıdır.
+- **Touch Targets:** Tıklanabilir alanlar mobilde en az 44x44px boyutunda olmalıdır.
+
+### 3. PWA Gereklilikleri
+- **Manifest:** `public/manifest.json` güncel tutulmalıdır.
+- **Service Worker:** Çevrimdışı (offline) mod desteği IndexedDB ile desteklenmelidir.
+- **App Like:** `display: standalone` modu ile tarayıcı çubukları gizlenmelidir.
+
+### 4. Performans
+- **Lazy Loading:** Büyük grafik kütüphaneleri ve ağır komponentler mobilde performansı korumak için lazy-load edilmelidir.
+- **Data Saving:** Mobil bağlantılarda veri tüketimini azaltmak için metrik cache süreleri optimize edilmelidir.
+
+---
+
+## 📅 v3.7 - 5 Ocak 2026
+
+**Güvenlik Açıkları Düzeltildi**
+
+1. ✅ `dashboardStore.ts` - `allowed_positions` parse eklendi
+2. ✅ `dashboardStore.ts` - Store'daki auto-select KALDIRILDI (güvenlik açığı!)
+3. ✅ `DashboardPage.tsx` - Yetkisiz currentDesign temizleme kodu eklendi
+4. ✅ `Layout.tsx` - `menuKeyMap`'e eksik menüler eklendi
+5. ✅ `settingsStore.ts` - `canViewMenu` varsayılan false yapıldı
+6. ✅ Bcrypt hash sorunu dokümante edildi
+7. ✅ 4 Dosya Kuralı dokümante edildi
+
+**Giriş Bilgileri:**
+- Email: `admin@clixer`
+- Şifre: `Admin1234!`
+- Hash: `$2a$12$jBD73ILXOmLguPmon.INhOXI9RjFif641R0bXDbDj/3lwP9IkaGrO`
+
+**Backup:**
+- `backups/v3.7_security_fixes_20260105_183054/`
+
+---
+
+## 🔴 STORE vs PAGE SORUMLULUK AYRIMI (KRİTİK!)
+
+### MUTLAK KURAL: Store'da kullanıcıya bağlı işlem YAPMA!
+
+| Katman | Yapabilir | ASLA Yapmamalı |
+|--------|-----------|----------------|
+| **Store (Zustand)** | Veri tutma, API çağrısı, state güncelleme | Kullanıcı pozisyonu kontrolü, yetki filtreleme |
+| **Page Component** | Kullanıcı kontrolü, yetki filtreleme, UI render | Direkt API çağrısı (store üzerinden yapmalı) |
+
+**Neden?**
+- Store `useAuthStore`'a bağımlı olmamalı (circular dependency riski)
+- Store re-render'ı tetikler, kullanıcı değişince sorun olur
+- Test edilebilirlik için store saf olmalı
+
+**Örnek Akış:**
+```
+Store: fetchDesigns() → API'den veri al → designs state güncelle (FİLTRELEME YOK!)
+                                    ↓
+Page: designs state oku → getAccessibleDesigns() → yetki filtrele → render
+```
+
+---
+
+## 🔧 UI'DAN SERVİS YÖNETİMİ (v3.8 - 6 Ocak 2026)
+
+### MUTLAK KURAL: Müşteri UI'dan servisleri yönetebilmeli!
+
+**Prensip:** Clixer %100 NoCode bir üründür. Müşteri terminal kullanmadan:
+- Servislerin durumunu görebilmeli
+- Servisleri başlatabilmeli/durdurabilmeli
+- Sistem sağlığını izleyebilmeli
+
+### Mimari
+
+| Mod | Yönetim | Teknoloji |
+|-----|---------|-----------|
+| **Development** | Batch script + Port kontrolü | `Clixer Başlat.bat`, Node.js |
+| **Production** | UI + PM2 API | PM2 programmatic API |
+
+### UI Konumu
+**Yönetim Paneli → Servis Yönetimi**
+
+### Backend Endpoint'leri (`data-service`)
+
+| Endpoint | Method | Açıklama |
+|----------|--------|----------|
+| `/admin/services` | GET | Tüm servislerin durumunu getir |
+| `/admin/services/:name/start` | POST | Servis başlat (PM2) |
+| `/admin/services/:name/stop` | POST | Servis durdur (PM2) |
+| `/admin/services/:name/restart` | POST | Servis yeniden başlat (PM2) |
+| `/admin/services/start-all` | POST | Tüm servisleri başlat (PM2) |
+
+### Servis Listesi
+
+| Servis | PM2 Adı | Port | Kritik |
+|--------|---------|------|--------|
+| API Gateway | clixer-gateway | 4000 | ✅ |
+| Auth Service | clixer-auth | 4001 | ✅ |
+| Core Service | clixer-core | 4002 | ✅ |
+| Data Service | clixer-data | 4003 | ✅ |
+| Analytics Service | clixer-analytics | 4005 | ✅ |
+| Notification Service | clixer-notification | 4004 | ❌ |
+| ETL Worker | clixer-etl | - | ❌ |
+| Frontend | clixer-frontend | 3000 | ✅ |
+
+### Kritik Servis Kuralları
+
+1. **Kritik servisler UI'dan durdurulamaz** → Sunucu yöneticisi SSH ile yapmalı
+2. **Development modda servis kontrolü yok** → Batch script kullan
+3. **Production modda PM2 zorunlu** → ecosystem.config.js ile yönetim
+
+### Development Modu - Başlatma
+
+```
+Windows: Clixer Başlat.bat (proje kök dizininde)
+         ↓
+scripts/start-clixer.bat çalışır
+         ↓
+1. Docker containers kontrol et
+2. Her servisi background'da başlat
+3. Health check yap
+4. Kullanıcıya bilgi ver
+```
+
+### Production Modu - PM2 Entegrasyonu
+
+```javascript
+// ecosystem.config.js (Production sunucuda)
+module.exports = {
+  apps: [
+    { name: 'clixer-gateway', script: 'dist/index.js', cwd: './gateway', instances: 4 },
+    { name: 'clixer-auth', script: 'dist/index.js', cwd: './services/auth-service', instances: 2 },
+    // ... diğer servisler
+  ]
+}
+```
+
+### UI'da Gösterilen Bilgiler
+
+| Bilgi | Development | Production |
+|-------|-------------|------------|
+| Durum (online/stopped) | ✅ | ✅ |
+| Port | ✅ | ✅ |
+| Uptime | ❌ | ✅ |
+| RAM kullanımı | ❌ | ✅ |
+| CPU kullanımı | ❌ | ✅ |
+| Restart sayısı | ❌ | ✅ |
+| Başlat/Durdur | ❌ | ✅ |
+
+### Frontend Component
+
+`frontend/src/pages/AdminPage.tsx` → `ServiceManagement` component
+
+```typescript
+// Otomatik yenileme (10 saniyede bir)
+useEffect(() => {
+  const interval = setInterval(fetchServices, 10000);
+  return () => clearInterval(interval);
+}, [accessToken]);
+```
+
+### Güvenlik
+
+1. Sadece authenticated kullanıcılar erişebilir
+2. Kritik servisler korunmuş (UI'dan stop edilemez)
+3. Tüm işlemler loglanıyor
+
+### Dosya Konumları
+
+| Dosya | İçerik |
+|-------|--------|
+| `services/data-service/src/index.ts` | PM2 API endpoint'leri |
+| `frontend/src/pages/AdminPage.tsx` | ServiceManagement UI |
+| `scripts/start-clixer.bat` | Windows başlatma scripti |
+| `scripts/stop-clixer.bat` | Windows durdurma scripti |
+| `Clixer Başlat.bat` | Kök dizin kısayol |
+| `Clixer Durdur.bat` | Kök dizin kısayol |
+
+---
+
+## 📅 v3.8 - 6 Ocak 2026
+
+**UI'dan Servis Yönetimi**
+
+1. ✅ Backend: PM2 API entegrasyonu (`/admin/services/*` endpoint'leri)
+2. ✅ Frontend: Servis Yönetimi sekmesi (Admin Panel)
+3. ✅ Development: Port-bazlı durum kontrolü
+4. ✅ Production: PM2 programmatic API
+5. ✅ Otomatik yenileme (10 saniye)
+6. ✅ Kritik servis koruması
+7. ✅ Windows batch script'ler
+
+**Yeni Dosyalar:**
+- `scripts/start-clixer.bat` - Windows tek tıkla başlat
+- `scripts/stop-clixer.bat` - Windows tek tıkla durdur
+- `Clixer Başlat.bat` - Kök dizin kısayol
+- `Clixer Durdur.bat` - Kök dizin kısayol
+
+**Değiştirilen Dosyalar:**
+- `services/data-service/src/index.ts` - PM2 API endpoint'leri
+- `services/data-service/package.json` - pm2 paketi eklendi
+- `frontend/src/pages/AdminPage.tsx` - ServiceManagement bileşeni
+
+---
+
+## 📅 v3.9 - 6 Ocak 2026
+
+**PM2 Production Setup & Mobil Erişim Düzeltmesi**
+
+### 1. ✅ PM2 Ecosystem Konfigürasyonu
+
+`ecosystem.config.js` dosyası oluşturuldu:
+
+| Servis | Instance | Mode | RAM Limit |
+|--------|----------|------|-----------|
+| clixer-gateway | 4 | cluster | 500MB |
+| clixer-auth | 2 | cluster | 300MB |
+| clixer-core | 2 | cluster | 400MB |
+| clixer-data | 2 | cluster | 500MB |
+| clixer-notification | 1 | fork | 300MB |
+| clixer-analytics | 4 | cluster | 800MB |
+| clixer-etl | 1 | fork | 1GB |
+
+**Production Başlatma:**
+```bash
+# Tüm servisleri başlat
+pm2 start ecosystem.config.js
+
+# Durumu gör
+pm2 status
+
+# Logları izle
+pm2 logs
+
+# Tümünü durdur
+pm2 stop all
+```
+
+### 2. ✅ Windows Firewall Kuralları
+
+Mobil erişim için firewall portları açıldı:
+```powershell
+# Admin PowerShell'de çalıştır
+New-NetFirewallRule -DisplayName "Clixer Frontend (3000)" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "Clixer Gateway (4000)" -Direction Inbound -LocalPort 4000 -Protocol TCP -Action Allow
+```
+
+### 3. ✅ Mobil Erişim
+
+| Platform | URL | Port |
+|----------|-----|------|
+| PC (localhost) | http://localhost:3000 | 3000 |
+| Mobil (aynı ağ) | http://PC_IP:3000 | 3000 |
+
+**Örnek:** `http://192.168.68.61:3000`
+
+**Yeni Dosyalar:**
+- `ecosystem.config.js` - PM2 konfigürasyonu
+- `logs/` - PM2 log klasörü
+
+---
+
+## 🔴 PM2 KURULUM VE KULLANIM KURALLARI
+
+### PM2 Nedir?
+PM2, Node.js uygulamaları için process manager'dır. Servisleri arka planda çalıştırır, çökerse otomatik yeniden başlatır.
+
+### Production Sunucuda Kurulum
+
+```bash
+# 1. PM2'yi global kur
+npm install -g pm2
+
+# 2. Proje dizinine git
+cd /opt/clixer
+
+# 3. TypeScript build (her servis için)
+npm run build --prefix shared
+npm run build --prefix gateway
+npm run build --prefix services/auth-service
+npm run build --prefix services/core-service
+npm run build --prefix services/data-service
+npm run build --prefix services/notification-service
+npm run build --prefix services/analytics-service
+
+# 4. PM2 ile başlat
+pm2 start ecosystem.config.js
+
+# 5. Sunucu restart'ta otomatik başlat
+pm2 startup
+pm2 save
+```
+
+### PM2 Komutları
+
+| Komut | Açıklama |
+|-------|----------|
+| `pm2 start ecosystem.config.js` | Tüm servisleri başlat |
+| `pm2 stop all` | Tümünü durdur |
+| `pm2 restart all` | Tümünü yeniden başlat |
+| `pm2 status` | Durumları gör |
+| `pm2 logs` | Logları izle |
+| `pm2 logs clixer-gateway` | Tek servis logu |
+| `pm2 monit` | Canlı monitoring |
+| `pm2 reload all` | Zero-downtime restart |
+
+### Cluster Mode Avantajları
+
+- **Load Balancing:** İstekler otomatik dağıtılır
+- **Zero-Downtime Restart:** `pm2 reload` ile kesintisiz güncelleme
+- **CPU Kullanımı:** Tüm CPU çekirdeklerini kullanır
+
+---
+
+## 🔴 MOBİL ERİŞİM KURALLARI
+
+### Development Ortamında Mobil Test
+
+1. **PC ve telefon aynı Wi-Fi'da olmalı**
+2. **Firewall portları açık olmalı** (3000, 4000)
+3. **Vite `host: true` ayarı aktif olmalı** (zaten yapıldı)
+4. **URL'de doğru port kullanılmalı** (3000, 3001 DEĞİL!)
+
+### Firewall Kontrol
+
+```powershell
+# Clixer firewall kurallarını kontrol et
+Get-NetFirewallRule -DisplayName "*Clixer*" | Select-Object DisplayName, Enabled
+```
+
+### Mobil URL Formatı
+
+```
+http://[PC_IP_ADRESI]:3000
+
+# Örnek:
+http://192.168.68.61:3000
+```
+
+### PC IP Adresini Bulma
+
+```powershell
+ipconfig | Select-String -Pattern "IPv4"
+```
+
+---
+
+## 📅 v4.0 - 6 Ocak 2026
+
+**🚀 WebSocket Real-Time & 400+ Kullanıcı Production Ready**
+
+### 1. ✅ WebSocket Entegrasyonu (Socket.IO)
+
+| Bileşen | Durum | Açıklama |
+|---------|-------|----------|
+| Backend (notification-service) | ✅ Tamamlandı | Socket.IO server, JWT auth, Redis Pub/Sub |
+| Frontend (useSocket hook) | ✅ Tamamlandı | Auto-connect, room subscription, event handling |
+| Dashboard Real-time | ✅ Tamamlandı | ETL sonrası otomatik güncelleme |
+| Analysis Real-time | ✅ Tamamlandı | Veri değişikliğinde anlık yenileme |
+| Toast Notifications | ✅ Tamamlandı | sonner kütüphanesi entegrasyonu |
+
+### WebSocket Event'leri
+
+| Event | Yön | Açıklama |
+|-------|-----|----------|
+| `etl:completed` | Server→Client | ETL bittiğinde dashboard'ları yenile |
+| `data:changed` | Server→Client | Veri değiştiğinde cache invalidate |
+| `dashboard:refresh` | Server→Client | Dashboard için yenileme tetikle |
+| `notification:new` | Server→Client | Yeni bildirim toast göster |
+| `notification:broadcast` | Server→Client | Tenant-wide duyuru |
+| `subscribe:dashboard` | Client→Server | Dashboard room'a abone ol |
+| `subscribe:dataset` | Client→Server | Dataset güncellemelerine abone ol |
+
+### WebSocket Kullanımı (Frontend)
+
+```typescript
+import { useSocket } from '../hooks/useSocket'
+
+function MyComponent() {
+  const { isConnected, subscribe, on } = useSocket()
+  
+  useEffect(() => {
+    if (!isConnected) return
+    
+    // Dashboard'a abone ol
+    subscribe('dashboard', designId)
+    
+    // ETL completed event'ini dinle
+    const unsub = on('etl:completed', (data) => {
+      console.log('ETL completed:', data.rowsProcessed)
+      refreshData()
+    })
+    
+    return () => unsub()
+  }, [isConnected])
+}
+```
+
+### 2. ✅ Production Ayarları (400+ Kullanıcı)
+
+| Bileşen | Eski | Yeni | Artış |
+|---------|------|------|-------|
+| PostgreSQL max_connections | 200 | 300 | 1.5x |
+| PostgreSQL shared_buffers | 256MB | 512MB | 2x |
+| ClickHouse max_memory | 6GB | 8GB | 1.3x |
+| ClickHouse concurrent_queries | - | 100 | Yeni |
+| Redis maxmemory | 2GB | 4GB | 2x |
+| Redis maxclients | 10K | 20K | 2x |
+| Gateway instances | 4 | 4 | - |
+| Analytics instances | 4 | 4 | - |
+| Notification memory | 300M | 500M | 1.7x |
+| ETL Worker memory | 1G | 2G | 2x |
+
+### 3. ✅ Yeni Dosyalar
+
+| Dosya | Açıklama |
+|-------|----------|
+| `frontend/src/hooks/useSocket.ts` | WebSocket React hook |
+| `services/notification-service/src/index.ts` | Socket.IO server (yeniden yazıldı) |
+
+### 4. ✅ Yeni Paketler
+
+| Paket | Servis | Açıklama |
+|-------|--------|----------|
+| `socket.io` | notification-service | WebSocket server |
+| `socket.io-client` | frontend | WebSocket client |
+| `sonner` | frontend | Toast notifications |
+| `jsonwebtoken` | notification-service | Socket auth |
+
+### Kapasite Tahmini
+
+| Senaryo | Kullanıcı | Güven |
+|---------|-----------|-------|
+| Development (tek thread) | 50-100 | %95 |
+| Production (PM2 cluster) | 400-600 | %90 |
+| Production (Nginx + PM2) | 800-1000 | %85 |
+
+### Yük Testi Sonuçları (10M satır ClickHouse)
+
+| Sorgu | Süre | Değerlendirme |
+|-------|------|---------------|
+| COUNT | 2ms | ⚡ Mükemmel |
+| SUM | 10ms | ⚡ Mükemmel |
+| GROUP BY | 50ms | ✅ Çok İyi |
+| Complex Query | 65ms | ✅ Çok İyi |
+
+---
+
+## 🔌 WEBSOCKET MİMARİSİ
+
+### Bağlantı Akışı
+
+```
+Frontend Login → accessToken alınır
+       ↓
+useSocket hook → Socket.IO bağlantısı (token auth)
+       ↓
+Server JWT doğrulama → userId, tenantId çıkarılır
+       ↓
+Socket rooms: tenant:{tenantId}, user:{userId}
+       ↓
+Dashboard açılır → subscribe('dashboard', designId)
+       ↓
+ETL tamamlanır → Redis Pub/Sub → io.emit('etl:completed')
+       ↓
+Frontend alır → toast göster + verileri yenile
+```
+
+### Server-Side (notification-service)
+
+```typescript
+// Redis Pub/Sub ile event dinle
+cache.subscribe('etl:completed', (message) => {
+  io.to(`dataset:${message.datasetId}`).emit('etl:completed', message)
+})
+
+// Socket authentication
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token
+  const decoded = jwt.verify(token, JWT_SECRET)
+  socket.data.userId = decoded.userId
+  next()
+})
+```
+
+### Client-Side (useSocket hook)
+
+```typescript
+// Singleton socket instance
+let socket: Socket | null = null
+
+export const initSocket = (token: string) => {
+  socket = io(url, { auth: { token } })
+  return socket
+}
+
+export const useSocket = () => {
+  const [isConnected, setIsConnected] = useState(false)
+  const { accessToken } = useAuthStore()
+  
+  useEffect(() => {
+    if (accessToken) initSocket(accessToken)
+  }, [accessToken])
+  
+  return { isConnected, subscribe, on, emit }
+}
+```
+
+---
+
+## 📋 VERSİYON GEÇMİŞİ (Güncel)
+
+| Tarih | Versiyon | Açıklama |
+|-------|----------|----------|
+| 2026-01-06 | **v4.0** | **🚀 WebSocket Real-Time + 400 Kullanıcı Production Ready** |
+| 2026-01-05 | v3.7 | Güvenlik Açıkları Düzeltmeleri |
+| 2026-01-05 | v3.6 | Enterprise DataGrid (13 özellik) |
+| 2026-01-04 | v3.5 | DataGrid Kritik Hata Çözümleri |
+| 2026-01-04 | v3.4 | Sidebar-Rol Senkronizasyonu |
+| 2026-01-04 | v3.3 | ClickHouse Kullanıcı Yönetimi |
+| 2026-01-04 | v3.2 | Dinamik Etiketler, Token Refresh |
+| 2026-01-04 | v3.1 | Test Verileri Temizliği |
+| 2026-01-02 | v6.5.0 | Production Ready Debug Temizliği |
+
+---

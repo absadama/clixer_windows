@@ -1,9 +1,14 @@
 version: '3.8'
 
+# ============================================
+# CLIXER PRODUCTION DOCKER COMPOSE
+# 400+ Eşzamanlı Kullanıcı için Optimize
+# ============================================
+
 services:
   # ============================================
   # PostgreSQL - Uygulama Ayarları (OLTP)
-  # Performance optimized for 400+ concurrent users
+  # 400+ concurrent users için optimize
   # ============================================
   postgres:
     image: postgres:15-alpine
@@ -16,15 +21,23 @@ services:
     command:
       - "postgres"
       - "-c"
-      - "max_connections=200"
+      - "max_connections=300"      # 400 kullanıcı için
       - "-c"
-      - "shared_buffers=256MB"
+      - "shared_buffers=512MB"     # Artırıldı
       - "-c"
-      - "effective_cache_size=768MB"
+      - "effective_cache_size=1536MB"
       - "-c"
-      - "work_mem=16MB"
+      - "work_mem=32MB"            # Artırıldı
       - "-c"
-      - "maintenance_work_mem=128MB"
+      - "maintenance_work_mem=256MB"
+      - "-c"
+      - "random_page_cost=1.1"     # SSD için optimize
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-scripts/postgres:/docker-entrypoint-initdb.d
@@ -33,9 +46,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
         reservations:
-          memory: 512M
+          memory: 1G
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U clixer"]
       interval: 10s
@@ -43,8 +56,8 @@ services:
       retries: 5
 
   # ============================================
-  # ClickHouse - Analitik Veriler (OLAP) - EMBED
-  # Performance optimized for 400+ concurrent users
+  # ClickHouse - Analitik Veriler (OLAP)
+  # 100M+ satır, 400+ concurrent queries
   # ============================================
   clickhouse:
     image: clickhouse/clickhouse-server:25.12.1
@@ -52,12 +65,11 @@ services:
     restart: unless-stopped
     environment:
       CLICKHOUSE_DB: clixer_analytics
-      # CLICKHOUSE_USER: clixer  # users.xml ile yonetilir
-      # CLICKHOUSE_PASSWORD: ...  # users.xml ile yonetilir
-      # Performance Settings - Optimized for 16GB Mac
-      CLICKHOUSE_MAX_MEMORY_USAGE: 6000000000  # 6GB per query (max)
-      CLICKHOUSE_MAX_MEMORY_USAGE_FOR_ALL_QUERIES: 8000000000  # 8GB total
-      CLICKHOUSE_MAX_EXECUTION_TIME: 300  # 5 dakika (OPTIMIZE için)
+      # Performance Settings - 400+ kullanıcı için
+      CLICKHOUSE_MAX_MEMORY_USAGE: 8000000000        # 8GB per query
+      CLICKHOUSE_MAX_MEMORY_USAGE_FOR_ALL_QUERIES: 12000000000  # 12GB total
+      CLICKHOUSE_MAX_EXECUTION_TIME: 300             # 5 dakika (OPTIMIZE için)
+      CLICKHOUSE_MAX_CONCURRENT_QUERIES: 100         # 100 eşzamanlı sorgu
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./init-scripts/clickhouse:/docker-entrypoint-initdb.d
@@ -68,9 +80,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 10G  # Container memory limit
+          memory: 16G
         reservations:
-          memory: 4G   # Minimum guaranteed memory
+          memory: 8G
     ulimits:
       nofile:
         soft: 262144
@@ -82,14 +94,22 @@ services:
       retries: 5
 
   # ============================================
-  # Redis - Cache + Queue + Pub/Sub
-  # Performance optimized for 400+ concurrent users
+  # Redis - Cache + Queue + Pub/Sub + WebSocket
+  # 400+ kullanıcı için optimize
   # ============================================
   redis:
     image: redis:7-alpine
     container_name: clixer_redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru --maxclients 10000
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 4gb 
+      --maxmemory-policy allkeys-lru 
+      --maxclients 20000
+      --tcp-keepalive 300
+      --timeout 0
+      --tcp-backlog 511
     volumes:
       - redis_data:/data
     ports:
@@ -97,9 +117,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3G
+          memory: 5G
         reservations:
-          memory: 1G
+          memory: 2G
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -220,7 +240,8 @@ services:
         condition: service_healthy
 
   # ============================================
-  # Notification Service (Port 4004)
+  # Notification Service + WebSocket (Port 4004)
+  # 400+ WebSocket bağlantısı için optimize
   # ============================================
   notification-service:
     build:
@@ -235,6 +256,7 @@ services:
       - PORT=4004
       - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
       - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-clixer_jwt_super_secret_2025}
     depends_on:
       postgres:
         condition: service_healthy
@@ -260,8 +282,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 4G
+          cpus: '4'
+          memory: 8G
     depends_on:
       postgres:
         condition: service_healthy

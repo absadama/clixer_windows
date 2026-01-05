@@ -48,6 +48,7 @@ import { DataGridToolbar } from './Toolbar'
 import { DataGridFilter } from './Filter'
 import { SaveDesignModal } from './SaveDesignModal'
 import { LoadDesignModal } from './LoadDesignModal'
+import { ExportModal } from './ExportModal'
 import { useTheme } from '../../hooks/useTheme'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -216,8 +217,10 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
   // Modal State
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [showLoadModal, setShowLoadModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
   const [savedDesigns, setSavedDesigns] = useState<any[]>([])
   const [loadingDesigns, setLoadingDesigns] = useState(false)
+  const [exportProgress, setExportProgress] = useState(0)
   const [defaultDesignApplied, setDefaultDesignApplied] = useState(false)
   const [pendingDefaultDesign, setPendingDefaultDesign] = useState<any>(null)
 
@@ -792,90 +795,181 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
   }, [table])
 
   // Export fonksiyonları - Tasarıma uygun (gruplama, sıralama, format desteği)
+  // Modal aç (kullanıcıdan satır sayısı sor)
   const exportToExcel = useCallback(() => {
-    const wb = XLSX.utils.book_new()
-    const EXCEL_ROW_LIMIT = 1000000 // Excel satır limiti (güvenli değer)
+    setShowExportModal(true)
+  }, [])
+
+  // Gerçek export fonksiyonu - Backend'den veri çeker, Excel outline ile export eder
+  const performExcelExport = useCallback(async (rowLimit: number) => {
+    const EXCEL_ROW_LIMIT = 1000000 // Excel satır limiti
+    const BATCH_SIZE = 100000 // Her batch'te çekilecek satır
     
     // Görünen kolonları al (select hariç)
     const visibleColumns = table.getVisibleLeafColumns().filter(col => col.id !== 'select')
     const headers = visibleColumns.map(col => col.columnDef.header as string)
-    
-    // Gruplama var mı?
     const hasGrouping = grouping.length > 0
     
-    // Tüm satırları topla (gruplama dahil)
-    const allRows: any[][] = []
+    let allData: any[] = []
     
-    // Recursive fonksiyon - grup ve alt satırları işle
-    const processRows = (rows: any[], depth: number = 0) => {
-      rows.forEach(row => {
-        if (row.getIsGrouped()) {
-          // Grup satırı
-          const groupColumn = row.groupingColumnId
-          const groupValue = row.getValue(groupColumn!)
-          const subRowCount = row.subRows.length
+    setExportProgress(5)
+    
+    // DatasetId varsa backend'den çek, yoksa mevcut veriyi kullan
+    if (datasetId && accessToken) {
+      // 1. Backend'den veri çek (pagination ile)
+      let offset = 0
+      let hasMore = true
+      
+      // Sıralama parametresi
+      const orderBy = sorting.length > 0 ? sorting[0].id : ''
+      const sortOrder = sorting.length > 0 && sorting[0].desc ? 'DESC' : 'ASC'
+      
+      while (hasMore && allData.length < rowLimit) {
+        const batchLimit = Math.min(BATCH_SIZE, rowLimit - allData.length)
+        const url = `${API_BASE}/data/datasets/${datasetId}/export?limit=${batchLimit}&offset=${offset}&orderBy=${orderBy}&sortOrder=${sortOrder}`
+        
+        try {
+          const response = await fetch(url, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          })
+          const result = await response.json()
           
-          // Grup başlık satırı oluştur
-          const groupRow: any[] = new Array(visibleColumns.length).fill('')
-          const indent = '  '.repeat(depth)
+          if (result.success && result.data?.rows) {
+            allData = [...allData, ...result.data.rows]
+            hasMore = result.data.hasMore && allData.length < rowLimit
+            offset += batchLimit
+            
+            // Progress güncelle (veri çekme %5-50)
+            const fetchProgress = Math.min(45, Math.floor((allData.length / rowLimit) * 45))
+            setExportProgress(5 + fetchProgress)
+          } else {
+            hasMore = false
+          }
+        } catch (error) {
+          console.error('Export data fetch error:', error)
+          throw error
+        }
+      }
+    } else {
+      // Dataset yok, mevcut grid verisini kullan
+      allData = data.slice(0, rowLimit)
+      setExportProgress(45)
+    }
+    
+    // Veri yoksa hata fırlat
+    if (allData.length === 0) {
+      throw new Error('Export edilecek veri bulunamadı')
+    }
+    
+    setExportProgress(50)
+    
+    // 2. Gruplama varsa client-side gruplama yap
+    type ExportRow = {
+      data: any[]
+      isGroup: boolean
+      level: number
+      collapsed?: boolean
+    }
+    
+    const processedRows: ExportRow[] = []
+    
+    if (hasGrouping && allData.length > 0) {
+      // Gruplama mantığı
+      const groupData = (data: any[], groupColumns: string[], depth: number = 0): void => {
+        if (groupColumns.length === 0) {
+          // Artık grup yok, veri satırlarını ekle
+          data.forEach(row => {
+            const rowData = visibleColumns.map(col => row[col.id] ?? '')
+            processedRows.push({ data: rowData, isGroup: false, level: depth })
+          })
+          return
+        }
+        
+        const currentGroupCol = groupColumns[0]
+        const remainingGroupCols = groupColumns.slice(1)
+        
+        // Gruplara ayır
+        const groups: Record<string, any[]> = {}
+        data.forEach(row => {
+          const key = String(row[currentGroupCol] ?? 'Tanımsız')
+          if (!groups[key]) groups[key] = []
+          groups[key].push(row)
+        })
+        
+        // Her grubu işle
+        Object.entries(groups).forEach(([groupValue, groupItems]) => {
+          // Grup başlık satırı
+          const groupColConfig = columnConfigs.find(c => c.id === currentGroupCol)
+          const groupColName = groupColConfig?.header || currentGroupCol
+          const groupRow = new Array(visibleColumns.length).fill('')
+          groupRow[0] = `${groupColName}: ${groupValue} (${groupItems.length} kayıt)`
           
-          // İlk kolona grup bilgisi yaz
-          const groupColConfig = columnConfigs.find(c => c.id === groupColumn)
-          const groupColName = groupColConfig?.header || groupColumn
-          groupRow[0] = `${indent}▼ ${groupColName}: ${groupValue} (${subRowCount} kayıt)`
-          
-          // Aggregated değerleri ekle
-          row.getVisibleCells().forEach((cell, idx) => {
-            if (cell.getIsAggregated() && idx > 0) {
-              const aggValue = cell.getValue()
-              if (aggValue !== null && aggValue !== undefined && typeof aggValue !== 'function') {
-                groupRow[idx] = aggValue
+          // Aggregated değerleri hesapla
+          visibleColumns.forEach((col, idx) => {
+            const config = columnConfigs.find(c => c.id === col.id)
+            if (config?.aggregation && idx > 0) {
+              const values = groupItems.map(item => parseFloat(item[col.id]) || 0)
+              switch (config.aggregation) {
+                case 'sum': groupRow[idx] = values.reduce((a, b) => a + b, 0); break
+                case 'avg': groupRow[idx] = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0; break
+                case 'count': groupRow[idx] = values.length; break
+                case 'min': groupRow[idx] = Math.min(...values); break
+                case 'max': groupRow[idx] = Math.max(...values); break
               }
             }
           })
           
-          allRows.push(groupRow)
+          processedRows.push({ data: groupRow, isGroup: true, level: depth, collapsed: false })
           
-          // Alt satırları işle
-          if (row.subRows.length > 0) {
-            processRows(row.subRows, depth + 1)
-          }
-        } else {
-          // Normal veri satırı
-          const rowData: any[] = []
-          const indent = hasGrouping ? '  '.repeat(depth) : ''
-          
-          visibleColumns.forEach((col, idx) => {
-            const cellValue = row.getValue(col.id)
-            // İlk kolona indent ekle (gruplama varsa)
-            if (idx === 0 && hasGrouping) {
-              rowData.push(`${indent}${cellValue ?? ''}`)
-            } else {
-              rowData.push(cellValue ?? '')
-            }
-          })
-          
-          allRows.push(rowData)
-        }
+          // Alt grupları veya veriyi işle
+          groupData(groupItems, remainingGroupCols, depth + 1)
+        })
+      }
+      
+      groupData(allData, [...grouping])
+    } else {
+      // Gruplama yok, direkt ekle
+      allData.forEach(row => {
+        const rowData = visibleColumns.map(col => row[col.id] ?? '')
+        processedRows.push({ data: rowData, isGroup: false, level: 0 })
       })
     }
     
-    // Satırları işle
-    processRows(table.getRowModel().rows)
+    setExportProgress(70)
     
-    // Footer toplamları ekle
-    if (columnConfigs.some(c => c.aggregation)) {
-      // Boş satır
-      allRows.push(new Array(visibleColumns.length).fill(''))
+    // 3. Excel workbook oluştur
+    const wb = XLSX.utils.book_new()
+    const totalDataRows = processedRows.length
+    const sheetsNeeded = Math.ceil(totalDataRows / EXCEL_ROW_LIMIT)
+    
+    for (let sheetIdx = 0; sheetIdx < sheetsNeeded; sheetIdx++) {
+      const startRow = sheetIdx * EXCEL_ROW_LIMIT
+      const endRow = Math.min(startRow + EXCEL_ROW_LIMIT, totalDataRows)
+      const sheetRows = processedRows.slice(startRow, endRow)
       
-      // Toplam satırı
-      const footerRow: any[] = ['Σ TOPLAM']
-      visibleColumns.slice(1).forEach(col => {
-        const config = columnConfigs.find(c => c.id === col.id)
-        if (config?.aggregation) {
-          // Server-side aggregate veya client-side hesapla
-          const serverAggKey = config.accessorKey || col.id
-          if (serverSideAggregates && serverSideAggregates[serverAggKey]) {
+      // Header + data
+      const wsData: any[][] = [headers]
+      const rowOutlines: { level: number; hidden?: boolean }[] = [{ level: 0 }] // Header için
+      
+      sheetRows.forEach(row => {
+        wsData.push(row.data)
+        // Excel outline level (grup satırları level 0-1, alt satırlar level 2+)
+        rowOutlines.push({ 
+          level: row.isGroup ? row.level : row.level + 1,
+          hidden: false // Başlangıçta açık
+        })
+      })
+      
+      // Footer toplamları (son sayfaya)
+      if (sheetIdx === sheetsNeeded - 1 && columnConfigs.some(c => c.aggregation)) {
+        wsData.push(new Array(visibleColumns.length).fill(''))
+        rowOutlines.push({ level: 0 })
+        
+        const footerRow: any[] = ['Σ TOPLAM']
+        visibleColumns.slice(1).forEach(col => {
+          const config = columnConfigs.find(c => c.id === col.id)
+          if (config?.aggregation && serverSideAggregates) {
+            const serverAggKey = config.accessorKey || col.id
             const serverAgg = serverSideAggregates[serverAggKey]
             if (typeof serverAgg === 'object') {
               switch (config.aggregation) {
@@ -892,48 +986,46 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
           } else {
             footerRow.push('')
           }
-        } else {
-          footerRow.push('')
-        }
-      })
-      allRows.push(footerRow)
-    }
-    
-    // Excel satır limitine göre sayfalara böl
-    const totalDataRows = allRows.length
-    const sheetsNeeded = Math.ceil(totalDataRows / EXCEL_ROW_LIMIT)
-    
-    for (let sheetIdx = 0; sheetIdx < sheetsNeeded; sheetIdx++) {
-      const startRow = sheetIdx * EXCEL_ROW_LIMIT
-      const endRow = Math.min(startRow + EXCEL_ROW_LIMIT, totalDataRows)
-      const sheetData = allRows.slice(startRow, endRow)
+        })
+        wsData.push(footerRow)
+        rowOutlines.push({ level: 0 })
+      }
       
-      // Header + data
-      const wsData = [headers, ...sheetData]
       const ws = XLSX.utils.aoa_to_sheet(wsData)
       
-      // Kolon genişlikleri ayarla
+      // Excel Row Outline (açılır/kapanır gruplar)
+      if (hasGrouping) {
+        ws['!rows'] = rowOutlines
+        ws['!outline'] = { above: false, left: false }
+      }
+      
+      // Kolon genişlikleri
       const colWidths = headers.map((h, idx) => {
-        const maxLen = Math.max(
-          h.length,
-          ...sheetData.map(row => String(row[idx] || '').length)
-        )
+        const maxLen = Math.max(h.length, ...wsData.slice(0, 100).map(row => String(row[idx] || '').length))
         return { wch: Math.min(Math.max(maxLen + 2, 10), 50) }
       })
       ws['!cols'] = colWidths
       
-      // Sayfa adı
       const sheetName = sheetsNeeded > 1 ? `Sayfa ${sheetIdx + 1}` : 'Data'
       XLSX.utils.book_append_sheet(wb, ws, sheetName)
+      
+      // Progress güncelle (%70-95)
+      const sheetProgress = Math.floor(((sheetIdx + 1) / sheetsNeeded) * 25)
+      setExportProgress(70 + sheetProgress)
     }
     
+    setExportProgress(95)
+    
+    // 4. Dosyayı indir
     const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
     const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     
-    // Dosya adı: tasarım varsa tasarım adı
-    const fileName = `export_${new Date().toISOString().split('T')[0]}.xlsx`
+    const dateStr = new Date().toISOString().split('T')[0]
+    const fileName = `export_${dateStr}_${allData.length}rows.xlsx`
     saveAs(blob, fileName)
-  }, [table, grouping, columnConfigs, serverSideAggregates])
+    
+    setExportProgress(100)
+  }, [table, grouping, sorting, columnConfigs, serverSideAggregates, datasetId, accessToken, data])
 
   const exportToCSV = useCallback(() => {
     // Görünen kolonları al (select hariç)
@@ -1933,6 +2025,16 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
         designs={savedDesigns}
         loading={loadingDesigns}
         theme={theme}
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        onExport={performExcelExport}
+        totalRows={totalRows || data.length}
+        theme={theme}
+        gridId={gridId}
       />
 
       {/* Context Menu */}

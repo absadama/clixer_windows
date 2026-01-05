@@ -286,13 +286,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const user = useAuthStore.getState().user
     if (user?.role === 'ADMIN') return true
     
-    // İzin tanımlanmamışsa varsayılan olarak göster (geriye uyumluluk)
-    if (menuPermissions.length === 0) return true
+    // Profil her zaman erişilebilir
+    if (menuKey === 'profile') return true
+    
+    // İzin listesi boşsa (henüz yüklenmemiş) bekle
+    if (menuPermissions.length === 0) return false
     
     const permission = menuPermissions.find(p => p.menu_key === menuKey)
     
-    // Bu menü için izin tanımlanmamışsa göster
-    if (!permission) return true
+    // Bu menü için izin tanımlanmamışsa GÖSTERİLMEZ (güvenli varsayılan)
+    if (!permission) return false
     
     return permission.can_view
   },

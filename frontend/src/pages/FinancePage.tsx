@@ -346,11 +346,11 @@ export default function FinancePage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
           <select
             value={selectedStoreCode}
             onChange={(e) => setSelectedStoreCode(e.target.value)}
-            className={clsx('px-4 py-2 rounded-xl text-sm font-medium border', theme.inputBg, theme.inputText)}
+            className={clsx('flex-1 min-w-0 md:flex-none md:w-auto px-3 py-2 rounded-xl text-sm font-medium border truncate', theme.inputBg, theme.inputText)}
           >
             {stores.length === 0 ? (
               <option value="">Mağaza atanmamış</option>
@@ -363,7 +363,7 @@ export default function FinancePage() {
             )}
           </select>
 
-          <div className={clsx('flex rounded-xl p-1', isDark ? 'bg-slate-800' : 'bg-slate-100')}>
+          <div className={clsx('flex rounded-xl p-1 flex-shrink-0', isDark ? 'bg-slate-800' : 'bg-slate-100')}>
             <button
               onClick={() => setActiveTab('dashboard')}
               className={clsx(
