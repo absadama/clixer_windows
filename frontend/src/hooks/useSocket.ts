@@ -80,7 +80,7 @@ export const initSocket = (token: string): Socket => {
   socket.on('connect_error', (error) => {
     connectionAttempts++;
     // Sadece development modunda ve token hatası değilse logla
-    if (process.env.NODE_ENV === 'development' && !error.message.includes('Invalid token')) {
+    if (import.meta.env.DEV && !error.message.includes('Invalid token')) {
       console.warn('🔌 WebSocket connection error:', error.message);
     }
     
