@@ -5366,2068 +5366,343 @@ const exportToExcel = useCallback(async (exportLimit: number | 'all') => {
 
 ---
 
-## 🔴🔴🔴 KRİTİK GÜVENLİK AÇIKLARI VE ÇÖZÜMLER (v3.7 - 5 Ocak 2026)
+## 🚀 MÜŞTERİ KURULUM KONTROL LİSTESİ (v4.0 - 6 Ocak 2026)
 
-### HATA 1: RAPOR YETKİLERİ (allowed_positions) ÇALIŞMIYOR
+### MUTLAK KURAL: Her müşteri kurulumunda bu adımlar ZORUNLU!
 
-**Belirtiler:**
-Tasarım Stüdyosu'nda rapor yetkisi sadece "Genel Müdür" olarak ayarlanmış olmasına rağmen, yetkisi olmayan kullanıcılar (STORE_MANAGER) raporu görebiliyor.
+Bu liste, SSH ile müşteri sunucusuna kurulum yaparken karşılaşılan hatalar ve çözümlerinden oluşturulmuştur.
 
-**KÖK NEDENLER (3 FARKLI SORUN!):**
+### 📋 KURULUM ÖNCESİ KONTROLLER
 
-#### SORUN 1: Frontend Parse Eksikliği
-`frontend/src/stores/dashboardStore.ts` - `fetchDesigns` fonksiyonunda `allowed_positions` alanı parse edilmemişti!
+| # | Kontrol | Komut |
+|---|---------|-------|
+| 1 | Docker yüklü mü? | `docker --version` |
+| 2 | Docker Compose yüklü mü? | `docker-compose --version` |
+| 3 | Node.js 20+ yüklü mü? | `node --version` |
+| 4 | Git yüklü mü? | `git --version` |
+| 5 | Yeterli disk alanı var mı? (min 10GB) | `df -h` |
 
-```typescript
-// ❌ YANLIŞ - allowed_positions UNUTULMUŞ!
-const designsData = designsRaw.map((d: any) => ({
-  id: d.id,
-  name: d.name,
-  type: d.type || 'cockpit',
-  targetRoles: d.target_roles || d.targetRoles || ['ADMIN'],
-  // allowed_positions YOK!
-}))
+### 📦 KURULUM ADIMLARI
 
-// ✅ DOĞRU - allowed_positions EKLENMELİ!
-const designsData = designsRaw.map((d: any) => ({
-  id: d.id,
-  name: d.name,
-  type: d.type || 'cockpit',
-  targetRoles: d.target_roles || d.targetRoles || ['ADMIN'],
-  allowed_positions: d.allowed_positions || d.allowedPositions || [], // 🔴 GÜVENLİK
-}))
+```bash
+# 1. Kod çek
+cd /opt
+sudo git clone https://github.com/absadama/clixer_windows clixer
+cd /opt/clixer
+
+# 2. .env oluştur
+sudo cp .env.example .env
+sudo nano .env  # Şifreleri düzenle
+
+# 3. Docker container'ları başlat
+cd docker
+sudo docker-compose up -d
+
+# 4. npm install (her serviste)
+cd /opt/clixer/shared && sudo npm install && sudo npm run build
+sudo npm install --prefix /opt/clixer/gateway
+sudo npm install --prefix /opt/clixer/services/auth-service
+sudo npm install --prefix /opt/clixer/services/core-service
+sudo npm install --prefix /opt/clixer/services/data-service
+sudo npm install --prefix /opt/clixer/services/notification-service
+sudo npm install --prefix /opt/clixer/services/analytics-service
+sudo npm install --prefix /opt/clixer/services/etl-worker
+sudo npm install --prefix /opt/clixer/frontend
+
+# 5. Servisleri başlat
+sudo bash /opt/clixer/scripts/start-all.sh
 ```
 
-#### SORUN 2: Store'da Yetkisiz Auto-Select
-`dashboardStore.ts`'de tasarım yüklendikten sonra otomatik olarak ilk tasarım seçiliyordu - KULLANICININ YETKİSİ KONTROL EDİLMEDEN!
+### 🔴 BİLİNEN HATALAR VE ÇÖZÜMLER
 
-```typescript
-// ❌ YANLIŞ - Store kullanıcının pozisyonunu bilmiyor!
-const cockpitDesigns = designsData.filter((d: Design) => d.type === 'cockpit')
-const firstCockpit = cockpitDesigns[0]
-if (firstCockpit && !get().currentDesign) {
-  get().selectDesign(firstCockpit.id) // YETKİSİZ TASARIMı SEÇEBİLİR!
-}
-
-// ✅ DOĞRU - Auto-select KALDIRILMALI!
-// Store kullanıcının pozisyonunu bilmiyor, bu yüzden yetkisiz tasarımı seçebilir.
-// Auto-select işlemi DashboardPage.tsx'de accessibleDesigns ile yapılmalı.
+#### HATA 1: Docker permission denied
 ```
-
-#### SORUN 3: Mevcut Yetkisiz Tasarım Temizlenmiyordu
-Eğer kullanıcı daha önce yetkili olduğu bir tasarımı görüntülediyse ve sonra yetkisi kaldırıldıysa, o tasarım hala `currentDesign`'da kalıyordu.
-
-```typescript
-// ❌ YANLIŞ - Yetki kontrolü yok
-useEffect(() => {
-  const cockpitDesigns = accessibleDesigns.filter(d => d.type === 'cockpit')
-  // ... seçim logic
-}, [accessibleDesigns])
-
-// ✅ DOĞRU - Önce yetkisiz tasarımı temizle!
-useEffect(() => {
-  // 🔴 GÜVENLİK: Eğer mevcut tasarım artık erişilebilir değilse, temizle
-  if (currentDesign) {
-    const isCurrentAccessible = accessibleDesigns.some(d => d.id === currentDesign.id)
-    if (!isCurrentAccessible) {
-      useDashboardStore.setState({ currentDesign: null, widgets: [] })
-    }
-  }
-  // ... devamı
-}, [accessibleDesigns])
+permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
 ```
-
-**ÇÖZÜM KONTROL LİSTESİ:**
-1. ✅ `dashboardStore.ts` - Design interface'e `allowed_positions?: string[]` ekle
-2. ✅ `dashboardStore.ts` - fetchDesigns'da `allowed_positions` parse et
-3. ✅ `dashboardStore.ts` - Auto-select kodunu KALDIR
-4. ✅ `DashboardPage.tsx` - Yetkisiz currentDesign temizleme kodu ekle
-5. ✅ `DashboardPage.tsx` - `getAccessibleDesigns()` fonksiyonu allowed_positions kontrol etmeli
-
-**MUTLAK KURAL:**
-> Store'da ASLA kullanıcı pozisyonuna bağlı işlem yapma! Store kullanıcı bilgisine sahip değil.
-> Pozisyon bazlı filtreleme SADECE sayfa componentlerinde (DashboardPage, AnalysisPage) yapılmalı.
-
-**ETKİLENEN DOSYALAR:**
-- `frontend/src/stores/dashboardStore.ts` - Design interface + fetchDesigns + auto-select kaldırma
-- `frontend/src/pages/DashboardPage.tsx` - Yetkisiz tasarım temizleme
-- `frontend/src/pages/AnalysisPage.tsx` - Aynı mantık uygulanmalı
-
----
-
-### HATA 2: BCRYPT HASH POWERSHELL ESCAPE SORUNU
-
-**Belirtiler:**
-Kullanıcı oluşturma işlemi başarılı görünmesine rağmen login 401 veriyor.
-
-**KÖK NEDEN:**
-PowerShell terminal'inde `$` karakteri değişken olarak yorumlanıyor. Bcrypt hash'leri `$2a$12$...` formatında olduğu için hash bozuluyor.
-
-```powershell
-# ❌ YANLIŞ - PowerShell $ karakterini yorumlar!
-docker exec clixer_postgres psql -U clixer -d clixer -c "UPDATE users SET password_hash='$2a$12$abc...' WHERE email='test@gmail.com';"
-# Sonuç: password_hash = 'a2abc...' ($ sonrası siliniyor!)
-
-# ✅ DOĞRU - SQL dosyası kullan!
-# 1. fix-password.sql dosyası oluştur:
-#    UPDATE users SET password_hash='$2a$12$jBD73ILXOmLguPmon.INhOXI9RjFif641R0bXDbDj/3lwP9IkaGrO' WHERE email='test@gmail.com';
-# 2. Çalıştır:
-docker exec -i clixer_postgres psql -U clixer -d clixer < fix-password.sql
-```
-
-**DOĞRU HASH OLUŞTURMA:**
-```javascript
-// Node.js REPL'de:
-const bcryptjs = require('bcryptjs');
-const hash = await bcryptjs.hash('Admin1234!', 12);
-console.log(hash);
-// Örnek: $2a$12$jBD73ILXOmLguPmon.INhOXI9RjFif641R0bXDbDj/3lwP9IkaGrO
-```
-
-**SEED DOSYASINDA:**
-`docker/init-scripts/postgres/00-schema-and-seed.sql` dosyasında admin şifresi DOĞRU hash ile kaydedilmeli.
-
----
-
-### HATA 3: MENÜ İZİNLERİ DİNAMİK OLMALI
-
-**Belirtiler:**
-Sidebar'a yeni menü eklendi ama Rol & Yetkiler'de görünmüyor.
-
-**KÖK NEDEN:**
-Sidebar menüleri ve AdminPage'deki izin listesi ayrı yönetiliyor.
-
-**ÇÖZÜM - 4 DOSYA KURALI:**
-
-Yeni bir sayfa/menü eklendiğinde ZORUNLU olarak 4 dosya güncellenmeli:
-
-| # | Dosya | Değişiklik |
-|---|-------|------------|
-| 1 | `Layout.tsx` | Sidebar menü tanımı |
-| 2 | `AdminPage.tsx` | `defaultMenuLabels` objesi |
-| 3 | `06-labels-seed.sql` | Veritabanı seed |
-| 4 | Veritabanı (çalışan) | `INSERT INTO labels` ile ekleme |
-
-```typescript
-// 1. Layout.tsx - menuItems array'ine ekle
-{ icon: Grid3X3, label: 'Yeni Sayfa', path: '/yeni-sayfa', key: 'yeni_sayfa' }
-
-// 2. AdminPage.tsx - defaultMenuLabels'a ekle
-const defaultMenuLabels: Record<string, string> = {
-  // ... mevcut menüler
-  'yeni_sayfa': 'Yeni Sayfa',
-}
-
-// 3. SQL - labels seed'ine ekle
-INSERT INTO labels (tenant_id, label_type, label_key, label_value) 
-VALUES ('...', 'menu', 'yeni_sayfa', 'Yeni Sayfa');
-
-// 4. menu_permissions - tüm pozisyonlara izin ekle
-INSERT INTO menu_permissions (position_code, menu_key, can_view)
-SELECT p.code, 'yeni_sayfa', CASE WHEN p.code IN ('GENERAL_MANAGER', 'DIRECTOR') THEN TRUE ELSE FALSE END
-FROM positions p;
-```
-
-**KONTROL LİSTESİ:**
-- [ ] Layout.tsx'e eklendi mi?
-- [ ] AdminPage.tsx defaultMenuLabels'a eklendi mi?
-- [ ] SQL seed'e eklendi mi?
-- [ ] menu_permissions'a tüm pozisyonlar için eklendi mi?
-- [ ] Rol & Yetkiler'de görünüyor mu? (TEST!)
-
----
-
-### 🛡️ GENEL GÜVENLİK KURALLARI
-
-1. **PowerShell'de SQL çalıştırırken:** `$` karakterli değerler için SQL dosyası kullan
-2. **Yeni menü eklerken:** 4 Dosya Kuralı'nı uygula
-3. **API response parse ederken:** Tüm güvenlik alanlarını dahil et (`allowed_positions`, `filter_level`, vb.)
-4. **Seed dosyalarında:** Bcrypt hash'leri doğru şekilde kaydet
-
----
-
-## 📱 MOBİL MİMARİ (PWA & CAPACITOR)
-
-### 1. Strateji: "Web-First, Native-Next"
-- **Temel:** Uygulama öncelikle bir PWA (Progressive Web App) olarak geliştirilir.
-- **Geçiş:** Market gereksinimi olduğunda Capacitor altyapısı ile native pakete dönüştürülür.
-- **Kod Bütünlüğü:** Web ve mobil için %100 aynı React kodu kullanılır.
-
-### 2. Görsel Standartlar
-- **Çözünürlük:** Tüm ikonlar ve grafikler yüksek DPI (Retina) uyumlu olmalıdır.
-- **Safe Areas:** Mobil cihazlardaki çentik (notch) ve sistem barları için `padding: env(safe-area-inset-...)` kullanılmalıdır.
-- **Touch Targets:** Tıklanabilir alanlar mobilde en az 44x44px boyutunda olmalıdır.
-
-### 3. PWA Gereklilikleri
-- **Manifest:** `public/manifest.json` güncel tutulmalıdır.
-- **Service Worker:** Çevrimdışı (offline) mod desteği IndexedDB ile desteklenmelidir.
-- **App Like:** `display: standalone` modu ile tarayıcı çubukları gizlenmelidir.
-
-### 4. Performans
-- **Lazy Loading:** Büyük grafik kütüphaneleri ve ağır komponentler mobilde performansı korumak için lazy-load edilmelidir.
-- **Data Saving:** Mobil bağlantılarda veri tüketimini azaltmak için metrik cache süreleri optimize edilmelidir.
-
----
-
-## 📅 v3.7 - 5 Ocak 2026
-
-**Güvenlik Açıkları Düzeltildi**
-
-1. ✅ `dashboardStore.ts` - `allowed_positions` parse eklendi
-2. ✅ `dashboardStore.ts` - Store'daki auto-select KALDIRILDI (güvenlik açığı!)
-3. ✅ `DashboardPage.tsx` - Yetkisiz currentDesign temizleme kodu eklendi
-4. ✅ `Layout.tsx` - `menuKeyMap`'e eksik menüler eklendi
-5. ✅ `settingsStore.ts` - `canViewMenu` varsayılan false yapıldı
-6. ✅ Bcrypt hash sorunu dokümante edildi
-7. ✅ 4 Dosya Kuralı dokümante edildi
-
-**Giriş Bilgileri:**
-- Email: `admin@clixer`
-- Şifre: `Admin1234!`
-- Hash: `$2a$12$jBD73ILXOmLguPmon.INhOXI9RjFif641R0bXDbDj/3lwP9IkaGrO`
-
-**Backup:**
-- `backups/v3.7_security_fixes_20260105_183054/`
-
----
-
-## 🔴 STORE vs PAGE SORUMLULUK AYRIMI (KRİTİK!)
-
-### MUTLAK KURAL: Store'da kullanıcıya bağlı işlem YAPMA!
-
-| Katman | Yapabilir | ASLA Yapmamalı |
-|--------|-----------|----------------|
-| **Store (Zustand)** | Veri tutma, API çağrısı, state güncelleme | Kullanıcı pozisyonu kontrolü, yetki filtreleme |
-| **Page Component** | Kullanıcı kontrolü, yetki filtreleme, UI render | Direkt API çağrısı (store üzerinden yapmalı) |
-
-**Neden?**
-- Store `useAuthStore`'a bağımlı olmamalı (circular dependency riski)
-- Store re-render'ı tetikler, kullanıcı değişince sorun olur
-- Test edilebilirlik için store saf olmalı
-
-**Örnek Akış:**
-```
-Store: fetchDesigns() → API'den veri al → designs state güncelle (FİLTRELEME YOK!)
-                                    ↓
-Page: designs state oku → getAccessibleDesigns() → yetki filtrele → render
+**ÇÖZÜM:** Tüm Docker komutlarının başına `sudo` ekle:
+```bash
+sudo docker-compose up -d
+sudo docker ps
+sudo docker exec ...
 ```
 
 ---
 
-## 🔧 UI'DAN SERVİS YÖNETİMİ (v3.8 - 6 Ocak 2026)
-
-### MUTLAK KURAL: Müşteri UI'dan servisleri yönetebilmeli!
-
-**Prensip:** Clixer %100 NoCode bir üründür. Müşteri terminal kullanmadan:
-- Servislerin durumunu görebilmeli
-- Servisleri başlatabilmeli/durdurabilmeli
-- Sistem sağlığını izleyebilmeli
-
-### Mimari
-
-| Mod | Yönetim | Teknoloji |
-|-----|---------|-----------|
-| **Development** | Batch script + Port kontrolü | `Clixer Başlat.bat`, Node.js |
-| **Production** | UI + PM2 API | PM2 programmatic API |
-
-### UI Konumu
-**Yönetim Paneli → Servis Yönetimi**
-
-### Backend Endpoint'leri (`data-service`)
-
-| Endpoint | Method | Açıklama |
-|----------|--------|----------|
-| `/admin/services` | GET | Tüm servislerin durumunu getir |
-| `/admin/services/:name/start` | POST | Servis başlat (PM2) |
-| `/admin/services/:name/stop` | POST | Servis durdur (PM2) |
-| `/admin/services/:name/restart` | POST | Servis yeniden başlat (PM2) |
-| `/admin/services/start-all` | POST | Tüm servisleri başlat (PM2) |
-
-### Servis Listesi
-
-| Servis | PM2 Adı | Port | Kritik |
-|--------|---------|------|--------|
-| API Gateway | clixer-gateway | 4000 | ✅ |
-| Auth Service | clixer-auth | 4001 | ✅ |
-| Core Service | clixer-core | 4002 | ✅ |
-| Data Service | clixer-data | 4003 | ✅ |
-| Analytics Service | clixer-analytics | 4005 | ✅ |
-| Notification Service | clixer-notification | 4004 | ❌ |
-| ETL Worker | clixer-etl | - | ❌ |
-| Frontend | clixer-frontend | 3000 | ✅ |
-
-### Kritik Servis Kuralları
-
-1. **Kritik servisler UI'dan durdurulamaz** → Sunucu yöneticisi SSH ile yapmalı
-2. **Development modda servis kontrolü yok** → Batch script kullan
-3. **Production modda PM2 zorunlu** → ecosystem.config.js ile yönetim
-
-### Development Modu - Başlatma
-
+#### HATA 2: ClickHouse Authentication Failed
 ```
-Windows: Clixer Başlat.bat (proje kök dizininde)
-         ↓
-scripts/start-clixer.bat çalışır
-         ↓
-1. Docker containers kontrol et
-2. Her servisi background'da başlat
-3. Health check yap
-4. Kullanıcıya bilgi ver
+ClickHouse: clixer: Authentication failed: password is incorrect, or there is no user with such name.
+```
+**KÖK NEDEN:** Docker Compose'daki `CLICKHOUSE_USER` environment değişkeni `default-user.xml` oluşturup default kullanıcıyı siliyor.
+
+**ÇÖZÜM:**
+1. `docker/docker-compose.yml`'dan `CLICKHOUSE_USER` ve `CLICKHOUSE_PASSWORD` environment değişkenlerini KALDIR
+2. `docker/clickhouse/users.xml` dosyası oluştur:
+```xml
+<?xml version="1.0"?>
+<clickhouse>
+    <users>
+        <default>
+            <password></password>
+            <networks><ip>::/0</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </default>
+        <clixer>
+            <password>clixer_click_2025</password>
+            <networks><ip>::/0</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </clixer>
+    </users>
+</clickhouse>
+```
+3. Docker Compose'da volume mount ekle:
+```yaml
+volumes:
+  - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/users.xml
+```
+4. Container'ı yeniden oluştur:
+```bash
+cd /opt/clixer/docker
+sudo docker-compose up -d --force-recreate clickhouse
+```
+5. Test et:
+```bash
+curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025" --data "SELECT currentUser()"
+# Beklenen çıktı: clixer
 ```
 
-### Production Modu - PM2 Entegrasyonu
+---
 
-```javascript
-// ecosystem.config.js (Production sunucuda)
-module.exports = {
-  apps: [
-    { name: 'clixer-gateway', script: 'dist/index.js', cwd: './gateway', instances: 4 },
-    { name: 'clixer-auth', script: 'dist/index.js', cwd: './services/auth-service', instances: 2 },
-    // ... diğer servisler
-  ]
-}
+#### HATA 3: labels tablosu yok (500 Internal Server Error)
+```
+GET /api/core/labels/menu 500 (Internal Server Error)
+```
+**ÇÖZÜM:** PostgreSQL'de labels tablosu ve seed verileri oluştur:
+```bash
+sudo docker exec -i clixer_postgres psql -U clixer -d clixer << 'EOF'
+CREATE TABLE IF NOT EXISTS labels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  label_type VARCHAR(50) NOT NULL,
+  label_key VARCHAR(100) NOT NULL,
+  label_value VARCHAR(200) NOT NULL,
+  description TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (tenant_id, label_type, label_key)
+);
+
+INSERT INTO labels (tenant_id, label_type, label_key, label_value) VALUES
+('00000000-0000-0000-0000-000000000001', 'menu', 'dashboard', 'Kokpit'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'finance', 'Finans'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'operations', 'Operasyon'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'analysis', 'Detayli Analiz'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'stores', 'Magazalar'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'designer', 'Tasarim Studyosu'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'data', 'Veri Baglantilari'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'admin', 'Yonetim Paneli'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'datagrid', 'DataGrid Demo'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'metrics', 'Metrikler'),
+('00000000-0000-0000-0000-000000000001', 'position', 'GENERAL_MANAGER', 'Genel Mudur'),
+('00000000-0000-0000-0000-000000000001', 'position', 'DIRECTOR', 'Direktor'),
+('00000000-0000-0000-0000-000000000001', 'position', 'REGIONAL_MANAGER', 'Bolge Muduru'),
+('00000000-0000-0000-0000-000000000001', 'position', 'STORE_MANAGER', 'Magaza Muduru'),
+('00000000-0000-0000-0000-000000000001', 'position', 'ANALYST', 'Analist'),
+('00000000-0000-0000-0000-000000000001', 'position', 'VIEWER', 'Izleyici')
+ON CONFLICT (tenant_id, label_type, label_key) DO NOTHING;
+EOF
 ```
 
-### UI'da Gösterilen Bilgiler
+---
 
-| Bilgi | Development | Production |
-|-------|-------------|------------|
-| Durum (online/stopped) | ✅ | ✅ |
-| Port | ✅ | ✅ |
-| Uptime | ❌ | ✅ |
-| RAM kullanımı | ❌ | ✅ |
-| CPU kullanımı | ❌ | ✅ |
-| Restart sayısı | ❌ | ✅ |
-| Başlat/Durdur | ❌ | ✅ |
+#### HATA 4: grid_designs tablosu yok veya eksik kolonlar
+```
+column gd.dataset_id does not exist
+Failed to load designs: SyntaxError: Unexpected token '<'
+```
+**ÇÖZÜM:** PostgreSQL'de grid_designs tablosu ve eksik kolonları oluştur:
+```bash
+sudo docker exec -i clixer_postgres psql -U clixer -d clixer << 'EOF'
+CREATE TABLE IF NOT EXISTS grid_designs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  tenant_id UUID NOT NULL,
+  grid_key VARCHAR(100) NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  config JSONB NOT NULL DEFAULT '{}',
+  is_default BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  dataset_id UUID,
+  grid_id VARCHAR(100),
+  state JSONB DEFAULT '{}',
+  UNIQUE (user_id, grid_key, name)
+);
 
-### Frontend Component
+-- Eksik kolonları ekle (tablo zaten varsa)
+ALTER TABLE grid_designs ADD COLUMN IF NOT EXISTS dataset_id UUID;
+ALTER TABLE grid_designs ADD COLUMN IF NOT EXISTS grid_id VARCHAR(100);
+ALTER TABLE grid_designs ADD COLUMN IF NOT EXISTS state JSONB DEFAULT '{}';
 
-`frontend/src/pages/AdminPage.tsx` → `ServiceManagement` component
-
-```typescript
-// Otomatik yenileme (10 saniyede bir)
-useEffect(() => {
-  const interval = setInterval(fetchServices, 10000);
-  return () => clearInterval(interval);
-}, [accessToken]);
+CREATE INDEX IF NOT EXISTS idx_grid_designs_user ON grid_designs(user_id);
+CREATE INDEX IF NOT EXISTS idx_grid_designs_grid_key ON grid_designs(grid_key);
+EOF
 ```
 
-### Güvenlik
+---
 
-1. Sadece authenticated kullanıcılar erişebilir
-2. Kritik servisler korunmuş (UI'dan stop edilemez)
-3. Tüm işlemler loglanıyor
+#### HATA 5: Cannot find module 'multer'
+```
+Error: Cannot find module 'multer'
+```
+**ÇÖZÜM:** data-service'e multer paketini kur:
+```bash
+cd /opt/clixer/services/data-service
+sudo npm install multer @types/multer
+```
 
-### Dosya Konumları
+---
+
+#### HATA 6: Cannot find module 'socket.io'
+```
+Error: Cannot find module 'socket.io'
+```
+**ÇÖZÜM:** notification-service'e socket.io paketini kur:
+```bash
+cd /opt/clixer/services/notification-service
+sudo npm install socket.io
+```
+
+---
+
+#### HATA 7: EADDRINUSE - Port zaten kullanımda
+```
+Error: listen EADDRINUSE: address already in use :::4002
+```
+**KÖK NEDEN:** Birden fazla Node.js process aynı portu kullanmaya çalışıyor.
+
+**ÇÖZÜM:**
+```bash
+# Tüm Node.js process'lerini öldür
+sudo pkill -9 -f "node"
+
+# Temiz başlat
+sudo bash /opt/clixer/scripts/stop-all.sh
+sleep 3
+sudo bash /opt/clixer/scripts/start-all.sh
+```
+
+---
+
+#### HATA 8: Permission denied for log files
+```
+EACCES: permission denied, open '/opt/clixer/logs/xxx.log'
+```
+**ÇÖZÜM:**
+```bash
+sudo chmod 777 /opt/clixer/logs/
+```
+
+---
+
+#### HATA 9: column reference "status" is ambiguous
+```
+column reference "status" is ambiguous
+```
+**KÖK NEDEN:** SQL sorgusunda birden fazla tabloda aynı kolon adı var.
+
+**ÇÖZÜM:** Bu bir kod hatasıdır. `data-service/src/index.ts` dosyasında `/performance/etl` endpoint'indeki sorgu düzeltilmeli. Kolon adının önüne tablo alias'ı eklenmeli (örn: `ej.status`).
+
+---
+
+### ✅ KURULUM SONRASI KONTROLLER
+
+```bash
+# 1. Tüm container'lar çalışıyor mu?
+sudo docker ps
+
+# 2. PostgreSQL bağlantısı
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "SELECT 1"
+
+# 3. ClickHouse bağlantısı
+curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025" --data "SELECT 1"
+
+# 4. Redis bağlantısı
+sudo docker exec clixer_redis redis-cli ping
+
+# 5. API Gateway (token al ve test et)
+TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@clixer","password":"Admin1234!"}' \
+  | grep -o '"accessToken":"[^"]*"' | cut -d'"' -f4)
+
+# Labels API
+curl -s http://localhost:4000/api/core/labels/menu -H "Authorization: Bearer $TOKEN"
+
+# ClickHouse API
+curl -s http://localhost:4000/api/data/clickhouse/tables -H "Authorization: Bearer $TOKEN"
+
+# Grid Designs API
+curl -s http://localhost:4000/api/core/grid-designs/demo-grid -H "Authorization: Bearer $TOKEN"
+```
+
+### 📁 TEMİZ KURULUM İÇİN INIT SCRIPTS
+
+Docker PostgreSQL container'ı ilk başlatıldığında `docker/init-scripts/postgres/` klasöründeki SQL dosyaları sırayla çalıştırılır:
 
 | Dosya | İçerik |
 |-------|--------|
-| `services/data-service/src/index.ts` | PM2 API endpoint'leri |
-| `frontend/src/pages/AdminPage.tsx` | ServiceManagement UI |
-| `scripts/start-clixer.bat` | Windows başlatma scripti |
-| `scripts/stop-clixer.bat` | Windows durdurma scripti |
-| `Clixer Başlat.bat` | Kök dizin kısayol |
-| `Clixer Durdur.bat` | Kök dizin kısayol |
+| `00-schema-and-seed.sql` | Tüm tablolar + temel seed (SADECE admin kullanıcı) |
+| `07-labels.sql` | Labels tablosu + varsayılan etiketler |
+| `08-grid-designs.sql` | Grid Designs tablosu |
 
----
+**KRİTİK:** `00-schema-and-seed.sql` ASLA pg_dump çıktısı olarak bırakılmamalı! Test verileri (connections, datasets, metrics, designs) DAHİL EDİLMEMELİ!
 
-## 📅 v3.8 - 6 Ocak 2026
+### 📦 package.json ZORUNLU BAĞIMLILIKLAR
 
-**UI'dan Servis Yönetimi**
+| Servis | Paket | Komut |
+|--------|-------|-------|
+| data-service | multer, @types/multer | `npm install multer @types/multer` |
+| notification-service | socket.io | `npm install socket.io` |
 
-1. ✅ Backend: PM2 API entegrasyonu (`/admin/services/*` endpoint'leri)
-2. ✅ Frontend: Servis Yönetimi sekmesi (Admin Panel)
-3. ✅ Development: Port-bazlı durum kontrolü
-4. ✅ Production: PM2 programmatic API
-5. ✅ Otomatik yenileme (10 saniye)
-6. ✅ Kritik servis koruması
-7. ✅ Windows batch script'ler
+### 🔑 GİRİŞ BİLGİLERİ
 
-**Yeni Dosyalar:**
-- `scripts/start-clixer.bat` - Windows tek tıkla başlat
-- `scripts/stop-clixer.bat` - Windows tek tıkla durdur
-- `Clixer Başlat.bat` - Kök dizin kısayol
-- `Clixer Durdur.bat` - Kök dizin kısayol
-
-**Değiştirilen Dosyalar:**
-- `services/data-service/src/index.ts` - PM2 API endpoint'leri
-- `services/data-service/package.json` - pm2 paketi eklendi
-- `frontend/src/pages/AdminPage.tsx` - ServiceManagement bileşeni
-
----
-
-## 📅 v3.9 - 6 Ocak 2026
-
-**PM2 Production Setup & Mobil Erişim Düzeltmesi**
-
-### 1. ✅ PM2 Ecosystem Konfigürasyonu
-
-`ecosystem.config.js` dosyası oluşturuldu:
-
-| Servis | Instance | Mode | RAM Limit |
-|--------|----------|------|-----------|
-| clixer-gateway | 4 | cluster | 500MB |
-| clixer-auth | 2 | cluster | 300MB |
-| clixer-core | 2 | cluster | 400MB |
-| clixer-data | 2 | cluster | 500MB |
-| clixer-notification | 1 | fork | 300MB |
-| clixer-analytics | 4 | cluster | 800MB |
-| clixer-etl | 1 | fork | 1GB |
-
-**Production Başlatma:**
-```bash
-# Tüm servisleri başlat
-pm2 start ecosystem.config.js
-
-# Durumu gör
-pm2 status
-
-# Logları izle
-pm2 logs
-
-# Tümünü durdur
-pm2 stop all
-```
-
-### 2. ✅ Windows Firewall Kuralları
-
-Mobil erişim için firewall portları açıldı:
-```powershell
-# Admin PowerShell'de çalıştır
-New-NetFirewallRule -DisplayName "Clixer Frontend (3000)" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow
-New-NetFirewallRule -DisplayName "Clixer Gateway (4000)" -Direction Inbound -LocalPort 4000 -Protocol TCP -Action Allow
-```
-
-### 3. ✅ Mobil Erişim
-
-| Platform | URL | Port |
-|----------|-----|------|
-| PC (localhost) | http://localhost:3000 | 3000 |
-| Mobil (aynı ağ) | http://PC_IP:3000 | 3000 |
-
-**Örnek:** `http://192.168.68.61:3000`
-
-**Yeni Dosyalar:**
-- `ecosystem.config.js` - PM2 konfigürasyonu
-- `logs/` - PM2 log klasörü
-
----
-
-## 🔴 PM2 KURULUM VE KULLANIM KURALLARI
-
-### PM2 Nedir?
-PM2, Node.js uygulamaları için process manager'dır. Servisleri arka planda çalıştırır, çökerse otomatik yeniden başlatır.
-
-### Production Sunucuda Kurulum
-
-```bash
-# 1. PM2'yi global kur
-npm install -g pm2
-
-# 2. Proje dizinine git
-cd /opt/clixer
-
-# 3. TypeScript build (her servis için)
-npm run build --prefix shared
-npm run build --prefix gateway
-npm run build --prefix services/auth-service
-npm run build --prefix services/core-service
-npm run build --prefix services/data-service
-npm run build --prefix services/notification-service
-npm run build --prefix services/analytics-service
-
-# 4. PM2 ile başlat
-pm2 start ecosystem.config.js
-
-# 5. Sunucu restart'ta otomatik başlat
-pm2 startup
-pm2 save
-```
-
-### PM2 Komutları
-
-| Komut | Açıklama |
-|-------|----------|
-| `pm2 start ecosystem.config.js` | Tüm servisleri başlat |
-| `pm2 stop all` | Tümünü durdur |
-| `pm2 restart all` | Tümünü yeniden başlat |
-| `pm2 status` | Durumları gör |
-| `pm2 logs` | Logları izle |
-| `pm2 logs clixer-gateway` | Tek servis logu |
-| `pm2 monit` | Canlı monitoring |
-| `pm2 reload all` | Zero-downtime restart |
-
-### Cluster Mode Avantajları
-
-- **Load Balancing:** İstekler otomatik dağıtılır
-- **Zero-Downtime Restart:** `pm2 reload` ile kesintisiz güncelleme
-- **CPU Kullanımı:** Tüm CPU çekirdeklerini kullanır
-
----
-
-## 🔴 MOBİL ERİŞİM KURALLARI
-
-### Development Ortamında Mobil Test
-
-1. **PC ve telefon aynı Wi-Fi'da olmalı**
-2. **Firewall portları açık olmalı** (3000, 4000)
-3. **Vite `host: true` ayarı aktif olmalı** (zaten yapıldı)
-4. **URL'de doğru port kullanılmalı** (3000, 3001 DEĞİL!)
-
-### Firewall Kontrol
-
-```powershell
-# Clixer firewall kurallarını kontrol et
-Get-NetFirewallRule -DisplayName "*Clixer*" | Select-Object DisplayName, Enabled
-```
-
-### Mobil URL Formatı
-
-```
-http://[PC_IP_ADRESI]:3000
-
-# Örnek:
-http://192.168.68.61:3000
-```
-
-### PC IP Adresini Bulma
-
-```powershell
-ipconfig | Select-String -Pattern "IPv4"
-```
+| Alan | Değer |
+|------|-------|
+| URL | `http://SUNUCU_IP:3000` |
+| Email | `admin@clixer` |
+| Şifre | `Admin1234!` |
 
 ---
 
 ## 📅 v4.0 - 6 Ocak 2026
 
-**🚀 WebSocket Real-Time & 400+ Kullanıcı Production Ready**
+**Müşteri Kurulum Düzeltmeleri & Dokümantasyon**
 
-### 1. ✅ WebSocket Entegrasyonu (Socket.IO)
+### Yapılan Değişiklikler
 
-| Bileşen | Durum | Açıklama |
-|---------|-------|----------|
-| Backend (notification-service) | ✅ Tamamlandı | Socket.IO server, JWT auth, Redis Pub/Sub |
-| Frontend (useSocket hook) | ✅ Tamamlandı | Auto-connect, room subscription, event handling |
-| Dashboard Real-time | ✅ Tamamlandı | ETL sonrası otomatik güncelleme |
-| Analysis Real-time | ✅ Tamamlandı | Veri değişikliğinde anlık yenileme |
-| Toast Notifications | ✅ Tamamlandı | sonner kütüphanesi entegrasyonu |
+1. ✅ `data-service/package.json` - multer ve @types/multer eklendi
+2. ✅ `notification-service/package.json` - socket.io eklendi
+3. ✅ `docker/init-scripts/postgres/07-labels.sql` - Labels tablosu oluşturma scripti
+4. ✅ `docker/init-scripts/postgres/08-grid-designs.sql` - Grid Designs tablosu oluşturma scripti
+5. ✅ `docker/init-scripts/postgres/00-schema-and-seed.sql` - TEMİZ şema (pg_dump DEĞİL, test verisi YOK)
+6. ✅ `.cursorrules` - Müşteri Kurulum Kontrol Listesi eklendi
 
-### WebSocket Event'leri
+### Init Scripts Kuralı
 
-| Event | Yön | Açıklama |
-|-------|-----|----------|
-| `etl:completed` | Server→Client | ETL bittiğinde dashboard'ları yenile |
-| `data:changed` | Server→Client | Veri değiştiğinde cache invalidate |
-| `dashboard:refresh` | Server→Client | Dashboard için yenileme tetikle |
-| `notification:new` | Server→Client | Yeni bildirim toast göster |
-| `notification:broadcast` | Server→Client | Tenant-wide duyuru |
-| `subscribe:dashboard` | Client→Server | Dashboard room'a abone ol |
-| `subscribe:dataset` | Client→Server | Dataset güncellemelerine abone ol |
+| Dosya | İçerik | Test Verisi |
+|-------|--------|-------------|
+| `00-schema-and-seed.sql` | Tablo şemaları + admin kullanıcı | ❌ YOK |
+| `07-labels.sql` | Labels tablosu + varsayılan etiketler | ❌ YOK |
+| `08-grid-designs.sql` | Grid Designs tablosu | ❌ YOK |
 
-### WebSocket Kullanımı (Frontend)
+**KRİTİK:** Yeni müşteri kurulumunda tablolar BOŞ olmalı (admin kullanıcı hariç). Test verileri (bağlantılar, datasetler, metrikler, tasarımlar) ASLA init script'lere dahil edilmemeli!
 
-```typescript
-import { useSocket } from '../hooks/useSocket'
+### Yedekleme
 
-function MyComponent() {
-  const { isConnected, subscribe, on } = useSocket()
-  
-  useEffect(() => {
-    if (!isConnected) return
-    
-    // Dashboard'a abone ol
-    subscribe('dashboard', designId)
-    
-    // ETL completed event'ini dinle
-    const unsub = on('etl:completed', (data) => {
-      console.log('ETL completed:', data.rowsProcessed)
-      refreshData()
-    })
-    
-    return () => unsub()
-  }, [isConnected])
-}
-```
-
-### 2. ✅ Production Ayarları (400+ Kullanıcı)
-
-| Bileşen | Eski | Yeni | Artış |
-|---------|------|------|-------|
-| PostgreSQL max_connections | 200 | 300 | 1.5x |
-| PostgreSQL shared_buffers | 256MB | 512MB | 2x |
-| ClickHouse max_memory | 6GB | 8GB | 1.3x |
-| ClickHouse concurrent_queries | - | 100 | Yeni |
-| Redis maxmemory | 2GB | 4GB | 2x |
-| Redis maxclients | 10K | 20K | 2x |
-| Gateway instances | 4 | 4 | - |
-| Analytics instances | 4 | 4 | - |
-| Notification memory | 300M | 500M | 1.7x |
-| ETL Worker memory | 1G | 2G | 2x |
-
-### 3. ✅ Yeni Dosyalar
-
-| Dosya | Açıklama |
-|-------|----------|
-| `frontend/src/hooks/useSocket.ts` | WebSocket React hook |
-| `services/notification-service/src/index.ts` | Socket.IO server (yeniden yazıldı) |
-
-### 4. ✅ Yeni Paketler
-
-| Paket | Servis | Açıklama |
-|-------|--------|----------|
-| `socket.io` | notification-service | WebSocket server |
-| `socket.io-client` | frontend | WebSocket client |
-| `sonner` | frontend | Toast notifications |
-| `jsonwebtoken` | notification-service | Socket auth |
-
-### Kapasite Tahmini
-
-| Senaryo | Kullanıcı | Güven |
-|---------|-----------|-------|
-| Development (tek thread) | 50-100 | %95 |
-| Production (PM2 cluster) | 400-600 | %90 |
-| Production (Nginx + PM2) | 800-1000 | %85 |
-
-### Yük Testi Sonuçları (10M satır ClickHouse)
-
-| Sorgu | Süre | Değerlendirme |
-|-------|------|---------------|
-| COUNT | 2ms | ⚡ Mükemmel |
-| SUM | 10ms | ⚡ Mükemmel |
-| GROUP BY | 50ms | ✅ Çok İyi |
-| Complex Query | 65ms | ✅ Çok İyi |
-
----
-
-## 🔌 WEBSOCKET MİMARİSİ
-
-### Bağlantı Akışı
-
-```
-Frontend Login → accessToken alınır
-       ↓
-useSocket hook → Socket.IO bağlantısı (token auth)
-       ↓
-Server JWT doğrulama → userId, tenantId çıkarılır
-       ↓
-Socket rooms: tenant:{tenantId}, user:{userId}
-       ↓
-Dashboard açılır → subscribe('dashboard', designId)
-       ↓
-ETL tamamlanır → Redis Pub/Sub → io.emit('etl:completed')
-       ↓
-Frontend alır → toast göster + verileri yenile
-```
-
-### Server-Side (notification-service)
-
-```typescript
-// Redis Pub/Sub ile event dinle
-cache.subscribe('etl:completed', (message) => {
-  io.to(`dataset:${message.datasetId}`).emit('etl:completed', message)
-})
-
-// Socket authentication
-io.use((socket, next) => {
-  const token = socket.handshake.auth.token
-  const decoded = jwt.verify(token, JWT_SECRET)
-  socket.data.userId = decoded.userId
-  next()
-})
-```
-
-### Client-Side (useSocket hook)
-
-```typescript
-// Singleton socket instance
-let socket: Socket | null = null
-
-export const initSocket = (token: string) => {
-  socket = io(url, { auth: { token } })
-  return socket
-}
-
-export const useSocket = () => {
-  const [isConnected, setIsConnected] = useState(false)
-  const { accessToken } = useAuthStore()
-  
-  useEffect(() => {
-    if (accessToken) initSocket(accessToken)
-  }, [accessToken])
-  
-  return { isConnected, subscribe, on, emit }
-}
-```
-
----
-
-## 📋 VERSİYON GEÇMİŞİ (Güncel)
-
-| Tarih | Versiyon | Açıklama |
-|-------|----------|----------|
-| 2026-01-06 | **v4.0.1** | **Console Hatalarını Temizleme + PWA İkon Güncellemesi** |
-| 2026-01-06 | v4.0 | 🚀 WebSocket Real-Time + 400 Kullanıcı Production Ready |
-| 2026-01-05 | v3.7 | Güvenlik Açıkları Düzeltmeleri |
-| 2026-01-05 | v3.6 | Enterprise DataGrid (13 özellik) |
-| 2026-01-04 | v3.5 | DataGrid Kritik Hata Çözümleri |
-| 2026-01-04 | v3.4 | Sidebar-Rol Senkronizasyonu |
-| 2026-01-04 | v3.3 | ClickHouse Kullanıcı Yönetimi |
-| 2026-01-04 | v3.2 | Dinamik Etiketler, Token Refresh |
-| 2026-01-04 | v3.1 | Test Verileri Temizliği |
-| 2026-01-02 | v6.5.0 | Production Ready Debug Temizliği |
-
----
-
-## 📅 v4.0.1 - 6 Ocak 2026
-
-**Console Hatalarını Temizleme + PWA İkon Güncellemesi + Admin UI Responsive**
-
-### 1. ✅ PWA İkon Güncellemesi
-
-- Koyu temalı "W" logosu eklendi (`source-icon.png`)
-- Tüm boyutlarda ikonlar yeniden oluşturuldu:
-  - 512x512, 384x384, 192x192, 152x152, 144x144, 128x128, 96x96, 72x72
-
-| Dosya | Boyut | Kullanım |
-|-------|-------|----------|
-| `icon-512x512.png` | 512x512 | PWA splash screen |
-| `icon-192x192.png` | 192x192 | Android home screen |
-| `apple-touch-icon.png` | 180x180 | iOS home screen |
-| Diğer boyutlar | Çeşitli | Farklı cihazlar |
-
-### 2. ✅ Admin Sayfası Responsive Düzeltme
-
-**Sorun:** Ayar kategorileri (Genel, Görünüm, Bölge/Mağaza, vb.) mobilde içiçe giriyordu.
-
-**Çözüm:**
-```tsx
-// AdminPage.tsx - Kategori butonları
-<div className="flex gap-2 overflow-x-auto">
-  <div className="flex gap-2 min-w-max">
-    {settingCategories.map(cat => (
-      <button className="whitespace-nowrap">
-        {cat.label}
-        <span className="hidden sm:inline">{cat.count}</span> // Küçük ekranda gizle
-      </button>
-    ))}
-  </div>
-</div>
-```
-
-### 3. ✅ Console Hata Temizliği
-
-**Sorun:** İlk login'de 401 Unauthorized hataları ve WebSocket bağlantı hataları konsolda görünüyordu.
-
-**Kök Neden:**
-- Sayfa açılışında localStorage'dan eski token okunuyor
-- Token yenilenmeden API çağrıları yapılıyor
-- WebSocket geçersiz token ile bağlanmaya çalışıyor
-
-**Çözüm - Sessiz Hata Yönetimi:**
-
-| Dosya | Değişiklik |
-|-------|------------|
-| `settingsStore.ts` | `console.warn/error` → sessizce geç |
-| `dashboardStore.ts` | `console.warn` → sessizce geç |
-| `filterStore.ts` | `console.error` → sessizce geç |
-| `useSocket.ts` | "Invalid token" hatası gizlendi, disconnect logları kaldırıldı |
-| `App.tsx` | Token kontrol mesajı sessizleştirildi |
-
-**Prensip:**
-> 401 hataları normal akışın parçasıdır. Token yenileme mekanizması devreye girer.
-> Konsolu kirletmemek için bu hatalar sessizce işlenir.
-
-### 4. ✅ Production Deployment Script İyileştirmeleri
-
-**`deploy/install-ubuntu.sh` güncellemeleri:**
-
-| Özellik | Açıklama |
-|---------|----------|
-| Rastgele Şifreler | PostgreSQL, ClickHouse, JWT secret artık rastgele oluşturuluyor |
-| ClickHouse XML | `users.xml` dinamik olarak oluşturuluyor |
-| .env Güvenliği | `chmod 600 .env` ile izinler kısıtlandı |
-| PM2 Startup | Sunucu restart'ta otomatik başlatma |
-| Stop Script | `stop-production.sh` eklendi |
-
-```bash
-# Rastgele secret oluşturma
-POSTGRES_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
-CH_PASS=$(openssl rand -base64 32 | tr -d '\n')
-JWT_SECRET=$(openssl rand -base64 64 | tr -d '\n')
-```
-
-### 5. ✅ Yük Testi Sonuçları
-
-| Metrik | Sonuç | Değerlendirme |
-|--------|-------|---------------|
-| Toplam istek | 1000+ | ✅ |
-| Başarı oranı | %95+ | ✅ |
-| Ortalama latency | <100ms | ✅ |
-| P99 latency | <500ms | ✅ |
-| Rate limiting | Çalışıyor | ✅ |
-
-### 6. ✅ WebSocket Entegrasyonu Tamamlandı
-
-| Bileşen | Durum |
-|---------|-------|
-| notification-service | ✅ Socket.IO server |
-| useSocket hook | ✅ Frontend entegrasyonu |
-| DashboardPage | ✅ Real-time refresh |
-| AnalysisPage | ✅ Real-time refresh |
-| App.tsx | ✅ Global notifications |
-
-### Değiştirilen Dosyalar
-
-| Dosya | Değişiklik |
-|-------|------------|
-| `frontend/public/icons/*` | Yeni PWA ikonları |
-| `frontend/src/pages/AdminPage.tsx` | Responsive tab düzeltmesi |
-| `frontend/src/stores/settingsStore.ts` | Console log temizliği |
-| `frontend/src/stores/dashboardStore.ts` | Console log temizliği |
-| `frontend/src/stores/filterStore.ts` | Console log temizliği |
-| `frontend/src/hooks/useSocket.ts` | WebSocket log temizliği |
-| `frontend/src/App.tsx` | Token kontrol sessizleştirildi |
-| `deploy/install-ubuntu.sh` | Güvenlik ve PM2 iyileştirmeleri |
-
----
-
-## 🔴 CONSOLE LOG TEMİZLİK KURALI
-
-### MUTLAK KURAL: Production'da gereksiz console çıktısı OLMAMALI!
-
-**Prensip:** 401 hataları ve token yenileme sürecindeki geçici hatalar normaldir. 
-Bunları console'a yazmak gereksiz gürültü oluşturur.
-
-### Hangi Hatalar Sessizce Geçilmeli?
-
-| Hata | Neden | Çözüm |
-|------|-------|-------|
-| 401 Unauthorized | Token yenileniyor | Sessizce geç |
-| WebSocket "Invalid token" | Token henüz hazır değil | Sessizce geç |
-| Settings yüklenemedi | Token geçersiz | Sessizce geç |
-| Menu permissions yüklenemedi | Token geçersiz | Sessizce geç |
-
-### Hangi Hatalar Loglanmalı?
-
-| Hata | Neden | Çözüm |
-|------|-------|-------|
-| 500 Internal Server Error | Backend hatası | `console.error` |
-| Network Error | Bağlantı sorunu | `console.error` |
-| Beklenmeyen hata | Kod hatası | `console.error` |
-
-### Kod Örneği
-
-```typescript
-// ❌ YANLIŞ - Gereksiz log
-} catch (error) {
-  console.warn('Settings could not be loaded')
-  set({ isLoading: false })
-}
-
-// ✅ DOĞRU - Sessiz hata yönetimi
-} catch (_error) {
-  // 401 hatalarını sessizce geç - token yenileme devreye girecek
-  set({ isLoading: false })
-}
-```
-
----
-
-## 📅 v4.0.2 - 6 Ocak 2026
-
-**Oturum Yönetimi & Blacklist Düzeltmeleri**
-
-### 1. ✅ Oturum Sonlandırma İyileştirmeleri
-
-| Özellik | Açıklama |
-|---------|----------|
-| Kendi oturumunu kapatma | Onay sorar, ardından logout yapar |
-| Blacklist mekanizması | Terminate edilen kullanıcı Redis'e eklenir |
-| Login sonrası blacklist temizleme | Başarılı login blacklist'i temizler |
-
-### 2. ✅ Sistem Monitörü İyileştirmeleri
-
-| Değişiklik | Açıklama |
-|------------|----------|
-| Başlık değişikliği | "Son Aktif Kullanıcılar" → "Son Giriş Yapan Kullanıcılar" |
-| Açıklama eklendi | Özelliğin ne yaptığını açıklayan metin |
-| INNER JOIN | Sadece gerçekten login yapmış kullanıcılar görünür |
-| Blacklist filtresi | Terminate edilmiş kullanıcılar listede görünmez |
-
-### 3. ✅ Değiştirilen Dosyalar
-
-| Dosya | Değişiklik |
-|-------|------------|
-| `frontend/src/pages/AdminPage.tsx` | SystemMonitor'a currentUserId, onLogout prop'ları eklendi |
-| `frontend/src/pages/AdminPage.tsx` | terminateSession kendi oturumu kontrolü |
-| `services/data-service/src/index.ts` | INNER JOIN + blacklist filtresi |
-| `services/auth-service/src/index.ts` | Login sonrası blacklist temizleme |
-
-### 4. ✅ Blacklist Mekanizması
-
-**Akış:**
-```
-1. Admin "Oturumu Kapat" tıklar
-   ↓
-2. Backend: Redis'e `jwt:blacklist:user:{userId}` eklenir (24 saat TTL)
-   ↓
-3. Sistem Monitörü listesinden kaldırılır
-   ↓
-4. Kullanıcı tekrar login olursa → Blacklist temizlenir
-```
-
-**Redis Key Formatı:**
-```
-clixer:jwt:blacklist:user:{userId}
-```
-
----
-
-## 🔴 OTURUM YÖNETİMİ KURALLARI
-
-### MUTLAK KURAL: Kullanıcı kendi oturumunu kapatırsa logout olmalı!
-
-**Prensip:** Admin kendi oturumunu "Oturumu Kapat" ile sonlandırırsa, sadece listeden kaldırmak yetmez - gerçekten logout yapılmalı.
-
-### Uygulama Kuralları:
-
-1. **terminateSession çağrıldığında:**
-   - `userId === currentUserId` kontrolü yap
-   - Eşleşiyorsa `confirm()` ile uyar
-   - Onay verilirse API'yi çağır ve `logout()` yap
-
-2. **Backend'de login başarılı olduğunda:**
-   - `cache.del('jwt:blacklist:user:${userId}')` ile blacklist temizle
-   - Böylece terminate edilmiş kullanıcı tekrar giriş yapabilir
-
-3. **Sistem Monitörü listesinde:**
-   - Sadece `audit_logs`'da LOGIN kaydı olan kullanıcılar görünsün
-   - Blacklist'teki kullanıcılar filtrelensin
-
----
-
-## 📅 v4.0.3 - 6 Ocak 2026
-
-**Excel/CSV Import Düzeltmeleri & LFL Takvim Sistemi**
-
-### 1. ✅ Excel Import Hataları ve Çözümleri
-
-| Hata | Kök Neden | Çözüm |
-|------|-----------|-------|
-| `column "sync_enabled" does not exist` | PostgreSQL datasets tablosunda `sync_enabled` kolonu yok | INSERT sorgusundan `sync_enabled` kaldırıldı |
-| `inconsistent types deduced for parameter $6` | Aynı `$6` parametresi 2 farklı kolonda kullanılıyordu | `$6` ve `$7` olarak ayrıldı, `inserted` 2 kez parametre olarak geçildi |
-| Tarih kolonları 45656, 46020 gibi sayı olarak görünüyor | Excel tarihleri serial number olarak okunuyor | `XLSX.readFile({ cellDates: true })` ve `sheet_to_json({ raw: false, dateNF: 'YYYY-MM-DD' })` kullanıldı |
-| Dataset listesinde "bekliyor" ve "0" görünüyor | `status`, `total_rows`, `last_sync_rows` kaydedilmiyordu | INSERT sorgusuna bu alanlar eklendi |
-
-### 2. ✅ Excel Import PostgreSQL INSERT Kuralları
-
-```sql
--- ✅ DOĞRU: Her parametre ayrı $N değeri almalı
-INSERT INTO datasets (..., total_rows, last_sync_rows, ...)
-VALUES (..., $6, $7, ...)
--- Parametre: [..., inserted, inserted]
-
--- ❌ YANLIŞ: Aynı parametre farklı yerlerde kullanılmamalı
-VALUES (..., $6, $6, ...)
--- PostgreSQL tip çıkarımı karışır!
-```
-
-### 3. ✅ Excel Tarih Dönüşüm Kuralları
-
-Excel tarihleri **serial number** olarak saklanır (1900-01-01'den itibaren gün sayısı).
-
-**Örnek:**
-- 45656 → 2024-12-29
-- 46020 → 2025-12-28
-
-**XLSX Kullanım Kuralları:**
-```javascript
-// ✅ DOĞRU - Tarihler Date objesine dönüşür
-const workbook = XLSX.readFile(filePath, { cellDates: true });
-const data = XLSX.utils.sheet_to_json(sheet, { 
-  raw: false, 
-  dateNF: 'YYYY-MM-DD' 
-});
-
-// ❌ YANLIŞ - Tarihler sayı olarak kalır
-const workbook = XLSX.readFile(filePath);
-const data = XLSX.utils.sheet_to_json(sheet);
-```
-
-### 4. ✅ Tip Algılama Fonksiyonu (detectColumnType)
-
-Date objelerini ve çeşitli tarih formatlarını algılamak için:
-
-```javascript
-function detectColumnType(values: any[]): string {
-  for (const v of values) {
-    // JavaScript Date objesi kontrolü (XLSX cellDates: true ile)
-    if (v instanceof Date && !isNaN(v.getTime())) {
-      return 'Date'; // Tarih olarak algıla
-    }
-    
-    // String tarih formatları
-    const str = String(v).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return 'Date';      // YYYY-MM-DD
-    if (/^\d{2}[.\/]\d{2}[.\/]\d{4}$/.test(str)) return 'Date'; // DD.MM.YYYY
-  }
-  // ...
-}
-```
-
----
-
-## 🗓️ LFL TAKVİM SİSTEMİ (Like-for-Like Comparison)
-
-### Temel Prensip
-
-LFL (Like-for-Like) karşılaştırması, dönemleri günü güne karşılaştırır. Ancak takvim kaymalarını (örn: 2025'te Cuma olan gün 2024'te Perşembe olabilir) düzeltmek için **özel bir referans takvim** kullanılır.
-
-### LFL Takvim Tablosu Yapısı
-
-| Kolon | Tip | Açıklama |
-|-------|-----|----------|
-| this_year | Date | Bu yılın tarihi (örn: 2025-12-28) |
-| last_year | Date | Geçen yıl karşılık gelen tarih (örn: 2024-12-29) |
-| merch_ay | Int | Merchandising ayı (1-12) |
-| merch_hafta | Int | Merchandising haftası (1-52) |
-
-### Kullanım Senaryosu
-
-```
-Kullanıcı: "2025-12-28 satışlarını geçen yılla karşılaştır"
-
-Normal YoY: 2025-12-28 vs 2024-12-28 (farklı haftanın günleri!)
-LFL Takvim: 2025-12-28 vs 2024-12-29 (aynı haftanın aynı günü)
-```
-
-### Metrik Karşılaştırma Akışı
-
-```
-1. Kullanıcı metrikteki "Dönem Karşılaştır" → "LFL" seçer
-2. LFL takvim dataset'i seçilir (Excel'den import edilmiş)
-3. Metrik çalıştırılırken:
-   a. Güncel tarih (this_year) belirlenir
-   b. LFL tablosundan karşılık gelen last_year değeri okunur
-   c. Sorgular bu tarihlere göre çalıştırılır
-   d. Fark hesaplanır ve gösterilir
-```
-
-### Backend Sorgu Mantığı
-
-```sql
--- 1. LFL tarihini bul
-SELECT last_year FROM lfl_calendar WHERE this_year = '2025-12-28'
--- Sonuç: 2024-12-29
-
--- 2. Güncel dönem satışları
-SELECT SUM(amount) FROM sales WHERE date = '2025-12-28'
-
--- 3. Geçen yıl karşılığı satışları
-SELECT SUM(amount) FROM sales WHERE date = '2024-12-29'
-
--- 4. Trend hesapla
--- trend = ((current - previous) / previous) * 100
-```
-
-### LFL Ayarları (Metrik Bazlı - chartConfig)
-
-| Key | Açıklama | Varsayılan |
-|-----|----------|------------|
-| lflCalendarDatasetId | LFL takvim dataset'inin ID'si (UUID) | null |
-| lflThisYearColumn | Bu yıl tarihi kolonu adı | this_year |
-| lflLastYearColumn | Geçen yıl tarihi kolonu adı | last_year |
-
----
-
-## 🔴🔴🔴 LFL TAKVİM SİSTEMİ - DETAYLI MİMARİ (KRİTİK!)
-
-### MUTLAK KURAL: LFL Takvimi Kullanıcı Tanımlı Excel'den Gelir!
-
-**Prensip:** Like-for-Like karşılaştırması, standart takvim hesaplaması (bugün - 365 gün) yerine, kullanıcının yüklediği özel bir referans takvim kullanır. Bu sayede:
-- Haftanın aynı günü (Pazartesi vs Pazartesi) karşılaştırılır
-- Merchandising takvimleri desteklenir
-- Tatil/kampanya günleri doğru eşleştirilir
-
-### LFL Takvim Excel Formatı
-
-| Kolon | Tip | Açıklama | Örnek |
-|-------|-----|----------|-------|
-| this_year | Date | Bu yılın tarihi | 2026-01-05 |
-| last_year | Date | Geçen yıl karşılık gelen tarih | 2025-01-06 |
-| merch_ay | Int (opsiyonel) | Merchandising ayı | 1 |
-| merch_hafta | Int (opsiyonel) | Merchandising haftası | 1 |
-
-**Örnek Veri:**
-```
-| this_year  | last_year  | merch_ay | merch_hafta |
-|------------|------------|----------|-------------|
-| 2026-01-01 | 2025-01-02 | 1        | 1           |
-| 2026-01-02 | 2025-01-03 | 1        | 1           |
-| 2026-01-03 | 2025-01-04 | 1        | 1           |
-| 2026-01-04 | 2025-01-05 | 1        | 1           |
-| 2026-01-05 | 2025-01-06 | 1        | 2           |
-| 2026-01-06 | 2025-01-07 | 1        | 2           |
-| 2026-01-07 | 2024-01-08 | 1        | 2           |
-```
-
-### Frontend - Metrik Formu (MetricsPage.tsx)
-
-1. **Karşılaştırma Tipi = LFL seçildiğinde:**
-   - "LFL Takvim Ayarları" bölümü görünür
-   - Kullanıcı dataset seçer (önceden Excel'den import edilmiş)
-   - Kolonlar dinamik olarak yüklenir
-   - "Bu Yıl Kolonu" ve "Geçen Yıl Kolonu" seçilir
-
-2. **chartConfig'e kaydedilen değerler:**
-```typescript
-chartConfig: {
-  comparisonType: 'lfl',
-  comparisonColumn: 'created_at', // Ana veri tablosundaki tarih kolonu
-  lflCalendarDatasetId: '9bb935df-5b59-4bbd-a1eb-7477ffb9a722',
-  lflThisYearColumn: 'this_year',
-  lflLastYearColumn: 'last_year'
-}
-```
-
-### Backend - Metrik Çalıştırma (analytics-service)
-
-#### calculateLFLWithCalendar Fonksiyonu
-
-```typescript
-async function calculateLFLWithCalendar(
-  tableName: string,           // Ana veri tablosu (örn: clixer_analytics.transac)
-  dateColumn: string,          // Tarih kolonu (örn: created_at)
-  valueColumn: string,         // Değer kolonu (örn: amount)
-  aggFunc: string,             // Aggregation (SUM, AVG, COUNT)
-  rlsCondition: string,        // RLS filtresi
-  filterCondition: string,     // Ek filtreler
-  lflCalendarTable: string,    // LFL takvim tablosu (clixer_analytics.ds_xxx)
-  lflThisYearColumn: string,   // Bu yıl kolonu (this_year)
-  lflLastYearColumn: string,   // Geçen yıl kolonu (last_year)
-  startDate: string,           // Başlangıç tarihi (YYYY-MM-DD)
-  endDate: string              // Bitiş tarihi (YYYY-MM-DD)
-): Promise<{
-  currentValue: number;
-  previousValue: number;
-  trend: number;
-  matchedDays: number;
-} | null>
-```
-
-#### SQL Sorgu Mantığı (Tarih Aralığı Desteği)
-
-```sql
--- 1. LFL takviminden tarih aralığına karşılık gelen geçen yıl tarihlerini bul
-WITH calendar AS (
-  SELECT
-    toDate(this_year) as this_date,
-    toDate(last_year) as last_date
-  FROM clixer_analytics.lfl_calendar
-  WHERE toDate(this_year) >= toDate('2025-12-29')
-    AND toDate(this_year) <= toDate('2026-01-04')
-)
-
--- 2. Bu yıl değerlerini hesapla (INNER JOIN ile eşleşen günler)
-SELECT SUM(t.amount) as current_value
-FROM clixer_analytics.transac t
-INNER JOIN calendar c ON toDate(t.created_at) = c.this_date
-
--- 3. Geçen yıl değerlerini hesapla (LFL takvimindeki karşılık gelen tarihler)
-SELECT SUM(t.amount) as previous_value
-FROM clixer_analytics.transac t
-INNER JOIN calendar c ON toDate(t.created_at) = c.last_date
-
--- 4. Trend hesapla
--- trend = ((current_value - previous_value) / previous_value) * 100
-```
-
-### executeMetric İçinde LFL Kontrolü
-
-```typescript
-// analytics-service/src/index.ts - executeMetric fonksiyonu içinde
-
-// Karşılaştırma işlemi
-if (metric.comparison_enabled && chartConfig?.comparisonType) {
-  const comparisonType = chartConfig.comparisonType;
-  
-  // LFL takvim seçili mi kontrol et
-  if (comparisonType === 'lfl' && chartConfig?.lflCalendarDatasetId) {
-    // 1. LFL takvim dataset bilgilerini al
-    const lflDataset = await db.queryOne(
-      'SELECT clickhouse_table FROM datasets WHERE id = $1',
-      [chartConfig.lflCalendarDatasetId]
-    );
-    
-    // 2. LFL takvim tablosunu belirle (prefix ile!)
-    const lflCalendarTable = `clixer_analytics.${lflDataset.clickhouse_table}`;
-    
-    // 3. Tarih aralığını al
-    const startDate = parameters.startDate as string;
-    const endDate = parameters.endDate as string;
-    
-    // 4. LFL hesaplama fonksiyonunu çağır
-    const lflResult = await calculateLFLWithCalendar(
-      tableName,
-      dateColumn,
-      valueColumn,
-      aggFunc,
-      rlsCondition,
-      filterCondition,
-      lflCalendarTable,
-      chartConfig.lflThisYearColumn || 'this_year',
-      chartConfig.lflLastYearColumn || 'last_year',
-      startDate,
-      endDate
-    );
-    
-    // 5. Sonucu metadata'ya ekle
-    result.metadata = {
-      ...result.metadata,
-      previousValue: lflResult?.previousValue || 0,
-      trend: lflResult?.trend || 0,
-      trendSource: 'lfl_calendar',
-      matchedDays: lflResult?.matchedDays || 0
-    };
-  } else {
-    // Standart karşılaştırma (YoY, MoM, WoW, YTD)
-    const comparison = await calculateComparison(...);
-    // ...
-  }
-}
-```
-
-### Dosya Konumları
-
-| Dosya | İçerik |
-|-------|--------|
-| `frontend/src/pages/MetricsPage.tsx` | LFL takvim seçimi UI |
-| `services/analytics-service/src/index.ts` | calculateLFLWithCalendar fonksiyonu |
-| `services/data-service/src/index.ts` | Excel import (cellDates: true) |
-
-### Kritik Kurallar
-
-1. **LFL takvim tablosu prefix ile kullanılmalı:**
-   ```typescript
-   // ✅ DOĞRU
-   const lflCalendarTable = `clixer_analytics.${dataset.clickhouse_table}`;
-   
-   // ❌ YANLIŞ
-   const lflCalendarTable = dataset.clickhouse_table;
-   ```
-
-2. **chartConfig doğru okunmalı:**
-   ```typescript
-   // ✅ DOĞRU
-   const chartConfig = typeof metric.chart_config === 'string' 
-     ? JSON.parse(metric.chart_config) 
-     : metric.chart_config;
-   
-   // Sonra: chartConfig.lflCalendarDatasetId
-   ```
-
-3. **startDate/endDate tanımlı olmalı:**
-   ```typescript
-   // executeMetric içinde comparison bloğunda
-   const startDate = parameters.startDate as string;
-   const endDate = parameters.endDate as string;
-   ```
-
-4. **Excel import tarih formatı korunmalı:**
-   ```typescript
-   // data-service Excel okuma
-   const workbook = XLSX.readFile(filePath, { cellDates: true });
-   const data = XLSX.utils.sheet_to_json(sheet, { 
-     raw: false, 
-     dateNF: 'YYYY-MM-DD' 
-   });
-   ```
-
-### Test Senaryosu
-
-| Senaryo | Beklenen Davranış |
-|---------|-------------------|
-| LFL + Bugün | this_year = bugün, last_year = takvimden oku |
-| LFL + Geçen Hafta | 7 günlük aralık, her gün için LFL eşleşmesi |
-| LFL + Bu Ay | Ay boyunca tüm günler için LFL eşleşmesi |
-| LFL takvimi yok | Hata mesajı veya fallback standart karşılaştırma |
-
-### Hata Ayıklama
-
-**LFL sonucu 0 ise kontrol et:**
-1. LFL takvim tablosunda ilgili tarihler var mı?
-2. Ana veri tablosunda (transac) ilgili tarihlerde veri var mı?
-3. `clixer_analytics.` prefix doğru mu?
-4. chartConfig.lflCalendarDatasetId doğru mu?
-
-**Debug logları:**
-```typescript
-fetch('http://127.0.0.1:7242/ingest/...',{
-  method:'POST',
-  headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({
-    location:'analytics-service:calculateLFLWithCalendar',
-    message:'LFL Params',
-    data:{
-      lflCalendarTable,
-      startDate,
-      endDate,
-      currentVal,
-      previousVal
-    }
-  })
-});
-```
-
----
-
-## 📅 v4.0.4 - 6 Ocak 2026
-
-**LFL Takvim Sistemi Tamamlandı**
-
-1. ✅ Frontend: MetricsPage'de LFL takvim dataset ve kolon seçimi
-2. ✅ Backend: calculateLFLWithCalendar fonksiyonu (tarih aralığı desteği)
-3. ✅ Excel Import: Tarih formatı korunuyor (cellDates: true)
-4. ✅ chartConfig: lflCalendarDatasetId, lflThisYearColumn, lflLastYearColumn
-5. ✅ ClickHouse: INNER JOIN ile LFL takvim eşleşmesi
-6. ✅ Hata düzeltmeleri: prefix, variable scope, date range
-7. ✅ **TÜM karşılaştırma tipleri (YoY, MoM, WoW, YTD) LFL takvimini kullanabilir**
-
-**Backup:**
-- GitHub: v4.0.4 tag
-- Lokal: backups/v4.0.4_lfl_calendar_20260106/
-
----
-
-## 🔴 TÜM KARŞILAŞTIRMA TİPLERİ İÇİN LFL TAKVİM DESTEĞİ
-
-### MUTLAK KURAL: LFL Takvim seçilmişse TÜM karşılaştırma tipleri bu takvimi kullanır!
-
-**Prensip:** Kullanıcı bir referans takvim (LFL takvimi) seçtiyse, hangi karşılaştırma tipini seçerse seçsin (YoY, MoM, WoW, YTD, LFL), tarih eşleşmeleri bu takvimden yapılır.
-
-### Mantık
-
-```
-Karşılaştırma Tipi Seçildi (örn: MoM)
-           ↓
-LFL Takvim Dataset Seçili mi?
-           ↓
-    ┌──────┴──────┐
-    ↓             ↓
-  EVET          HAYIR
-    ↓             ↓
-LFL Takvimden    Standart Takvim
-tarih eşleşmesi  hesaplaması
-(this_year →     (bugün - 30 gün)
- last_year)
-```
-
-### Backend Akışı (analytics-service/src/index.ts)
-
-```typescript
-// executeMetric fonksiyonu içinde
-if (metric.comparison_enabled && chartConfig?.comparisonColumn) {
-  const compType = metric.comparison_type || 'yoy'; // yoy, mom, wow, ytd, lfl
-  
-  // LFL Takvim kontrolü (TÜM karşılaştırma tipleri için)
-  const lflCalendarDatasetId = chartConfig?.lflCalendarDatasetId;
-  
-  if (lflCalendarDatasetId) {
-    // ✅ LFL takvimi kullan - hangi compType olursa olsun
-    const lflResult = await calculateLFLWithCalendar(...);
-    // Etiket: "Geçen Yıl (LFL)", "Geçen Ay (LFL)", vb.
-  } else {
-    // ❌ Standart takvim hesaplaması
-    // YoY: bugün - 365 gün
-    // MoM: bugün - 30 gün
-    // WoW: bugün - 7 gün
-  }
-}
-```
-
-### Frontend UI (MetricsPage.tsx)
-
-```
-Karşılaştırma etkinleştirildiğinde:
-┌─────────────────────────────────────────────┐
-│ ☑ Dönem Karşılaştır                         │
-│                                             │
-│ Karşılaştırma Tipi: [MoM - Geçen Ay ▼]     │
-│                                             │
-│ ┌─────────────────────────────────────────┐ │
-│ │ 📅 Referans Takvim (Opsiyonel)          │ │
-│ │                                         │ │
-│ │ LFL Takvim Dataset: [2026 LFL Takvim ▼] │ │
-│ │ Bu Yıl Kolonu: [this_year ▼]            │ │
-│ │ Geçen Yıl Kolonu: [last_year ▼]         │ │
-│ │                                         │ │
-│ │ ℹ️ Seçerseniz tüm karşılaştırmalar      │ │
-│ │    bu takvime göre yapılır.             │ │
-│ └─────────────────────────────────────────┘ │
-└─────────────────────────────────────────────┘
-```
-
-### Karşılaştırma Etiketleri
-
-| Tip | LFL Takvim Seçili | LFL Takvim Seçilmemiş |
-|-----|-------------------|----------------------|
-| YoY | "Geçen Yıl (LFL)" | "Geçen Yıl Aynı Gün" |
-| MoM | "Geçen Ay (LFL)" | "Geçen Ay Aynı Gün" |
-| WoW | "Geçen Hafta (LFL)" | "Geçen Hafta" |
-| YTD | "YTD (LFL)" | "Yılbaşından Bugüne" |
-| LFL | "LFL Takvim" | Standart LFL (dayOfYear) |
-
-### chartConfig Yapısı
-
-```typescript
-chartConfig: {
-  comparisonType: 'mom',                    // yoy, mom, wow, ytd, lfl
-  comparisonColumn: 'created_at',           // Veri tablosundaki tarih kolonu
-  
-  // LFL Takvim ayarları (opsiyonel - seçilirse TÜM tipler için geçerli)
-  lflCalendarDatasetId: 'uuid-here',        // LFL takvim dataset ID
-  lflThisYearColumn: 'this_year',           // Bu yıl kolonu
-  lflLastYearColumn: 'last_year'            // Geçen yıl kolonu
-}
-```
-
-### Kritik Kurallar
-
-1. **LFL Takvim opsiyonel:** Seçilmezse standart takvim kullanılır
-2. **LFL tipi için zorunlu:** comparisonType = 'lfl' ise takvim seçimi zorunlu
-3. **Diğer tipler için opsiyonel:** YoY, MoM, WoW, YTD için takvim seçimi isteğe bağlı
-4. **Bir kez seçilince geçerli:** Takvim seçildiyse hangi tip seçilirse seçilsin bu takvim kullanılır
-
----
-
-## 🚀 MÜŞTERİ GÜNCELLEME SİSTEMİ (Multi-Tenant Deployment)
-
-### Strateji: Merkezi Güncelleme Yönetimi
-
-Birden fazla müşteri sunucusuna güncelleme göndermek için script tabanlı sistem.
-
-### Dosya Yapısı
-
-| Dosya | Konum | Açıklama |
-|-------|-------|----------|
-| `update.sh` | `/opt/clixer/scripts/` | Müşteri sunucusunda çalışır |
-| `rollback.sh` | `/opt/clixer/scripts/` | Hata durumunda geri dönüş |
-| `update-all-customers.sh` | `deploy/` | Sizin PC'de, tüm müşterileri günceller |
-| `customers.txt` | `deploy/` | Müşteri listesi |
-
-### Kullanım
-
-#### Tek Müşteri Güncelleme (SSH ile)
-```bash
-ssh root@musteri.com "bash /opt/clixer/scripts/update.sh v4.0.6"
-```
-
-#### Tüm Müşterileri Güncelleme (Sizin PC'den)
-```bash
-# Müşteri listesini düzenle
-nano deploy/customers.txt
-
-# Tüm müşterileri güncelle
-bash deploy/update-all-customers.sh v4.0.6
-
-# veya latest (master branch)
-bash deploy/update-all-customers.sh
-```
-
-### customers.txt Formatı
-
-```
-# Yorum satırları # ile başlar
-root@192.168.1.100     # Test sunucusu
-root@musteri-a.com     # Müşteri A
-clixer@musteri-b.com   # Müşteri B
-```
-
-### Güncelleme Akışı
-
-```
-┌─────────────────┐
-│  Sizin PC       │
-│  (Developer)    │
-└────────┬────────┘
-         │ bash deploy/update-all-customers.sh v4.0.6
-         │
-    ┌────┴────┬────────┬────────┐
-    ▼         ▼        ▼        ▼
-┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐
-│  SSH  │ │  SSH  │ │  SSH  │ │  SSH  │
-└───┬───┘ └───┬───┘ └───┬───┘ └───┬───┘
-    ▼         ▼        ▼        ▼
-┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐
-│Müşteri│ │Müşteri│ │Müşteri│ │Müşteri│
-│   1   │ │   2   │ │   3   │ │   4   │
-│update │ │update │ │update │ │update │
-│ .sh   │ │ .sh   │ │ .sh   │ │ .sh   │
-└───────┘ └───────┘ └───────┘ └───────┘
-```
-
-### update.sh Yapılanları
-
-1. ✅ Mevcut versiyonu kaydet (rollback için)
-2. ✅ PostgreSQL yedeği al
-3. ✅ Git pull (belirtilen versiyon)
-4. ✅ npm install (tüm servisler)
-5. ✅ npm run build
-6. ✅ **Veritabanı migrasyonları** (varsa)
-7. ✅ PM2 reload (zero-downtime)
-8. ✅ Health check
-
-### Migrasyon Sistemi
-
-Yeni şema değişiklikleri `migrations/` dizinindeki SQL dosyaları ile uygulanır.
-
-**Dosya Adı Formatı:**
-```
-YYYYMMDD_NNN_aciklama.sql
-Örnek: 20260106_001_add_phone_column.sql
-```
-
-**Örnek Migrasyon:**
-```sql
--- Migration: 20260106_001_add_phone_column
-ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
-```
-
-**Kurallar:**
-- Her migrasyon sadece BİR KEZ çalışır (`_migrations` tablosunda kaydedilir)
-- Alfabetik sıraya göre çalışır
-- `IF NOT EXISTS` / `IF EXISTS` kullanarak idempotent olmalı
-
-### 🔒 Güncelleme Güvenliği
-
-| Bileşen | Güncellemede? | Neden? |
-|---------|---------------|--------|
-| PostgreSQL verileri | ❌ DEĞİŞMEZ | Docker volume'da |
-| ClickHouse verileri | ❌ DEĞİŞMEZ | Docker volume'da |
-| Kullanıcı tasarımları | ❌ DEĞİŞMEZ | PostgreSQL'de |
-| Metrikler, yetkiler | ❌ DEĞİŞMEZ | PostgreSQL'de |
-| .env dosyası | ❌ DEĞİŞMEZ | Git'te değil |
-| Kod dosyaları | ✅ GÜNCELLENİR | Git'ten çekilir |
-| npm paketleri | ✅ GÜNCELLENİR | npm install |
-
-### Rollback (Geri Dönüş)
-
-```bash
-# Müşteri sunucusunda
-bash /opt/clixer/scripts/rollback.sh
-
-# veya belirli backup
-bash /opt/clixer/scripts/rollback.sh /opt/clixer-backups/20260106_150000
-```
-
-### SSH Key Ayarı (Önerilir)
-
-Şifresiz SSH bağlantısı için:
-
-```bash
-# Sizin PC'de
-ssh-keygen -t ed25519 -C "clixer-deploy"
-
-# Her müşteriye key'i kopyala
-ssh-copy-id root@musteri.com
-```
-
-### Log Dosyaları
-
-- Güncelleme logları: `deploy/update_YYYYMMDD_HHMMSS.log`
-- Her müşteri için detaylı çıktı
-- Başarılı/başarısız özet
-
-### Versiyon Yönetimi
-
-| Format | Örnek | Kullanım |
-|--------|-------|----------|
-| `vX.Y.Z` | `v4.0.6` | Sabit versiyon (önerilir) |
-| `latest` | - | master branch son hali |
-
-**Öneri:** Production'da her zaman sabit versiyon kullanın (v4.0.6 gibi)
-
----
-
-## 🔴🔴🔴 GÜNCELLEME ÖNCESİ KONTROL LİSTESİ (ZORUNLU!)
-
-### MUTLAK KURAL: Şema değişikliği = Migration dosyası ZORUNLU!
-
-**Prensip:** Veritabanı şemasında yapılan HER değişiklik için `migrations/` altına SQL dosyası eklenmeli. Aksi halde müşteri sunucularında HATA oluşur!
-
-### ⚠️ Migration Gerektiren Değişiklikler
-
-| Değişiklik Tipi | Migration Gerekli mi? | Örnek |
-|-----------------|----------------------|-------|
-| Yeni kolon ekleme | ✅ EVET | `ALTER TABLE ADD COLUMN` |
-| Kolon silme | ✅ EVET | `ALTER TABLE DROP COLUMN` |
-| Kolon tipi değiştirme | ✅ EVET | `ALTER TABLE ALTER COLUMN` |
-| Yeni tablo oluşturma | ✅ EVET | `CREATE TABLE` |
-| Tablo silme | ✅ EVET | `DROP TABLE` |
-| Index ekleme | ✅ EVET | `CREATE INDEX` |
-| Constraint ekleme | ✅ EVET | `ALTER TABLE ADD CONSTRAINT` |
-| Varsayılan değer değiştirme | ✅ EVET | `ALTER TABLE ALTER COLUMN SET DEFAULT` |
-
-### ❌ Migration GEREKMEyen Değişiklikler
-
-| Değişiklik Tipi | Neden? |
-|-----------------|--------|
-| Bug fix (kod) | Git pull ile gider |
-| Yeni API endpoint | Git pull ile gider |
-| Frontend değişikliği | Git pull ile gider |
-| Yeni npm paketi | npm install ile gider |
-| ecosystem.config.js | Git pull ile gider |
-
-### 📋 Güncelleme Öncesi Checklist
-
-**Güncelleme göndermeden önce şu soruları sor:**
-
-```
-□ Veritabanı şemasında değişiklik yaptım mı?
-  → EVET ise: migrations/ altına SQL dosyası ekledim mi?
-  
-□ Yeni servis ekledim mi?
-  → EVET ise: ecosystem.config.js'te tanımladım mı?
-  
-□ Yeni npm paketi ekledim mi?
-  → EVET ise: package.json'a eklendi (otomatik)
-  
-□ .env'de yeni değişken var mı?
-  → EVET ise: Müşteriye manuel bildirilmeli!
-  
-□ ClickHouse'da yeni tablo gerekli mi?
-  → EVET ise: ETL veya init script'e eklenmeli
-```
-
-### 🚨 HATA SENARYOSU (Migration Unutulursa)
-
-```
-1. Kod: SELECT new_column FROM users → Çalışır (sizde var)
-2. Git push → Kod gider
-3. Müşteri update.sh → Kod güncellenir
-4. Uygulama başlar → HATA!
-   "ERROR: column new_column does not exist"
-
-ÇÖZÜM: Migration dosyası ekle, tekrar push et, tekrar güncelle
-```
-
-### ✅ DOĞRU İŞ AKIŞI
-
-```bash
-# 1. Kod değişikliği yap
-
-# 2. Şema değişikliği varsa migration ekle
-cat > migrations/20260106_001_add_status.sql << 'EOF'
--- Migration: 20260106_001_add_status
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS status VARCHAR(50);
-EOF
-
-# 3. ecosystem.config.js güncelle (yeni servis varsa)
-
-# 4. Commit + push + tag
-git add -A
-git commit -m "v4.0.8 - Yeni özellik + migration"
-git push origin master
-git tag -a v4.0.8 -m "Yeni özellik"
-git push origin v4.0.8
-
-# 5. Müşterilere gönder
-bash deploy/update-all-customers.sh v4.0.8
-```
-
-### 📝 Migration Dosyası Şablonu
-
-```sql
--- Migration: YYYYMMDD_NNN_aciklama
--- Açıklama: Ne yapıldığını yaz
--- Tarih: YYYY-MM-DD
--- Geliştirici: İsim
-
--- Kolon ekleme
-ALTER TABLE table_name ADD COLUMN IF NOT EXISTS column_name TYPE;
-
--- Kolon silme (DİKKAT: Veri kaybı!)
-ALTER TABLE table_name DROP COLUMN IF EXISTS column_name;
-
--- Tablo oluşturma
-CREATE TABLE IF NOT EXISTS table_name (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Index ekleme
-CREATE INDEX IF NOT EXISTS idx_table_column ON table_name(column_name);
-```
-
-### 🔒 .env Değişikliği Durumu
-
-**.env dosyası Git'te DEĞİL!** Yeni environment variable eklerseniz:
-
-1. `env.example` dosyasını güncelleyin
-2. Müşteriye ayrıca bildirin (email/telefon)
-3. Müşteri `.env` dosyasını manuel güncellemeli
-
-```bash
-# Müşteri sunucusunda (SSH ile)
-nano /opt/clixer/.env
-# Yeni değişkeni ekle
-# Servisleri yeniden başlat
-pm2 reload all
-```
-
----
-
-## 🔴🔴🔴 PRODUCTION FİNAL KONTROL LİSTESİ (6 Ocak 2026)
-
-### ✅ HAZIR OLANLAR
-
-| Kategori | Dosya/Sistem | Durum |
-|----------|--------------|-------|
-| Install Script | `deploy/install-ubuntu.sh` | ✅ Git clone + random secrets |
-| Update Script | `scripts/update.sh` | ✅ Git pull + migrate + PM2 reload |
-| Rollback Script | `scripts/rollback.sh` | ✅ Version revert + DB restore |
-| Migration System | `scripts/migrate.sh` + `migrations/` | ✅ İdempotent SQL |
-| Health Check | `scripts/health-check.sh` | ✅ Docker + API + DB |
-| PM2 Config | `ecosystem.config.js` | ✅ Cluster mode (400+ user) |
-| Nginx Reverse Proxy | Install script'te | ✅ Otomatik yapılandırma |
-| Firewall (UFW) | Install script'te | ✅ 22, 80, 443 açık |
-| SSL | README'de | ✅ Certbot komutu |
-| Fail2ban | Install script'te | ✅ Brute force koruması |
-| PostgreSQL Seed | `00-schema-and-seed.sql` | ✅ Temiz admin@clixer |
-| Multi-customer Update | `deploy/update-all-customers.sh` | ✅ Bash + SSH |
-| Environment Template | `env.example` | ✅ Müşteri referansı |
-| Production Guide | `deploy/README-PRODUCTION.md` | ✅ Adım adım talimatlar |
-| WebSocket | Socket.IO | ✅ Real-time entegre |
-| Excel/CSV Import | data-service | ✅ Dataset olarak yükleme |
-| LFL Calendar | analytics-service | ✅ Özel takvim referansı |
-
-### 🟡 DİKKAT EDİLMESİ GEREKENLER
-
-| Risk | Önlem | Nasıl? |
-|------|-------|--------|
-| İlk admin şifresi biliniyor | Müşteriye ilk girişte değiştirmesi söylenmeli | Install script çıktısında var |
-| SSL kurulmamış | Certbot çalıştırılmalı | `sudo certbot --nginx -d domain.com` |
-| `.env` şifreleri kaybolabilir | Güvenli yerde yedeklemeli | Script uyarıyor |
-| ClickHouse disk dolabilir | Partition temizliği yapılmalı | UI'dan veya TTL policy |
-| PM2 startup yapılandırılmamış | Script otomatik yapıyor | Kontrol: `pm2 startup` |
-
-### 📋 MÜŞTERİ KURULUM SONRASI CHECKLIST
-
-```
-□ 1. Servisleri başlat: sudo -u clixer /opt/clixer/scripts/start-production.sh
-□ 2. SSL al: sudo certbot --nginx -d analytics.domain.com
-□ 3. Sistemi test et: http://domain.com → Login sayfası görünmeli
-□ 4. Admin girişi: admin@clixer / Admin1234!
-□ 5. Admin şifresini DEĞİŞTİR! (Profil → Güvenlik)
-□ 6. PM2 durumunu kontrol et: pm2 status
-□ 7. .env dosyasını yedekle: cp /opt/clixer/.env ~/clixer-env-backup.txt
-□ 8. Health check: bash /opt/clixer/scripts/health-check.sh
-```
-
-### 🔧 GÜNCELLEME GÖNDERME AKIŞI
-
-```bash
-# 1. Yerel değişiklikleri commit et
-git add -A
-git commit -m "v4.1.0 - Yeni özellik açıklaması"
-
-# 2. GitHub'a push et
-git push origin master
-
-# 3. Tag oluştur (önerilir)
-git tag -a v4.1.0 -m "Yeni özellik açıklaması"
-git push origin v4.1.0
-
-# 4. Tüm müşterileri güncelle
-bash deploy/update-all-customers.sh v4.1.0
-```
-
-### 🚨 ACIL DURUM SENARYOLARI
-
-| Senaryo | Çözüm |
-|---------|-------|
-| Güncelleme sonrası hata | `bash /opt/clixer/scripts/rollback.sh` |
-| Servis çöktü | `pm2 restart all` veya `pm2 logs` ile hata bul |
-| PostgreSQL bağlanamıyor | `docker restart clixer_postgres` |
-| ClickHouse bağlanamıyor | `docker restart clixer_clickhouse` |
-| Redis bağlanamıyor | `docker restart clixer_redis` |
-| 401 hataları | JWT secret kontrolü, `pm2 restart clixer-auth` |
-| Disk doldu | `docker system prune -a` veya ClickHouse partition sil |
-
-### 📁 DOSYA YAPISI ÖZETİ
-
-```
-/opt/clixer/
-├── .env                    # Şifreler (GIT'TE DEĞİL!)
-├── env.example             # Şablon
-├── ecosystem.config.js     # PM2 ayarları
-├── deploy/
-│   ├── install-ubuntu.sh   # İlk kurulum
-│   ├── update-all-customers.sh
-│   ├── customers.txt       # Müşteri listesi
-│   └── README-PRODUCTION.md
-├── scripts/
-│   ├── update.sh           # Tek müşteri güncellemesi
-│   ├── rollback.sh         # Geri dönüş
-│   ├── migrate.sh          # DB migrasyonları
-│   ├── health-check.sh     # Sağlık kontrolü
-│   ├── start-production.sh # Servisleri başlat
-│   └── stop-production.sh  # Servisleri durdur
-├── migrations/             # SQL migration dosyaları
-├── docker/
-│   ├── docker-compose.yml
-│   └── clickhouse/users.xml
-├── db-backup/
-│   └── postgresql_full.sql # Temiz seed
-├── frontend/
-├── gateway/
-├── services/
-│   ├── auth-service/
-│   ├── core-service/
-│   ├── data-service/
-│   ├── analytics-service/
-│   ├── notification-service/
-│   └── etl-worker/
-└── shared/
-```
-
----
-
-## 📅 v4.1.0 - 6 Ocak 2026
-
-**🚀 Production Ready Release**
-
-### Tamamlanan Özellikler
-
-1. ✅ `env.example` dosyası oluşturuldu (müşteri referans şablonu)
-2. ✅ Production Final Kontrol Listesi .cursorrules'a eklendi
-3. ✅ Müşteri Kurulum Sonrası Checklist eklendi
-4. ✅ Acil Durum Senaryoları dokümante edildi
-5. ✅ Dosya yapısı özeti eklendi
-6. ✅ Güncelleme gönderme akışı detaylandırıldı
-7. ✅ GitHub tag: `v4.1.0` oluşturuldu ve push edildi
-
-### env.example Dosyası Hakkında
-
-| Özellik | Açıklama |
-|---------|----------|
-| **Amaç** | Müşteri referans şablonu - hangi environment değişkenlerinin gerekli olduğunu gösterir |
-| **Güvenlik** | ✅ GÜVENLİ - Gerçek şifre içermiyor, sadece `CHANGE_ME_...` placeholder'ları var |
-| **Git'te mi?** | ✅ EVET - Tüm geliştiriciler ve müşteriler görebilir (tehlikeli değil) |
-| **Müşteri düzenleyecek mi?** | ❌ HAYIR - `install-ubuntu.sh` scripti otomatik doldurur |
-
-**Dosya Farkı:**
-```
-env.example = ŞABLON (Git'te OLUR, herkes görebilir, şifre YOK)
-.env         = GERÇEK (Git'te OLMAZ, sunucuda GİZLİ, şifreler VAR)
-```
-
-### Müşteri Kurulumu
-
-```bash
-# Ubuntu sunucusunda tek komutla kurulum
-curl -fsSL https://raw.githubusercontent.com/absadama/clixer_windows/main/deploy/install-ubuntu.sh | sudo bash
-
-# SSL sertifikası (önerilir)
-sudo certbot --nginx -d analytics.domain.com
-```
-
-**Giriş Bilgileri:**
-- URL: `http://SUNUCU_IP` veya `https://domain.com`
-- Email: `admin@clixer`
-- Şifre: `Admin1234!` (⚠️ İlk girişte DEĞİŞTİRİLMELİ!)
-
----
-
-**🎉 Tüm Sistemler PRODUCTION READY!**
-
----
-
-## 🔴🔴🔴 MÜŞTERİ SUNUCU KURULUM HATALARI VE ÇÖZÜMLERİ (6 Ocak 2026)
-
-### Bu bölüm gerçek müşteri kurulumunda yaşanan sorunları ve çözümlerini içerir.
-
----
-
-### HATA 1: ecosystem.config.js'de CORS_ORIGIN Eksik
-
-**Belirti:** Login isteği CORS hatası veriyor:
-```
-Access to XMLHttpRequest at 'http://IP:4000/auth/login' from origin 'http://IP:3000' 
-has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header
-```
-
-**Kök Neden:** 
-- `ecosystem.config.js` dosyasındaki gateway env bloğunda `CORS_ORIGIN` tanımlı değildi
-- Gateway kodu `.env` dosyasından `CORS_ORIGIN` okuyordu ama PM2 bu değişkeni yüklemiyordu
-
-**Çözüm - ecosystem.config.js'e CORS_ORIGIN ekle:**
-```javascript
-// ecosystem.config.js - gateway bloğu
-{
-  name: 'gateway',
-  script: './gateway/dist/index.js',
-  instances: 4,
-  exec_mode: 'cluster',
-  max_memory_restart: '500M',
-  env: {
-    NODE_ENV: 'production',
-    PORT: 4000,
-    CORS_ORIGIN: 'http://SUNUCU_IP:3000,http://SUNUCU_IP,http://localhost:3000'  // ← BU SATIR ZORUNLU!
-  },
-  // ...
-}
-```
-
-**Kurulum Scripti Güncellemesi:**
-`deploy/install-ubuntu.sh` scriptine eklenmeli:
-```bash
-# ecosystem.config.js'de CORS_ORIGIN güncelle
-sed -i "s|CORS_ORIGIN: '.*'|CORS_ORIGIN: 'http://${SERVER_IP}:3000,http://${SERVER_IP},http://localhost:3000'|g" /opt/clixer/ecosystem.config.js
-```
-
----
-
-### HATA 2: Frontend VITE_API_URL Sonunda /api Eksik
-
-**Belirti:** Login isteği 404 dönüyor:
-```
-POST /auth/login {"status":404}
-```
-Gateway loglarında `/auth/login` görünüyor ama Gateway route'ları `/api/auth` şeklinde.
-
-**Kök Neden:**
-- `frontend/.env.production` dosyasında `VITE_API_URL=http://IP:4000` (sonunda `/api` YOK!)
-- Frontend `api.post('/auth/login')` çağırıyor
-- Ama Gateway route'ları `/api/auth/*` şeklinde tanımlı
-
-**Çözüm - VITE_API_URL'e /api ekle:**
-```bash
-# frontend/.env.production
-VITE_API_URL=http://SUNUCU_IP:4000/api   # ← Sonunda /api OLMALI!
-```
-
-**Kurulum Scripti Güncellemesi:**
-`deploy/install-ubuntu.sh` scriptine eklenmeli:
-```bash
-# Frontend .env.production oluştur
-echo "VITE_API_URL=http://${SERVER_IP}:4000/api" > /opt/clixer/frontend/.env.production
-```
-
----
-
-### HATA 3: Firewall Portları Kapalı
-
-**Belirti:** Tarayıcıdan sunucuya erişilemiyor:
-```
-ERR_CONNECTION_TIMED_OUT
-```
-
-**Kök Neden:** UFW firewall 3000 ve 4000 portlarını engelliyor.
-
-**Çözüm:**
-```bash
-sudo ufw allow 22/tcp    # SSH
-sudo ufw allow 80/tcp    # HTTP
-sudo ufw allow 443/tcp   # HTTPS
-sudo ufw allow 3000/tcp  # Frontend
-sudo ufw allow 4000/tcp  # Gateway
-sudo ufw enable
-```
-
----
-
-### HATA 4: Frontend Servisi Başlatılmamış
-
-**Belirti:** `http://IP:3000` açılmıyor ama Gateway çalışıyor.
-
-**Kök Neden:** `ecosystem.config.js`'de frontend tanımlı değil, ayrıca başlatılmalı.
-
-**Çözüm:**
-```bash
-# Frontend'i PM2 ile başlat
-sudo -u clixer pm2 start "npm run preview -- --host 0.0.0.0 --port 3000" \
-  --name frontend --cwd /opt/clixer/frontend
-```
-
-**Alternatif - ecosystem.config.js'e frontend ekle:**
-```javascript
-{
-  name: 'frontend',
-  script: 'npm',
-  args: 'run preview -- --host 0.0.0.0 --port 3000',
-  cwd: './frontend',
-  instances: 1,
-  exec_mode: 'fork',
-  env: {
-    NODE_ENV: 'production'
-  }
-}
-```
-
----
-
-### 📋 KURULUM ÖNCESİ KONTROL LİSTESİ (Gelecek Kurulumlar İçin)
-
-Kurulum scriptini çalıştırmadan önce şunları kontrol et:
-
-| # | Kontrol | Dosya | Değer |
-|---|---------|-------|-------|
-| 1 | CORS_ORIGIN | `ecosystem.config.js` | Gateway env'de SUNUCU_IP ile tanımlı mı? |
-| 2 | VITE_API_URL | `frontend/.env.production` | `http://IP:4000/api` (sonunda /api var mı?) |
-| 3 | Firewall | UFW | 22, 80, 443, 3000, 4000 açık mı? |
-| 4 | Frontend PM2 | PM2 status | frontend servisi çalışıyor mu? |
-| 5 | CORS değişkeni | `pm2 env gateway \| grep CORS` | CORS_ORIGIN görünüyor mu? |
-
----
-
-### 🔧 KURULUM SCRIPTI GÜNCELLEMELERİ
-
-`deploy/install-ubuntu.sh` dosyasına eklenecekler:
-
-```bash
-# 1. Sunucu IP'sini al
-SERVER_IP=$(hostname -I | awk '{print $1}')
-
-# 2. ecosystem.config.js'de CORS_ORIGIN güncelle
-sed -i "s|CORS_ORIGIN: '.*'|CORS_ORIGIN: 'http://${SERVER_IP}:3000,http://${SERVER_IP},http://localhost:3000'|g" /opt/clixer/ecosystem.config.js
-
-# 3. Frontend .env.production oluştur
-echo "VITE_API_URL=http://${SERVER_IP}:4000/api" > /opt/clixer/frontend/.env.production
-
-# 4. Frontend build
-cd /opt/clixer/frontend && npm run build
-
-# 5. Firewall ayarları
-ufw allow 3000/tcp
-ufw allow 4000/tcp
-
-# 6. Frontend'i PM2'ye ekle
-pm2 start "npm run preview -- --host 0.0.0.0 --port 3000" --name frontend --cwd /opt/clixer/frontend
-pm2 save
-```
-
----
-
-### 📅 v4.2.0 - 6 Ocak 2026
-
-**Müşteri Sunucu Kurulum Düzeltmeleri**
-
-1. ✅ CORS_ORIGIN artık ecosystem.config.js'de tanımlı
-2. ✅ VITE_API_URL sonunda /api var
-3. ✅ Firewall portları (3000, 4000) açık
-4. ✅ Frontend PM2 ile başlatılıyor
-5. ✅ Kurulum scripti güncellemeleri dokümante edildi
-6. ✅ Kontrol listesi oluşturuldu
-
-**Test Edilen Ortam:**
-- Ubuntu 22.04 LTS
-- PM2 cluster mode
-- Sunucu IP: 20.10.10.30
-
-**Giriş Bilgileri:**
-- URL: `http://20.10.10.30:3000`
-- Email: `admin@clixer`
-- Şifre: `Admin1234!`
-
----
+- **Backup:** `backups/v4.0_customer_install_fixes_YYYYMMDD/`
+- **GitHub Tag:** `v4.0`

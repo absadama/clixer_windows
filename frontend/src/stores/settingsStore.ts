@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { useAuthStore } from './authStore'
 
-const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 
 interface MenuPermission {
   menu_key: string
@@ -45,9 +45,6 @@ interface SettingsState {
   // Menü izinleri
   menuPermissions: MenuPermission[]
   
-  // Dinamik etiketler
-  positionLabels: Record<string, string>
-  
   // Loading state
   isLoading: boolean
   isLoaded: boolean
@@ -55,33 +52,21 @@ interface SettingsState {
   // Actions
   loadSettings: (accessToken: string) => Promise<void>
   loadMenuPermissions: (accessToken: string, positionCode: string) => Promise<void>
-  loadPositionLabels: (accessToken: string) => Promise<void>
   canViewMenu: (menuKey: string) => boolean
   canEditMenu: (menuKey: string) => boolean
   canViewFinanceSection: (section: string, positionCode?: string) => boolean
   getSetting: (key: string) => string | undefined
-  getPositionLabel: (code: string) => string
 }
 
 // Tüm pozisyonlar
 const ALL_POSITIONS = ['GENERAL_MANAGER', 'DIRECTOR', 'REGION_MANAGER', 'STORE_MANAGER', 'ANALYST', 'VIEWER']
-
-// Varsayılan pozisyon etiketleri (ASCII - Türkçe karaktersiz)
-const DEFAULT_POSITION_LABELS: Record<string, string> = {
-  GENERAL_MANAGER: 'Genel Mudur',
-  DIRECTOR: 'Direktor',
-  REGION_MANAGER: 'Bolge Muduru',
-  STORE_MANAGER: 'Magaza Muduru',
-  ANALYST: 'Analist',
-  VIEWER: 'Izleyici'
-}
 
 // Varsayılan değerler
 const defaultSettings = {
   appName: 'Clixer',
   appLogo: '/logo.png',
   appFavicon: '/favicon.ico',
-  defaultTheme: 'clixer' as const, // Clixer teması varsayılan
+  defaultTheme: 'light' as const,
   defaultLanguage: 'tr' as const,
   dateFormat: 'DD.MM.YYYY',
   currency: 'TRY',
@@ -106,7 +91,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Varsayılan değerler
   ...defaultSettings,
   menuPermissions: [],
-  positionLabels: DEFAULT_POSITION_LABELS,
   isLoading: false,
   isLoaded: false,
 
@@ -125,7 +109,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       })
       
       if (!response.ok) {
-        // 401 hatasını sessizce geç (token henüz hazır değil)
+        console.warn('Settings could not be loaded')
         set({ isLoading: false, isLoaded: true })
         return
       }
@@ -243,8 +227,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }
       
       set({ ...updates, isLoading: false, isLoaded: true })
-    } catch (_error) {
-      // 401 hatalarını sessizce geç - token yenileme devreye girecek
+    } catch (error) {
+      console.error('Settings load error:', error)
       set({ isLoading: false, isLoaded: true })
     }
   },
@@ -252,7 +236,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Menü izinlerini yükle
   loadMenuPermissions: async (accessToken: string, positionCode: string) => {
     if (!accessToken || !positionCode) {
-      // Token veya pozisyon yoksa sessizce çık
+      console.warn('[SETTINGS] Missing token or position code for menu permissions')
       return
     }
     
@@ -265,7 +249,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       })
       
       if (!response.ok) {
-        // 401 hatasını sessizce geç
+        console.warn('Menu permissions could not be loaded')
         return
       }
       
@@ -273,8 +257,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const permissions = result.data || []
       
       set({ menuPermissions: permissions })
-    } catch (_error) {
-      // 401 hatalarını sessizce geç - token yenileme devreye girecek
+    } catch (error) {
+      console.error('Menu permissions load error:', error)
     }
   },
 
@@ -286,16 +270,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const user = useAuthStore.getState().user
     if (user?.role === 'ADMIN') return true
     
-    // Profil her zaman erişilebilir
-    if (menuKey === 'profile') return true
-    
-    // İzin listesi boşsa (henüz yüklenmemiş) bekle
-    if (menuPermissions.length === 0) return false
+    // İzin tanımlanmamışsa varsayılan olarak göster (geriye uyumluluk)
+    if (menuPermissions.length === 0) return true
     
     const permission = menuPermissions.find(p => p.menu_key === menuKey)
     
-    // Bu menü için izin tanımlanmamışsa GÖSTERİLMEZ (güvenli varsayılan)
-    if (!permission) return false
+    // Bu menü için izin tanımlanmamışsa göster
+    if (!permission) return true
     
     return permission.can_view
   },
@@ -349,35 +330,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   getSetting: (key: string) => {
     const state = get() as any
     return state[key]
-  },
-
-  // Pozisyon etiketlerini yükle
-  loadPositionLabels: async (accessToken: string) => {
-    if (!accessToken) return
-    
-    try {
-      const response = await fetch(`${API_BASE}/core/labels/position`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      
-      if (response.ok) {
-        const result = await response.json()
-        if (result.data) {
-          set({ positionLabels: { ...DEFAULT_POSITION_LABELS, ...result.data } })
-        }
-      }
-    } catch {
-      // Hata durumunda varsayılan etiketler kullanılır
-    }
-  },
-
-  // Pozisyon etiketi getir
-  getPositionLabel: (code: string) => {
-    const { positionLabels } = get()
-    return positionLabels[code] || DEFAULT_POSITION_LABELS[code] || code
   }
 }))
 

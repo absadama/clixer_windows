@@ -30,9 +30,7 @@
     "react-sparklines": "^1.7.0",
     "recharts": "^2.10.3",
     "xlsx": "^0.18.5",
-    "zustand": "^4.4.7",
-    "socket.io-client": "^4.7.4",
-    "sonner": "^1.7.4"
+    "zustand": "^4.4.7"
   },
   "devDependencies": {
     "@types/file-saver": "^2.0.7",

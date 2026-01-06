@@ -5,7 +5,7 @@
 
 import { create } from 'zustand'
 
-const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 
 // Tarih seçenekleri
 export const DATE_PRESETS = [
@@ -191,8 +191,8 @@ export const useFilterStore = create<FilterState>((set, get) => ({
         // Varsayılan: tüm mağazalar seçili
         selectedStoreIds: stores.map((s: Store) => s.id)
       })
-    } catch (_error) {
-      // 401 hatalarını sessizce geç - token yenileme devreye girecek
+    } catch (error) {
+      console.error('[FILTER] Load error:', error)
       set({ isLoading: false, isLoaded: true })
     }
   },

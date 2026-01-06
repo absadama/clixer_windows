@@ -40,7 +40,6 @@ interface Design {
   }
   widgets?: Widget[]
   targetRoles?: string[]
-  allowed_positions?: string[] // 🔴 GÜVENLİK: Pozisyon bazlı yetkilendirme
 }
 
 interface MetricData {
@@ -88,23 +87,23 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         type: d.type || 'cockpit',
         description: d.description,
         targetRoles: d.target_roles || d.targetRoles || ['ADMIN'],
-        allowed_positions: d.allowed_positions || d.allowedPositions || [], // 🔴 GÜVENLİK: Pozisyon bazlı yetkilendirme
         layoutConfig: d.layout_config || d.layoutConfig,
         widgets: d.layout_config?.widgets || d.layoutConfig?.widgets || []
       }))
       
       set({ designs: designsData, isLoading: false })
       
-      // 🔴 GÜVENLİK: Auto-select KALDIRILDI!
-      // Store kullanıcının pozisyonunu bilmiyor, bu yüzden yetkisiz tasarımı seçebilir.
-      // Auto-select işlemi DashboardPage.tsx'de accessibleDesigns ile yapılmalı.
-    } catch (error: any) {
-      // 401 hatalarını sessizce geç - token yenileme devreye girecek
-      if (error.response?.status !== 401) {
-        set({ error: error.message, isLoading: false })
-      } else {
-        set({ isLoading: false })
+      // Auto-select first cockpit design with widgets if none selected
+      const cockpitDesigns = designsData.filter((d: Design) => d.type === 'cockpit')
+      const withWidgets = cockpitDesigns.find((d: Design) => d.widgets && d.widgets.length > 0)
+      const firstCockpit = withWidgets || cockpitDesigns[0]
+      
+      if (firstCockpit && !get().currentDesign) {
+        get().selectDesign(firstCockpit.id)
       }
+    } catch (error: any) {
+      console.warn('Tasarım yükleme hatası:', error.message)
+      set({ error: error.message, isLoading: false })
     }
   },
 
@@ -199,7 +198,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         lastUpdated: new Date(),
       })
     } catch (error: any) {
-      // 401 hatalarını sessizce geç - token yenileme devreye girecek
+      console.warn('Dashboard veri yükleme hatası:', error.message)
+      // Don't fail completely, just log and continue
       set({ isLoading: false, lastUpdated: new Date() })
     }
   },

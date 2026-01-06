@@ -41,15 +41,14 @@ import {
   TrendingUp,
   AlertTriangle,
   Wrench,
-  Search,
-  Upload
+  Search
 } from 'lucide-react'
 // Play ve Zap zaten import edilmiş
 import clsx from 'clsx'
 import { useAuthStore } from '../stores/authStore'
 
 // API Base URL
-const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 
 // ============================================
 // TYPES
@@ -1881,7 +1880,7 @@ export default function DataPage() {
               { type: 'postgresql', name: 'PostgreSQL', icon: Server, color: 'from-blue-500 to-indigo-500' },
               { type: 'mssql', name: 'SQL Server', icon: Database, color: 'from-red-500 to-orange-500' },
               { type: 'api', name: 'REST API', icon: Globe, color: 'from-emerald-500 to-teal-500', disabled: true },
-              { type: 'excel', name: 'Excel / CSV', icon: FileSpreadsheet, color: 'from-green-500 to-lime-500' },
+              { type: 'excel', name: 'Excel / CSV', icon: FileSpreadsheet, color: 'from-green-500 to-lime-500', disabled: true },
             ].map((source) => (
               <button
                 key={source.type}
@@ -6843,9 +6842,6 @@ function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection, theme,
   const [filePath, setFilePath] = useState('')
   const [sheetName, setSheetName] = useState('')
   const [hasHeader, setHasHeader] = useState(true)
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [uploadResult, setUploadResult] = useState<any>(null)
-  const [uploading, setUploading] = useState(false)
   
   // Ortak alanlar
   const [name, setName] = useState('')
@@ -6857,8 +6853,7 @@ function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection, theme,
 
   // API call helper
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
-    const apiBase = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`;
-    const response = await fetch(`${apiBase}${endpoint}`, {
+    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}${endpoint}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -7024,66 +7019,14 @@ function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection, theme,
             : undefined
         }
       } else if (category === 'excel') {
-        // Excel/CSV için dosya yükle
-        if (!selectedFile) {
-          alert('Lütfen bir dosya seçin')
-          setSaving(false)
-          return
+        savePayload = {
+          ...savePayload,
+          type: 'excel',
+          filePath,
+          fileType,
+          sheetName,
+          hasHeader
         }
-        
-        setUploading(true)
-        const formData = new FormData()
-        formData.append('file', selectedFile)
-        formData.append('hasHeader', String(hasHeader))
-        if (sheetName) formData.append('sheetName', sheetName)
-        
-        try {
-          const uploadResponse = await fetch(`${API_BASE}/data/files/upload`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${accessToken}` },
-            body: formData
-          })
-          
-          if (!uploadResponse.ok) {
-            throw new Error('Dosya yüklenemedi')
-          }
-          
-          const uploadData = await uploadResponse.json()
-          setUploadResult(uploadData.data)
-          
-          // Dataset olarak import et
-          const importResponse = await fetch(`${API_BASE}/data/files/${uploadData.data.fileId}/import`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              datasetName: name,
-              sheetName,
-              columns: uploadData.data.columns.map((col: any) => ({
-                name: col.name.toLowerCase().replace(/[^a-z0-9]/g, '_'),
-                originalName: col.name,
-                clickhouseType: col.type
-              }))
-            })
-          })
-          
-          if (importResponse.ok) {
-            const importData = await importResponse.json()
-            alert(`${importData.data.rowsImported} satır başarıyla içe aktarıldı!`)
-            onSuccess?.()
-            onClose()
-          } else {
-            throw new Error('Import işlemi başarısız')
-          }
-        } catch (err: any) {
-          alert('Dosya yükleme hatası: ' + err.message)
-        } finally {
-          setUploading(false)
-          setSaving(false)
-        }
-        return
       }
       
       // Düzenleme modunda PUT, yeni bağlantıda POST
@@ -7442,36 +7385,16 @@ function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection, theme,
                   </div>
                 </div>
 
-                {/* File Upload */}
+                {/* File Path */}
                 <div className="mb-4">
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Dosya Yükle</label>
-                  <div className={clsx('border-2 border-dashed rounded-xl p-6 text-center transition-colors', 
-                    isDark ? 'border-slate-600 hover:border-slate-500' : 'border-slate-300 hover:border-slate-400'
-                  )}>
-                    <input
-                      type="file"
-                      id="excel-file-input"
-                      accept=".xlsx,.xls,.csv"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                          setFilePath(file.name)
-                          // @ts-ignore - dosyayı geçici olarak state'e kaydet
-                          setSelectedFile(file)
-                        }
-                      }}
-                      className="hidden"
-                    />
-                    <label htmlFor="excel-file-input" className="cursor-pointer">
-                      <Upload className={clsx('h-10 w-10 mx-auto mb-3', theme.contentTextMuted)} />
-                      <p className={clsx('font-medium', theme.contentText)}>
-                        {filePath || 'Dosya seçmek için tıklayın'}
-                      </p>
-                      <p className={clsx('text-xs mt-1', theme.contentTextMuted)}>
-                        Excel (.xlsx, .xls) veya CSV desteklenir
-                      </p>
-                    </label>
-                  </div>
+                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Dosya Yolu veya URL</label>
+                  <input
+                    type="text"
+                    value={filePath}
+                    onChange={(e) => setFilePath(e.target.value)}
+                    placeholder="/data/sales.xlsx veya https://..."
+                    className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
+                  />
                 </div>
 
                 {/* Sheet Name (only for xlsx) */}

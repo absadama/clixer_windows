@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useDashboardStore } from '../stores/dashboardStore'
 import { useAuthStore } from '../stores/authStore'
 import { useFilterStore } from '../stores/filterStore'
 import { useTheme } from '../components/Layout'
-import { useSocket } from '../hooks/useSocket'
 import FilterBar from '../components/FilterBar'
 import { MapErrorBoundary } from '../components/MapErrorBoundary'
 import { 
@@ -77,19 +76,15 @@ const iconMap: Record<string, React.ComponentType<any>> = {
 // Renk paleti
 const CHART_COLORS = ['#14B8A6', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444', '#10B981', '#EC4899', '#6366F1']
 
-// Responsive hook - width ve height birlikte
+// Responsive hook
 const useWindowSize = () => {
   const [windowSize, setWindowSize] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
-    height: typeof window !== 'undefined' ? window.innerHeight : 800,
   })
 
   useEffect(() => {
     const handleResize = () => {
-      setWindowSize({ 
-        width: window.innerWidth,
-        height: window.innerHeight
-      })
+      setWindowSize({ width: window.innerWidth })
     }
     
     window.addEventListener('resize', handleResize)
@@ -108,49 +103,14 @@ export default function DashboardPage() {
   const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType } = useFilterStore()
   const [showDesignSelector, setShowDesignSelector] = useState(false)
   const { theme, isDark, currentTheme } = useTheme()
-  const { width, height } = useWindowSize()
-  
-  // WebSocket for real-time updates
-  const { isConnected, subscribe, unsubscribe, on } = useSocket()
+  const { width } = useWindowSize()
   
   // Pagination state for each widget
   const [widgetPages, setWidgetPages] = useState<Record<string, number>>({})
   
-  // WebSocket: Dashboard'a abone ol ve real-time güncellemeleri dinle
-  useEffect(() => {
-    if (!isConnected || !currentDesign?.id) return
-    
-    // Dashboard room'una abone ol
-    subscribe('dashboard', currentDesign.id)
-    
-    // Dashboard refresh event'ini dinle
-    const unsubRefresh = on('dashboard:refresh', (data) => {
-      if (data.designId === currentDesign.id) {
-        // Dashboard verilerini yenile (store filtreleri otomatik kullanır)
-        fetchDashboardData(currentDesign.id)
-      }
-    })
-    
-    // ETL tamamlandığında dashboard'ı yenile
-    const unsubEtl = on('etl:completed', () => {
-      if (currentDesign?.id) {
-        fetchDashboardData(currentDesign.id)
-      }
-    })
-    
-    return () => {
-      unsubscribe('dashboard', currentDesign.id)
-      unsubRefresh()
-      unsubEtl()
-    }
-  }, [isConnected, currentDesign?.id, subscribe, unsubscribe, on, fetchDashboardData])
-  
-  // Responsive breakpoints - Landscape için özel kontrol
-  const isLandscape = width > height
-  const isMobilePortrait = width < 768 && !isLandscape // Dikey telefon
-  const isMobileLandscape = width < 1024 && isLandscape && height < 500 // Yatay telefon
-  const isMobile = isMobilePortrait || isMobileLandscape
-  const isTablet = width >= 768 && width < 1024 && !isMobileLandscape
+  // Responsive breakpoints
+  const isMobile = width < 768
+  const isTablet = width >= 768 && width < 1024
 
   // Kullanıcı pozisyon kodu
   const userPositionCode = user?.positionCode || 'VIEWER'
@@ -188,15 +148,6 @@ export default function DashboardPage() {
   }, [startDate, endDate, selectedRegionId, selectedStoreIds.length, selectedStoreType, currentDesign?.id])
 
   useEffect(() => {
-    // 🔴 GÜVENLİK: Eğer mevcut tasarım artık erişilebilir değilse, temizle
-    if (currentDesign) {
-      const isCurrentAccessible = accessibleDesigns.some(d => d.id === currentDesign.id)
-      if (!isCurrentAccessible) {
-        // Yetkisiz tasarım seçili - temizle
-        useDashboardStore.setState({ currentDesign: null, widgets: [] })
-      }
-    }
-    
     // URL'den designId parametresini oku
     const urlParams = new URLSearchParams(window.location.search);
     const urlDesignId = urlParams.get('designId');
@@ -302,7 +253,7 @@ export default function DashboardPage() {
           className="relative gap-3 sm:gap-4 overflow-hidden"
           style={isMobile ? {
             display: 'grid',
-            gridTemplateColumns: isMobileLandscape ? 'repeat(2, 1fr)' : 'repeat(1, 1fr)', // Yatay: 2 kolon, Dikey: 1 kolon
+            gridTemplateColumns: 'repeat(2, 1fr)', // Mobilde 2 kolon sabit
             gap: '12px',
           } : {
             display: 'grid',
@@ -411,9 +362,7 @@ export default function DashboardPage() {
                 style={{ 
                   gridColumn: isMobile ? undefined : `${gridX + 1} / span ${gridW}`,
                   gridRow: isMobile ? undefined : `${rawY + 1} / span ${gridH}`,
-                  minHeight: isMobile ? 'auto' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
-                  // Mobilde padding azalt
-                  ...(isMobile && { padding: '16px' }),
+                  minHeight: isMobile ? '100px' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
                   // Renk moduna göre stil - AnalysisPage ile aynı (GRADIENT!)
                   ...(isFullColorMode ? { 
                     // Gradient arka plan - yumuşak geçiş
@@ -1271,7 +1220,7 @@ export default function DashboardPage() {
                           )} 
                           style={{ maxHeight: isMobile ? '240px' : '400px' }}
                         >
-                          <table className="w-full min-w-[400px]">
+                          <table className="w-full">
                             {/* Başlık - Sidebar rengiyle uyumlu */}
                             <thead>
                               <tr className={clsx(

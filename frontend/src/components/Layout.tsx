@@ -28,7 +28,7 @@ import {
 import clsx from 'clsx'
 import { UserRole } from '../types'
 
-const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 
 interface LayoutProps {
   children: ReactNode
@@ -352,9 +352,8 @@ export default function Layout({ children }: LayoutProps) {
         'operation': 'operations',
         'analysis': 'analysis',
         'stores': 'stores',
-        'settings': 'designer', // Tasarım Stüdyosu
+        'settings': 'data', // Tasarım Stüdyosu -> data izni
         'data': 'data',
-        'datagrid': 'datagrid', // GridXer/DataGrid Demo
         'admin': 'admin'
       }
       
@@ -380,7 +379,7 @@ export default function Layout({ children }: LayoutProps) {
         )}>
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
       <div className={clsx(
-            'fixed inset-y-0 left-0 w-64 transform transition-transform duration-300',
+            'fixed inset-y-0 left-0 w-72 transform transition-transform duration-300',
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           )}>
             <SidebarContent 
@@ -490,7 +489,7 @@ export default function Layout({ children }: LayoutProps) {
           </header>
 
         {/* Page content */}
-          <main className={clsx('p-4 lg:p-8 min-h-[calc(100vh-4rem)] pwa-bottom-safe', theme.contentText)}>
+          <main className={clsx('p-4 lg:p-8 min-h-[calc(100vh-4rem)]', theme.contentText)}>
           {children}
         </main>
       </div>
@@ -545,18 +544,18 @@ function SidebarContent({
       <div className={clsx(
         'flex items-center border-b relative',
         theme.sidebarBorder,
-        isCollapsed ? 'h-14 justify-center px-2' : 'h-16 justify-center px-3'
+        isCollapsed ? 'h-20 justify-center px-2' : 'h-36 justify-center px-4'
       )}>
         <button 
           onClick={() => handleNavClick('/dashboard')}
-          className="flex items-center justify-center hover:opacity-80 transition-opacity w-full h-full py-1"
+          className="flex items-center justify-center hover:opacity-80 transition-opacity w-full h-full py-4"
         >
           <img 
             src="/logo.png" 
             alt="Clixer" 
             className={clsx(
-              'object-contain transition-all drop-shadow-lg',
-              isCollapsed ? 'h-8' : 'h-10 max-w-[160px]',
+              'object-contain transition-all drop-shadow-lg w-full',
+              isCollapsed ? 'h-14' : 'h-28',
               // Açık temada logo'ya hafif gölge ekle
               !isDark && 'brightness-95'
             )} 
@@ -575,19 +574,19 @@ function SidebarContent({
         'border-b',
         theme.sidebarBorder,
         theme.sidebarBgAlt,
-        isCollapsed ? 'px-2 py-2 flex justify-center' : 'px-3 py-2'
+        isCollapsed ? 'px-2 py-6 flex justify-center' : 'px-6 py-6'
       )}>
-        <div className={clsx('flex items-center', isCollapsed ? 'justify-center' : 'gap-2')}>
+        <div className={clsx('flex items-center', isCollapsed ? 'justify-center' : 'gap-4')}>
           <div className={clsx(
-            'w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shadow-inner bg-gradient-to-br text-white flex-shrink-0',
+            'w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold shadow-inner bg-gradient-to-br text-white',
             theme.accent
           )}>
             {user?.name?.charAt(0) || 'U'}
           </div>
           {!isCollapsed && (
-            <div className="overflow-hidden min-w-0">
+            <div className="overflow-hidden">
               <p className={clsx('text-sm font-bold truncate', theme.sidebarText)}>{user?.name || 'Kullanıcı'}</p>
-              <p className={clsx('text-[10px] truncate uppercase tracking-wide font-medium', theme.sidebarTextMuted)}>
+              <p className={clsx('text-xs truncate uppercase tracking-wide font-medium', theme.sidebarTextMuted)}>
                 {user?.role?.replace('_', ' ') || 'VIEWER'}
               </p>
             </div>
@@ -596,7 +595,7 @@ function SidebarContent({
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto">
         {menuItems.map((item) => {
           const isActive = location.pathname === item.href || 
             (item.href !== '/dashboard' && location.pathname.startsWith(item.href))
@@ -606,11 +605,11 @@ function SidebarContent({
               key={item.id}
               onClick={() => handleNavClick(item.href)}
               className={clsx(
-                'flex items-center w-full py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 group relative',
+                'flex items-center w-full py-3 text-sm font-bold rounded-xl transition-all duration-200 group relative',
                 isActive
                   ? theme.sidebarActive
                   : clsx(theme.sidebarTextMuted, theme.sidebarHover),
-                isCollapsed ? 'justify-center px-0' : 'px-3'
+                isCollapsed ? 'justify-center px-0' : 'px-4'
               )}
               title={isCollapsed ? item.name : undefined}
             >

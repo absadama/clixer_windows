@@ -120,96 +120,39 @@ fi
 # .env oluştur
 if [ ! -f ".env" ]; then
     log_info ".env dosyası oluşturuluyor..."
-    
-    # Güçlü rastgele şifreler oluştur
-    DB_PASS=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
-    CH_PASS=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
-    JWT_SEC=$(openssl rand -base64 64 | tr -d '/+=' | head -c 64)
-    
-    log_info "Güvenli şifreler oluşturuldu (bu şifreleri güvenli bir yerde saklayın!)"
-    
-    cat > .env << EOF
-# ╔═══════════════════════════════════════════════════════════════╗
-# ║  CLIXER PRODUCTION ENVIRONMENT                                ║
-# ║  Bu dosyadaki şifreler otomatik oluşturulmuştur.              ║
-# ║  GÜVENLİ BİR YERDE YEDEKLE!                                   ║
-# ╚═══════════════════════════════════════════════════════════════╝
-
+    cat > .env << 'EOF'
 # PostgreSQL
-POSTGRES_PASSWORD=${DB_PASS}
+POSTGRES_PASSWORD=clixer_secret_2025
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=clixer
 DB_USER=clixer
-DB_PASSWORD=${DB_PASS}
-DATABASE_URL=postgresql://clixer:${DB_PASS}@localhost:5432/clixer
+DB_PASSWORD=clixer_secret_2025
+DATABASE_URL=postgresql://clixer:clixer_secret_2025@localhost:5432/clixer
 
 # ClickHouse
 CLICKHOUSE_HOST=localhost
 CLICKHOUSE_PORT=8123
 CLICKHOUSE_USER=clixer
-CLICKHOUSE_PASSWORD=${CH_PASS}
+CLICKHOUSE_PASSWORD=clixer_click_2025
 CLICKHOUSE_URL=http://localhost:8123
 
 # Redis
 REDIS_URL=redis://localhost:6379
 
-# JWT (64 karakter güçlü secret)
-JWT_SECRET=${JWT_SEC}
+# JWT
+JWT_SECRET=clixer_jwt_super_secret_2025
 
 # Environment
 NODE_ENV=production
-
-# CORS (production domain ekle)
-# CORS_ORIGINS=https://analytics.yourdomain.com
-
-# Rate Limiting
-RATE_LIMIT_WINDOW_MS=60000
-RATE_LIMIT_MAX=200
 EOF
-    
     chown $CLIXER_USER:$CLIXER_USER .env
-    chmod 600 .env
-    
-    log_warn "ÖNEMLİ: .env dosyasındaki şifreleri güvenli bir yerde yedekleyin!"
-    log_info "PostgreSQL şifresi: ${DB_PASS}"
-    log_info "ClickHouse şifresi: ${CH_PASS}"
-    log_info "JWT Secret: ${JWT_SEC:0:20}..."
 fi
 
 # ============================================
 # 7. Docker Servisleri Başlat
 # ============================================
 log_info "[7/8] Docker servisleri başlatılıyor..."
-
-# ClickHouse users.xml dosyasını güncelle (rastgele şifre ile)
-log_info "ClickHouse kullanıcı dosyası güncelleniyor..."
-cat > $CLIXER_DIR/docker/clickhouse/users.xml << EOF
-<?xml version="1.0"?>
-<clickhouse>
-    <users>
-        <!-- Default user (şifresiz - sadece localhost) -->
-        <default>
-            <password></password>
-            <networks><ip>127.0.0.1</ip><ip>::1</ip></networks>
-            <profile>default</profile>
-            <quota>default</quota>
-            <access_management>1</access_management>
-        </default>
-        
-        <!-- Clixer user (şifreli - production) -->
-        <clixer>
-            <password>${CH_PASS}</password>
-            <networks><ip>::/0</ip></networks>
-            <profile>default</profile>
-            <quota>default</quota>
-            <access_management>1</access_management>
-        </clixer>
-    </users>
-</clickhouse>
-EOF
-chown $CLIXER_USER:$CLIXER_USER $CLIXER_DIR/docker/clickhouse/users.xml
-
 cd $CLIXER_DIR/docker
 docker-compose up -d postgres clickhouse redis
 
@@ -267,104 +210,31 @@ EOF
 # PM2 ile başlatma scripti
 cat > $CLIXER_DIR/scripts/start-production.sh << 'EOF'
 #!/bin/bash
-set -e
-
-echo "═══════════════════════════════════════════════════════════════"
-echo "   CLIXER - Production Servisleri Başlatılıyor"
-echo "═══════════════════════════════════════════════════════════════"
-
 cd /opt/clixer
 
-# .env dosyasını yükle
-if [ -f ".env" ]; then
-    export $(cat .env | grep -v '^#' | xargs)
-fi
-
 # Docker servisleri
-echo "[1/4] Docker servisleri başlatılıyor..."
 cd docker && docker-compose up -d && cd ..
-sleep 10
 
-# PM2 kurulu değilse kur
-if ! command -v pm2 &> /dev/null; then
-    echo "[2/4] PM2 kuruluyor..."
-    npm install -g pm2
-fi
+# PM2 ile Node.js servisleri
+npm install -g pm2 2>/dev/null
 
-# Mevcut PM2 process'lerini temizle
-pm2 delete all 2>/dev/null || true
+pm2 start gateway/src/index.ts --name clixer-gateway --interpreter ./node_modules/.bin/ts-node
+pm2 start services/auth-service/src/index.ts --name clixer-auth --interpreter ./node_modules/.bin/ts-node
+pm2 start services/core-service/src/index.ts --name clixer-core --interpreter ./node_modules/.bin/ts-node
+pm2 start services/data-service/src/index.ts --name clixer-data --interpreter ./node_modules/.bin/ts-node
+pm2 start services/analytics-service/src/index.ts --name clixer-analytics --interpreter ./node_modules/.bin/ts-node
+pm2 start services/notification-service/src/index.ts --name clixer-notification --interpreter ./node_modules/.bin/ts-node
+pm2 start services/etl-worker/src/index.ts --name clixer-etl --interpreter ./node_modules/.bin/ts-node
 
-echo "[3/4] Node.js servisleri başlatılıyor..."
+# Frontend (build ve serve)
+cd frontend
+npm run build
+pm2 serve dist 3000 --name clixer-frontend --spa
 
-# TypeScript için ts-node kullan (development) veya compiled JS (production)
-if [ -f "gateway/dist/index.js" ]; then
-    # Production - compiled JS
-    pm2 start gateway/dist/index.js --name clixer-gateway
-    pm2 start services/auth-service/dist/index.js --name clixer-auth
-    pm2 start services/core-service/dist/index.js --name clixer-core
-    pm2 start services/data-service/dist/index.js --name clixer-data
-    pm2 start services/analytics-service/dist/index.js --name clixer-analytics
-    pm2 start services/notification-service/dist/index.js --name clixer-notification
-    pm2 start services/etl-worker/dist/index.js --name clixer-etl
-else
-    # Development - ts-node
-    pm2 start gateway/src/index.ts --name clixer-gateway --interpreter ./node_modules/.bin/ts-node
-    pm2 start services/auth-service/src/index.ts --name clixer-auth --interpreter ./node_modules/.bin/ts-node
-    pm2 start services/core-service/src/index.ts --name clixer-core --interpreter ./node_modules/.bin/ts-node
-    pm2 start services/data-service/src/index.ts --name clixer-data --interpreter ./node_modules/.bin/ts-node
-    pm2 start services/analytics-service/src/index.ts --name clixer-analytics --interpreter ./node_modules/.bin/ts-node
-    pm2 start services/notification-service/src/index.ts --name clixer-notification --interpreter ./node_modules/.bin/ts-node
-    pm2 start services/etl-worker/src/index.ts --name clixer-etl --interpreter ./node_modules/.bin/ts-node
-fi
-
-# Sunucu IP'sini al
-SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "Sunucu IP: $SERVER_IP"
-
-# ecosystem.config.js'de CORS_ORIGIN güncelle
-if [ -f "/opt/clixer/ecosystem.config.js" ]; then
-    echo "ecosystem.config.js'de CORS_ORIGIN güncelleniyor..."
-    sed -i "s|CORS_ORIGIN: '.*'|CORS_ORIGIN: 'http://${SERVER_IP}:3000,http://${SERVER_IP},http://localhost:3000'|g" /opt/clixer/ecosystem.config.js
-fi
-
-# Frontend .env.production oluştur (VITE_API_URL sonunda /api OLMALI!)
-echo "[4/4] Frontend başlatılıyor..."
-cd /opt/clixer/frontend
-echo "VITE_API_URL=http://${SERVER_IP}:4000/api" > .env.production
-echo "Frontend .env.production oluşturuldu: VITE_API_URL=http://${SERVER_IP}:4000/api"
-
-# Frontend build
-if [ ! -d "dist" ] || [ ".env.production" -nt "dist/index.html" ]; then
-    echo "Frontend build ediliyor..."
-    npm run build
-fi
-
-# Frontend'i PM2 ile başlat
-pm2 start "npm run preview -- --host 0.0.0.0 --port 3000" --name clixer-frontend --cwd /opt/clixer/frontend
-
-# PM2 durumunu kaydet (sunucu restart'ında otomatik başlaması için)
 pm2 save
-
-echo ""
-echo "═══════════════════════════════════════════════════════════════"
-echo "   ✅ CLIXER BAŞLATILDI!"
-echo "   Durum: pm2 status"
-echo "   Loglar: pm2 logs"
-echo "═══════════════════════════════════════════════════════════════"
 EOF
 chmod +x $CLIXER_DIR/scripts/start-production.sh
 chown $CLIXER_USER:$CLIXER_USER $CLIXER_DIR/scripts/start-production.sh
-
-# Stop scripti
-cat > $CLIXER_DIR/scripts/stop-production.sh << 'EOF'
-#!/bin/bash
-echo "CLIXER servisleri durduruluyor..."
-pm2 stop all
-cd /opt/clixer/docker && docker-compose stop
-echo "✅ Tüm servisler durduruldu."
-EOF
-chmod +x $CLIXER_DIR/scripts/stop-production.sh
-chown $CLIXER_USER:$CLIXER_USER $CLIXER_DIR/scripts/stop-production.sh
 
 # ============================================
 # Nginx Konfigürasyonu
@@ -423,8 +293,6 @@ ufw --force enable
 ufw allow ssh
 ufw allow 80/tcp
 ufw allow 443/tcp
-ufw allow 3000/tcp  # Frontend (PM2 preview)
-ufw allow 4000/tcp  # Gateway API
 ufw reload
 
 # ============================================
@@ -435,22 +303,6 @@ systemctl enable fail2ban
 systemctl start fail2ban
 
 # ============================================
-# PM2 Startup (Sunucu restart'ında otomatik başla)
-# ============================================
-log_info "PM2 startup yapılandırılıyor..."
-
-# PM2'yi global kur
-npm install -g pm2 --silent
-
-# PM2 startup scripti oluştur (systemd ile entegrasyon)
-sudo -u $CLIXER_USER bash -c "cd $CLIXER_DIR && pm2 startup systemd -u $CLIXER_USER --hp /home/$CLIXER_USER" 2>/dev/null || true
-
-# Docker'ın da startup'ta başlamasını sağla
-systemctl enable docker
-
-log_info "✅ PM2 startup yapılandırıldı. Sunucu restart olduğunda Clixer otomatik başlayacak."
-
-# ============================================
 # Tamamlandı
 # ============================================
 echo ""
@@ -458,33 +310,19 @@ echo "════════════════════════�
 echo -e "   ${GREEN}CLIXER KURULUMU TAMAMLANDI!${NC}"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
-echo "   📂 Dizin: $CLIXER_DIR"
-echo "   👤 Kullanıcı: $CLIXER_USER"
+echo "   Dizin: $CLIXER_DIR"
+echo "   Kullanıcı: $CLIXER_USER"
 echo ""
-echo "═══════════════════════════════════════════════════════════════"
-echo -e "   ${YELLOW}⚠️  ÖNEMLİ: ŞİFRELERİ KAYDEDIN!${NC}"
-echo "═══════════════════════════════════════════════════════════════"
+echo "   Servisleri başlatmak için:"
+echo "   sudo -u $CLIXER_USER $CLIXER_DIR/scripts/start-production.sh"
 echo ""
-echo "   Şifreler .env dosyasında: $CLIXER_DIR/.env"
-echo "   Bu dosyayı güvenli bir yerde yedekleyin!"
+echo "   URL: http://$DOMAIN"
+echo "   Email: admin@clixer"
+echo "   Şifre: Admin1234!"
 echo ""
-echo "═══════════════════════════════════════════════════════════════"
-echo "   BAŞLATMA ADIMLARI"
-echo "═══════════════════════════════════════════════════════════════"
+echo "   SSL için (Let's Encrypt):"
+echo "   sudo apt install certbot python3-certbot-nginx"
+echo "   sudo certbot --nginx -d $DOMAIN"
 echo ""
-echo "   1. Servisleri başlat:"
-echo "      sudo -u $CLIXER_USER $CLIXER_DIR/scripts/start-production.sh"
-echo ""
-echo "   2. SSL sertifikası al:"
-echo "      sudo apt install certbot python3-certbot-nginx"
-echo "      sudo certbot --nginx -d $DOMAIN"
-echo ""
-echo "   3. Admin şifresini değiştir (UI'dan ilk girişte):"
-echo "      URL: http://$DOMAIN"
-echo "      Email: admin@clixer"
-echo "      Şifre: Admin1234!"
-echo ""
-echo "═══════════════════════════════════════════════════════════════"
-echo -e "   ${GREEN}Kurulum tamamlandı. İyi çalışmalar! 🚀${NC}"
 echo "═══════════════════════════════════════════════════════════════"
 

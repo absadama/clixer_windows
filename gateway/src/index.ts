@@ -64,12 +64,12 @@ app.use(helmet({
   }
 }));
 
-// CORS - Production'da kısıtlı, development'ta tüm origin'lere izin
+// CORS - Production'da kısıtlı, development'ta localhost
 const corsOrigins = process.env.CORS_ORIGIN 
   ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
   : (process.env.NODE_ENV === 'production' 
       ? ['https://clixer.app', 'https://app.clixer.com'] 
-      : true); // Development'ta tüm origin'lere izin (mobil test için)
+      : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173']);
 
 app.use(cors({
   origin: corsOrigins,
@@ -443,12 +443,6 @@ app.use('/api/admin/system', createProxyMiddleware({
   pathRewrite: { '^/api': '' }
 }));
 
-// Services Management routes (PM2 API) - Data Service
-app.use('/api/admin/services', createProxyMiddleware({
-  ...proxyOptions(SERVICES.DATA),
-  pathRewrite: { '^/api': '' }
-}));
-
 // Admin routes (System Health) - Core Service (genel admin catch-all)
 app.use('/api/admin', createProxyMiddleware({
   ...proxyOptions(SERVICES.CORE),
@@ -478,9 +472,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 // START SERVER
 // ============================================
 
-// '0.0.0.0' ile tüm ağ arayüzlerinden erişim (mobil test için)
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   logger.info(`🚀 API Gateway running on port ${PORT}`);
-  logger.info('📱 Mobile access: http://192.168.68.61:${PORT}');
   logger.info('Service endpoints:', SERVICES);
 });

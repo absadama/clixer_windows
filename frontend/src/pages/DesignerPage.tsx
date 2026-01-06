@@ -1,8 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react'
 import { useTheme } from '../components/Layout'
 import { useAuthStore } from '../stores/authStore'
-
-const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`
 import RGL, { WidthProvider, Layout as GridLayout, Layouts } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
@@ -169,7 +167,7 @@ export default function DesignerPage() {
   const loadMetrics = async () => {
     if (!accessToken) return
     try {
-      const res = await fetch(`${API_BASE}/analytics/metrics`, {
+      const res = await fetch('http://localhost:4000/api/analytics/metrics', {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       })
       if (res.ok) {
@@ -185,7 +183,7 @@ export default function DesignerPage() {
   const loadDesigns = async () => {
     if (!accessToken) return
     try {
-      const res = await fetch(`${API_BASE}/analytics/designs`, {
+      const res = await fetch('http://localhost:4000/api/analytics/designs', {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       })
       if (res.ok) {
@@ -279,8 +277,8 @@ export default function DesignerPage() {
       
       const isNew = currentDesign.id.startsWith('design-')
       const url = isNew 
-        ? `${API_BASE}/analytics/designs`
-        : `${API_BASE}/analytics/designs/${currentDesign.id}`
+        ? 'http://localhost:4000/api/analytics/designs'
+        : `http://localhost:4000/api/analytics/designs/${currentDesign.id}`
       
       const res = await fetch(url, {
         method: isNew ? 'POST' : 'PUT',
@@ -322,7 +320,7 @@ export default function DesignerPage() {
     }
     
     try {
-      const res = await fetch(`${API_BASE}/analytics/designs/${designId}`, {
+      const res = await fetch(`http://localhost:4000/api/analytics/designs/${designId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${accessToken}` }
       })
@@ -602,20 +600,7 @@ export default function DesignerPage() {
       </div>
 
       {activeTab === 'studio' && (
-        <>
-          {/* Mobil uyarı */}
-          <div className={clsx('lg:hidden rounded-2xl p-6 text-center', theme.cardBg)}>
-            <Monitor className={clsx('w-12 h-12 mx-auto mb-4', theme.contentTextMuted)} />
-            <h3 className={clsx('font-bold text-lg mb-2', theme.contentText)}>Tasarım Stüdyosu</h3>
-            <p className={clsx('text-sm mb-4', theme.contentTextMuted)}>
-              Tasarım düzenleme için lütfen bilgisayar veya tablet kullanın.
-            </p>
-            <p className={clsx('text-xs', theme.contentTextMuted)}>
-              Mobil cihazlarda dashboard görüntüleme özelliği mevcuttur.
-            </p>
-          </div>
-          
-          <div className="hidden lg:flex flex-row gap-6">
+        <div className="flex gap-6">
           {/* Left Panel - Designs & Widgets */}
           <div className={clsx('w-64 shrink-0 space-y-4', showWidgetPanel ? '' : 'hidden')}>
             {/* Design Selector */}
@@ -1189,7 +1174,6 @@ export default function DesignerPage() {
             </div>
           </div>
         </div>
-        </>
       )}
       
       {activeTab === 'metrics' && (

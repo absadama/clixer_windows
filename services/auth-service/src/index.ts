@@ -228,38 +228,15 @@ app.post('/login', async (req: Request, res: Response, next: NextFunction) => {
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
-    // Kullanıcı başarılı login yaptı - blacklist'ten çıkar (eğer varsa)
-    await cache.del(`jwt:blacklist:user:${user.id}`);
-
     // Refresh token'ı cache'e kaydet
     await cache.set(`refresh:${user.id}`, refreshToken, 7 * 24 * 60 * 60);
-
-    // Kullanıcının son login bilgilerini güncelle
-    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    await db.query(
-      'UPDATE users SET last_login_at = NOW() WHERE id = $1',
-      [user.id]
-    );
-
-    // Audit log'a login kaydı ekle
-    const crypto = require('crypto');
-    await db.query(`
-      INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, ip_address, user_agent, created_at)
-      VALUES ($1, $2, $3, 'LOGIN', 'user', $4, $5, NOW())
-    `, [
-      crypto.randomUUID(),
-      user.tenant_id,
-      user.id,
-      clientIp,
-      req.headers['user-agent'] || 'unknown'
-    ]);
 
     // Session bilgisini kaydet (aktif oturumlar için)
     const sessionId = `session:${user.id}:${Date.now()}`;
     const sessionData = {
       userId: user.id,
       email: user.email,
-      ip: clientIp,
+      ip: req.ip || req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
       loginAt: new Date().toISOString(),
       lastActivity: new Date().toISOString()
