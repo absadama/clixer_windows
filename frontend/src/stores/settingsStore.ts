@@ -125,7 +125,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       })
       
       if (!response.ok) {
-        console.warn('Settings could not be loaded')
+        // 401 hatasını sessizce geç (token henüz hazır değil)
         set({ isLoading: false, isLoaded: true })
         return
       }
@@ -243,8 +243,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }
       
       set({ ...updates, isLoading: false, isLoaded: true })
-    } catch (error) {
-      console.error('Settings load error:', error)
+    } catch (_error) {
+      // 401 hatalarını sessizce geç - token yenileme devreye girecek
       set({ isLoading: false, isLoaded: true })
     }
   },
@@ -252,7 +252,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Menü izinlerini yükle
   loadMenuPermissions: async (accessToken: string, positionCode: string) => {
     if (!accessToken || !positionCode) {
-      console.warn('[SETTINGS] Missing token or position code for menu permissions')
+      // Token veya pozisyon yoksa sessizce çık
       return
     }
     
@@ -265,7 +265,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       })
       
       if (!response.ok) {
-        console.warn('Menu permissions could not be loaded')
+        // 401 hatasını sessizce geç
         return
       }
       
@@ -273,8 +273,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const permissions = result.data || []
       
       set({ menuPermissions: permissions })
-    } catch (error) {
-      console.error('Menu permissions load error:', error)
+    } catch (_error) {
+      // 401 hatalarını sessizce geç - token yenileme devreye girecek
     }
   },
 

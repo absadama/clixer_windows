@@ -40,6 +40,10 @@ import {
   XCircle,
   AlertCircle,
   Cpu,
+  MonitorCheck,
+  Archive,
+  UserX,
+  Wifi,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { SystemSetting } from '../types'
@@ -51,6 +55,8 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 const menuItems = [
   { id: 'settings', label: 'Sistem Ayarları', icon: Settings, category: 'SİSTEM' },
   { id: 'services', label: 'Servis Yönetimi', icon: Server, category: 'SİSTEM' },
+  { id: 'monitor', label: 'Sistem Monitörü', icon: MonitorCheck, category: 'SİSTEM' },
+  { id: 'backup', label: 'Yedekleme', icon: Archive, category: 'SİSTEM' },
   { id: 'labels', label: 'Etiketler', icon: Tag, category: 'SİSTEM' },
   { id: 'performance', label: 'Performans', icon: Gauge, category: 'SİSTEM' },
   { id: 'master', label: 'Master Veriler', icon: Database, category: 'SİSTEM' },
@@ -105,7 +111,7 @@ const defaultSettings: SystemSetting[] = [
 
 export default function AdminPage() {
   const { theme, isDark } = useTheme()
-  const { accessToken } = useAuthStore()
+  const { accessToken, user, logout } = useAuthStore()
   const [activeTab, setActiveTab] = useState('settings')
   const [settings, setSettings] = useState<SystemSetting[]>([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -3090,6 +3096,12 @@ export default function AdminPage() {
             )}
           </>
         )}
+
+        {/* Sistem Monitörü */}
+        {activeTab === 'monitor' && <SystemMonitor theme={theme} isDark={isDark} accessToken={accessToken} currentUserId={user?.id || null} onLogout={logout} />}
+
+        {/* Yedekleme */}
+        {activeTab === 'backup' && <BackupManagement theme={theme} isDark={isDark} accessToken={accessToken} />}
       </div>
 
       {/* ========================= */}
@@ -3890,4 +3902,407 @@ function ServiceManagement({ theme, isDark, accessToken }: { theme: any; isDark:
       )}
     </>
   );
+}
+
+// ============================================
+// SYSTEM MONITOR COMPONENT
+// ============================================
+interface SystemMonitorProps {
+  theme: any
+  isDark: boolean
+  accessToken: string | null
+  currentUserId: string | null
+  onLogout: () => void
+}
+
+function SystemMonitor({ theme, isDark, accessToken, currentUserId, onLogout }: SystemMonitorProps) {
+  const [stats, setStats] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [terminatingUser, setTerminatingUser] = useState<string | null>(null)
+
+  const loadStats = useCallback(async () => {
+    if (!accessToken) return
+    try {
+      const response = await fetch(`${API_BASE}/data/admin/system/stats`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setStats(data.data)
+      }
+    } catch {
+      // Sessizce hata yakala
+    } finally {
+      setLoading(false)
+    }
+  }, [accessToken])
+
+  useEffect(() => {
+    loadStats()
+    const interval = setInterval(loadStats, 10000) // 10 saniyede bir yenile
+    return () => clearInterval(interval)
+  }, [loadStats])
+
+  const terminateSession = async (userId: string) => {
+    if (!accessToken) return
+    
+    // Kendi oturumunu kapatmaya çalışıyorsa uyar
+    if (userId === currentUserId) {
+      if (!confirm('Kendi oturumunuzu kapatmak istediğinize emin misiniz? Çıkış yapılacak.')) {
+        return
+      }
+    }
+    
+    setTerminatingUser(userId)
+    try {
+      const response = await fetch(`${API_BASE}/data/admin/sessions/${userId}/terminate`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+      if (response.ok) {
+        // Kendi oturumunu kapattıysa logout yap
+        if (userId === currentUserId) {
+          onLogout()
+          return
+        }
+        loadStats() // Listeyi yenile
+      }
+    } catch {
+      // Sessizce hata yakala
+    } finally {
+      setTerminatingUser(null)
+    }
+  }
+
+  const restartAllServices = async () => {
+    if (!accessToken) return
+    if (!confirm('Tüm servisleri yeniden başlatmak istediğinize emin misiniz?')) return
+    
+    try {
+      const response = await fetch(`${API_BASE}/data/admin/services/restart-all`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+      const data = await response.json()
+      alert(data.message)
+    } catch {
+      alert('Servisler yeniden başlatılamadı')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Başlık */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className={clsx('p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500')}>
+            <MonitorCheck className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className={clsx('text-xl font-bold', theme.contentText)}>Sistem Monitörü</h1>
+            <p className={clsx('text-sm', theme.contentTextMuted)}>Aktif kullanıcılar, oturumlar ve login istatistikleri</p>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={loadStats}
+            className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonSecondary)}
+          >
+            <RefreshCw size={16} /> Yenile
+          </button>
+          <button
+            onClick={restartAllServices}
+            className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium bg-gradient-to-r from-amber-500 to-orange-500 text-white')}
+          >
+            <RotateCcw size={16} /> Tüm Servisleri Yeniden Başlat
+          </button>
+        </div>
+      </div>
+
+      {/* İstatistik Kartları */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className={clsx('p-6 rounded-2xl', theme.cardBg)}>
+          <div className="flex items-center gap-3 mb-2">
+            <Wifi className="h-5 w-5 text-emerald-500" />
+            <span className={clsx('text-sm font-medium', theme.contentTextMuted)}>Aktif Bağlantılar</span>
+          </div>
+          <p className={clsx('text-3xl font-bold', theme.contentText)}>{stats?.activeConnections || 0}</p>
+        </div>
+        <div className={clsx('p-6 rounded-2xl', theme.cardBg)}>
+          <div className="flex items-center gap-3 mb-2">
+            <Users className="h-5 w-5 text-blue-500" />
+            <span className={clsx('text-sm font-medium', theme.contentTextMuted)}>Son 24 Saat Login</span>
+          </div>
+          <p className={clsx('text-3xl font-bold', theme.contentText)}>{stats?.loginStats?.last_24h || 0}</p>
+          <p className={clsx('text-xs mt-1', theme.contentTextMuted)}>{stats?.loginStats?.unique_users_24h || 0} tekil kullanıcı</p>
+        </div>
+        <div className={clsx('p-6 rounded-2xl', theme.cardBg)}>
+          <div className="flex items-center gap-3 mb-2">
+            <Activity className="h-5 w-5 text-purple-500" />
+            <span className={clsx('text-sm font-medium', theme.contentTextMuted)}>Son 7 Gün Login</span>
+          </div>
+          <p className={clsx('text-3xl font-bold', theme.contentText)}>{stats?.loginStats?.last_7d || 0}</p>
+          <p className={clsx('text-xs mt-1', theme.contentTextMuted)}>{stats?.loginStats?.unique_users_7d || 0} tekil kullanıcı</p>
+        </div>
+        <div className={clsx('p-6 rounded-2xl', theme.cardBg)}>
+          <div className="flex items-center gap-3 mb-2">
+            <HardDrive className="h-5 w-5 text-amber-500" />
+            <span className={clsx('text-sm font-medium', theme.contentTextMuted)}>Veritabanı Boyutu</span>
+          </div>
+          <p className={clsx('text-lg font-bold', theme.contentText)}>PG: {stats?.databaseSizes?.postgresql || 'N/A'}</p>
+          <p className={clsx('text-lg font-bold', theme.contentText)}>CH: {stats?.databaseSizes?.clickhouse || 'N/A'}</p>
+        </div>
+      </div>
+
+      {/* Servis Durumları */}
+      <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
+        <h3 className={clsx('font-bold text-lg mb-4 flex items-center gap-2', theme.contentText)}>
+          <Server size={20} /> Servis Durumları
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {stats?.services?.map((service: any) => (
+            <div key={service.name} className={clsx('p-4 rounded-xl flex items-center gap-3', isDark ? 'bg-slate-800' : 'bg-slate-100')}>
+              {service.status === 'online' ? (
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              ) : service.status === 'offline' ? (
+                <XCircle className="h-5 w-5 text-rose-500" />
+              ) : (
+                <AlertCircle className="h-5 w-5 text-amber-500" />
+              )}
+              <div>
+                <p className={clsx('font-medium text-sm', theme.contentText)}>{service.name}</p>
+                <p className={clsx('text-xs', theme.contentTextMuted)}>:{service.port}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Son Giriş Yapan Kullanıcılar */}
+      <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
+        <h3 className={clsx('font-bold text-lg mb-4 flex items-center gap-2', theme.contentText)}>
+          <Users size={20} /> Son Giriş Yapan Kullanıcılar
+        </h3>
+        <p className={clsx('text-sm mb-4', theme.contentTextMuted)}>
+          Sisteme giriş yapmış kullanıcıların listesi. "Oturumu Kapat" ile kullanıcının token'ını geçersiz kılabilirsiniz.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className={clsx('border-b', isDark ? 'border-slate-700' : 'border-slate-200')}>
+                <th className={clsx('text-left py-3 px-4 text-sm font-medium', theme.contentTextMuted)}>Kullanıcı</th>
+                <th className={clsx('text-left py-3 px-4 text-sm font-medium', theme.contentTextMuted)}>Pozisyon</th>
+                <th className={clsx('text-left py-3 px-4 text-sm font-medium', theme.contentTextMuted)}>Son Login</th>
+                <th className={clsx('text-left py-3 px-4 text-sm font-medium', theme.contentTextMuted)}>IP</th>
+                <th className={clsx('text-left py-3 px-4 text-sm font-medium', theme.contentTextMuted)}>İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats?.activeSessions?.map((session: any) => (
+                <tr key={session.id} className={clsx('border-b', isDark ? 'border-slate-800' : 'border-slate-100')}>
+                  <td className="py-3 px-4">
+                    <p className={clsx('font-medium', theme.contentText)}>{session.name || session.email}</p>
+                    <p className={clsx('text-xs', theme.contentTextMuted)}>{session.email}</p>
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className={clsx('px-2 py-1 rounded text-xs font-medium', isDark ? 'bg-slate-700' : 'bg-slate-200', theme.contentText)}>
+                      {session.position_code || 'N/A'}
+                    </span>
+                  </td>
+                  <td className={clsx('py-3 px-4 text-sm', theme.contentTextMuted)}>
+                    {session.last_login ? new Date(session.last_login).toLocaleString('tr-TR') : 'N/A'}
+                  </td>
+                  <td className={clsx('py-3 px-4 text-sm font-mono', theme.contentTextMuted)}>
+                    {session.ip_address || 'N/A'}
+                  </td>
+                  <td className="py-3 px-4">
+                    <button
+                      onClick={() => terminateSession(session.id)}
+                      disabled={terminatingUser === session.id}
+                      className={clsx('flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium', 
+                        'bg-rose-500/10 text-rose-500 hover:bg-rose-500/20'
+                      )}
+                    >
+                      {terminatingUser === session.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <UserX size={14} />
+                      )}
+                      Oturumu Kapat
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================
+// BACKUP MANAGEMENT COMPONENT
+// ============================================
+interface BackupManagementProps {
+  theme: any
+  isDark: boolean
+  accessToken: string | null
+}
+
+function BackupManagement({ theme, isDark, accessToken }: BackupManagementProps) {
+  const [backups, setBackups] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+
+  const loadBackups = useCallback(async () => {
+    if (!accessToken) return
+    try {
+      const response = await fetch(`${API_BASE}/data/admin/backup/list`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setBackups(data.data || [])
+      }
+    } catch {
+      // Sessizce hata yakala
+    } finally {
+      setLoading(false)
+    }
+  }, [accessToken])
+
+  useEffect(() => {
+    loadBackups()
+  }, [loadBackups])
+
+  const createBackup = async () => {
+    if (!accessToken) return
+    setCreating(true)
+    
+    try {
+      // Doğrudan download başlat
+      const response = await fetch(`${API_BASE}/data/admin/backup/create`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+      
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `clixer_backup_${new Date().toISOString().slice(0, 10)}.zip`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        loadBackups() // Listeyi yenile
+      } else {
+        alert('Yedek oluşturulamadı')
+      }
+    } catch {
+      alert('Yedek oluşturma hatası')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Başlık */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className={clsx('p-3 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500')}>
+            <Archive className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h1 className={clsx('text-xl font-bold', theme.contentText)}>Yedekleme</h1>
+            <p className={clsx('text-sm', theme.contentTextMuted)}>PostgreSQL ve ClickHouse veritabanı yedekleri</p>
+          </div>
+        </div>
+        <button
+          onClick={createBackup}
+          disabled={creating}
+          className={clsx('flex items-center gap-2 px-6 py-3 rounded-xl font-medium', theme.buttonPrimary)}
+        >
+          {creating ? (
+            <>
+              <Loader2 size={18} className="animate-spin" />
+              Yedek Oluşturuluyor...
+            </>
+          ) : (
+            <>
+              <Download size={18} /> Yeni Yedek Al
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Bilgi Kutusu */}
+      <div className={clsx('p-6 rounded-2xl', isDark ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-blue-50 border border-blue-200')}>
+        <h3 className={clsx('font-bold mb-2 flex items-center gap-2', 'text-blue-500')}>
+          <AlertCircle size={18} /> Yedekleme Hakkında
+        </h3>
+        <ul className={clsx('text-sm space-y-1', isDark ? 'text-blue-300' : 'text-blue-700')}>
+          <li>• Yedek dosyası PostgreSQL veritabanını içerir (kullanıcılar, tasarımlar, metrikler, bağlantılar)</li>
+          <li>• ClickHouse tablo yapıları (şema) dahil edilir, veriler dahil değildir</li>
+          <li>• Yedek ZIP formatında indirilir</li>
+          <li>• Restore işlemi şu an için manuel yapılmalıdır (sunucu erişimi gerektirir)</li>
+        </ul>
+      </div>
+
+      {/* Yedek Listesi */}
+      <div className={clsx('rounded-2xl overflow-hidden', theme.cardBg)}>
+        <div className={clsx('px-6 py-4 border-b', isDark ? 'border-slate-700' : 'border-slate-200')}>
+          <h3 className={clsx('font-bold', theme.contentText)}>Sunucudaki Yedekler</h3>
+        </div>
+        {backups.length === 0 ? (
+          <div className="py-12 text-center">
+            <Archive className={clsx('h-12 w-12 mx-auto mb-3', theme.contentTextMuted)} />
+            <p className={clsx('text-sm', theme.contentTextMuted)}>Henüz yedek alınmamış</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-200 dark:divide-slate-700">
+            {backups.map((backup, index) => (
+              <div key={index} className="px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className={clsx('p-2 rounded-lg', isDark ? 'bg-slate-800' : 'bg-slate-100')}>
+                    <FileSpreadsheet className="h-5 w-5 text-emerald-500" />
+                  </div>
+                  <div>
+                    <p className={clsx('font-medium', theme.contentText)}>{backup.name}</p>
+                    <p className={clsx('text-xs', theme.contentTextMuted)}>
+                      {new Date(backup.createdAt).toLocaleString('tr-TR')} • {backup.sizeFormatted}
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href={`${API_BASE}/data/admin/backup/download/${backup.name}`}
+                  className={clsx('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium', theme.buttonSecondary)}
+                >
+                  <Download size={16} /> İndir
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }

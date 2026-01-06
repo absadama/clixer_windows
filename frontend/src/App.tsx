@@ -78,13 +78,15 @@ function WebSocketNotifications() {
 function App() {
   const { isAuthenticated, hasHydrated, logout, accessToken } = useAuthStore()
 
-  // Sayfa açıldığında token geçerliliğini kontrol et
+  // Sayfa açıldığında token geçerliliğini kontrol et (sessiz)
   useEffect(() => {
     if (hasHydrated && isAuthenticated && accessToken) {
-      // Token'ı test et - settings endpoint'i ile
+      // Token'ı test et - sadece 401 durumunda logout
       api.get('/core/settings')
         .catch((err) => {
+          // Sadece token geçersizse logout - diğer hatalar normal
           if (err.response?.status === 401) {
+            // Token yenileme zaten denendi ve başarısız oldu
             logout()
           }
         })

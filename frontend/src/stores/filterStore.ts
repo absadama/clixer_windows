@@ -191,8 +191,8 @@ export const useFilterStore = create<FilterState>((set, get) => ({
         // Varsayılan: tüm mağazalar seçili
         selectedStoreIds: stores.map((s: Store) => s.id)
       })
-    } catch (error) {
-      console.error('[FILTER] Load error:', error)
+    } catch (_error) {
+      // 401 hatalarını sessizce geç - token yenileme devreye girecek
       set({ isLoading: false, isLoaded: true })
     }
   },

@@ -73,16 +73,19 @@ export const initSocket = (token: string): Socket => {
     console.log('🔌 WebSocket connected');
   });
   
-  socket.on('disconnect', (reason) => {
-    console.log('🔌 WebSocket disconnected:', reason);
+  socket.on('disconnect', (_reason) => {
+    // Sessizce bağlantı kesintisini işle
   });
   
   socket.on('connect_error', (error) => {
     connectionAttempts++;
-    console.warn('🔌 WebSocket connection error:', error.message);
+    // Sadece development modunda ve token hatası değilse logla
+    if (process.env.NODE_ENV === 'development' && !error.message.includes('Invalid token')) {
+      console.warn('🔌 WebSocket connection error:', error.message);
+    }
     
     if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error('🔌 Max reconnection attempts reached');
+      // Max deneme - sessizce kapat
       socket?.disconnect();
     }
   });

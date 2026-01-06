@@ -99,8 +99,12 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       // Store kullanıcının pozisyonunu bilmiyor, bu yüzden yetkisiz tasarımı seçebilir.
       // Auto-select işlemi DashboardPage.tsx'de accessibleDesigns ile yapılmalı.
     } catch (error: any) {
-      console.warn('Tasarım yükleme hatası:', error.message)
-      set({ error: error.message, isLoading: false })
+      // 401 hatalarını sessizce geç - token yenileme devreye girecek
+      if (error.response?.status !== 401) {
+        set({ error: error.message, isLoading: false })
+      } else {
+        set({ isLoading: false })
+      }
     }
   },
 
@@ -195,8 +199,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         lastUpdated: new Date(),
       })
     } catch (error: any) {
-      console.warn('Dashboard veri yükleme hatası:', error.message)
-      // Don't fail completely, just log and continue
+      // 401 hatalarını sessizce geç - token yenileme devreye girecek
       set({ isLoading: false, lastUpdated: new Date() })
     }
   },

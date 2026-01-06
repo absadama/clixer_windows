@@ -170,6 +170,138 @@ async function calculateLFL(
 }
 
 /**
+ * LFL Takvim Tablosu ile karşılaştırma
+ * Kullanıcının yüklediği özel takvim tablosunu kullanarak tarihleri eşleştirir
+ * Tarih aralığı destekler: startDate-endDate arası tüm günleri LFL takvimine göre eşleştirir
+ */
+async function calculateLFLWithCalendar(
+  tableName: string,
+  dateColumn: string,
+  valueColumn: string,
+  aggFunc: string,
+  rlsCondition: string,
+  filterCondition: string,
+  lflCalendarTable: string,
+  lflThisYearColumn: string,
+  lflLastYearColumn: string,
+  startDate?: string, // Tarih aralığı başlangıcı
+  endDate?: string    // Tarih aralığı sonu
+): Promise<{
+  currentValue: number;
+  previousValue: number;
+  trend: number;
+  matchedDays: number;
+} | null> {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:lfl-calendar-start',message:'LFL Calendar calculation started',data:{tableName,dateColumn,valueColumn,lflCalendarTable,lflThisYearColumn,lflLastYearColumn,startDate,endDate},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LFL1'})}).catch(()=>{});
+  // #endregion
+  
+  // Tarih aralığı belirlenmemişse bugünü kullan
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const effectiveStartDate = startDate || todayStr;
+  const effectiveEndDate = endDate || todayStr;
+  
+  // LFL takviminden tarih aralığındaki eşleşmeleri bul
+  const calendarLookupSql = `
+    SELECT 
+      toString(${lflThisYearColumn}) as this_year,
+      toString(${lflLastYearColumn}) as last_year
+    FROM ${lflCalendarTable}
+    WHERE toDate(${lflThisYearColumn}) >= toDate('${effectiveStartDate}') 
+      AND toDate(${lflThisYearColumn}) <= toDate('${effectiveEndDate}')
+    ORDER BY ${lflThisYearColumn}
+  `;
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:lfl-calendar-lookup',message:'LFL Calendar lookup SQL (date range)',data:{sql:calendarLookupSql,effectiveStartDate,effectiveEndDate},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LFL2'})}).catch(()=>{});
+  // #endregion
+  
+  logger.debug('LFL Calendar lookup (date range)', { sql: calendarLookupSql, effectiveStartDate, effectiveEndDate });
+  
+  const calendarResult = await clickhouse.query<{
+    this_year: string;
+    last_year: string;
+  }>(calendarLookupSql);
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:lfl-calendar-result',message:'LFL Calendar lookup result',data:{resultLength:calendarResult?.length||0,sampleResults:calendarResult?.slice(0,3)||[]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LFL3'})}).catch(()=>{});
+  // #endregion
+  
+  if (!calendarResult || calendarResult.length === 0) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:lfl-calendar-notfound',message:'LFL Calendar: No matching dates found',data:{effectiveStartDate,effectiveEndDate},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LFL4'})}).catch(()=>{});
+    // #endregion
+    logger.warn('LFL Calendar: No matching dates found for range', { effectiveStartDate, effectiveEndDate });
+    return null;
+  }
+  
+  const matchedDays = calendarResult.length;
+  
+  // Bu yıl tarihlerini ve geçen yıl tarihlerini topla
+  const thisYearDates = calendarResult.map(r => r.this_year);
+  const lastYearDates = calendarResult.map(r => r.last_year);
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:lfl-calendar-matched',message:'LFL Calendar matches found',data:{matchedDays,thisYearDates:thisYearDates.slice(0,3),lastYearDates:lastYearDates.slice(0,3)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LFL5'})}).catch(()=>{});
+  // #endregion
+  
+  logger.debug('LFL Calendar matches found', { matchedDays, thisYearSample: thisYearDates.slice(0, 3), lastYearSample: lastYearDates.slice(0, 3) });
+  
+  // Bu yıl değeri - LFL takvimindeki bu yıl tarihlerinin toplamı
+  const thisYearDatesList = thisYearDates.map(d => `'${d}'`).join(',');
+  const currentSql = `
+    SELECT ${aggFunc} as value 
+    FROM ${tableName} 
+    WHERE toDate(${dateColumn}) IN (${thisYearDatesList})
+    ${rlsCondition}
+    ${filterCondition}
+  `;
+  
+  // Geçen yıl değeri - LFL takvimindeki geçen yıl tarihlerinin toplamı
+  const lastYearDatesList = lastYearDates.map(d => `'${d}'`).join(',');
+  const previousSql = `
+    SELECT ${aggFunc} as value 
+    FROM ${tableName} 
+    WHERE toDate(${dateColumn}) IN (${lastYearDatesList})
+    ${rlsCondition}
+    ${filterCondition}
+  `;
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:lfl-calendar-queries',message:'LFL Calendar aggregate queries',data:{currentSql:currentSql.substring(0,200),previousSql:previousSql.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LFL6'})}).catch(()=>{});
+  // #endregion
+  
+  logger.debug('LFL Calendar queries', { currentSql, previousSql });
+  
+  const [currentResult, previousResult] = await Promise.all([
+    clickhouse.query<{ value: number }>(currentSql),
+    clickhouse.query<{ value: number }>(previousSql)
+  ]);
+  
+  const currentVal = currentResult[0]?.value ? Number(currentResult[0].value) : 0;
+  const previousVal = previousResult[0]?.value ? Number(previousResult[0].value) : 0;
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:lfl-calendar-values',message:'LFL Calendar values calculated',data:{currentVal,previousVal,matchedDays},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LFL7'})}).catch(()=>{});
+  // #endregion
+  
+  let trend = 0;
+  if (previousVal !== 0) {
+    trend = ((currentVal - previousVal) / Math.abs(previousVal)) * 100;
+  } else if (currentVal > 0) {
+    trend = 100;
+  }
+  
+  return {
+    currentValue: currentVal,
+    previousValue: previousVal,
+    trend,
+    matchedDays
+  };
+}
+
+/**
  * Tarihi YYYY-MM-DD formatına çevirir
  */
 function formatDateString(d: Date): string {
@@ -1374,6 +1506,10 @@ async function executeMetric(
     ? JSON.parse(metric.chart_config) 
     : (metric.chart_config || {});
 
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:comparison-check',message:'Comparison block check',data:{comparison_enabled:metric.comparison_enabled,comparison_type:metric.comparison_type,valueType:typeof value,value:typeof value==='number'?value:'array',comparisonColumn:chartConfig?.comparisonColumn,lflCalendarDatasetId:chartConfig?.lflCalendarDatasetId,metricId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'COMP-CHECK'})}).catch(()=>{});
+  // #endregion
+
   // "Tüm Zamanlar" seçiliyse karşılaştırma YAPMA (ana değeri değiştirme)
   const allTimeComparison = parameters.allTime === 'true' || parameters.allTime === true;
   
@@ -1402,36 +1538,106 @@ async function executeMetric(
       const rlsCondition = rlsColumn && rlsValue ? `AND ${rlsColumn} = '${rlsValue}'` : '';
       const filterCondition = metric.filter_sql ? `AND (${metric.filter_sql})` : '';
       
+      // Tarih aralığı parametrelerini al
+      const startDate = parameters.startDate as string | undefined;
+      const endDate = parameters.endDate as string | undefined;
+      
       // ============================================
       // LFL (Like-for-Like) ÖZEL HESAPLAMA
       // ============================================
       if (compType === 'lfl') {
-        // LFL: Sadece her iki dönemde de satış olan günleri karşılaştır
-        const lflResult = await calculateLFL(
-          tableName,
-          dateColumn,
-          column,
-          aggFunc,
-          rlsCondition,
-          filterCondition
-        );
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:lfl-entry',message:'LFL comparison block entered',data:{compType,chartConfig,metricId,startDate:parameters.startDate,endDate:parameters.endDate},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LFL-ENTRY'})}).catch(()=>{});
+        // #endregion
         
-        if (lflResult) {
-          previousValue = lflResult.previousValue;
-          trend = lflResult.trend;
-          comparisonDays = {
-            current: lflResult.commonDays,
-            previous: lflResult.commonDays
-          };
-          comparisonLabel = `LFL (${lflResult.commonDays} gün)`;
+        // LFL Takvim ayarlarını chartConfig'den oku (chartConfigParsed değil!)
+        const lflCalendarDatasetId = chartConfig?.lflCalendarDatasetId;
+        const lflThisYearColumn = chartConfig?.lflThisYearColumn || 'this_year';
+        const lflLastYearColumn = chartConfig?.lflLastYearColumn || 'last_year';
+        
+        if (lflCalendarDatasetId) {
+          // Takvim tablosu varsa: Özel takvim ile LFL hesapla
+          // Takvim dataset'inin ClickHouse tablo adını bul
+          const calendarDatasetResult = await db.query(
+            'SELECT clickhouse_table FROM datasets WHERE id = $1',
+            [lflCalendarDatasetId]
+          );
           
-          logger.debug('LFL comparison calculated', {
-            metricId,
-            currentLFL: lflResult.currentValue,
-            previousLFL: lflResult.previousValue,
-            commonDays: lflResult.commonDays,
-            trend: trend?.toFixed(2)
-          });
+          if (calendarDatasetResult.rows.length > 0) {
+            // ClickHouse database prefix'i ekle
+            const lflCalendarTable = `clixer_analytics.${calendarDatasetResult.rows[0].clickhouse_table}`;
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:lfl-using-calendar',message:'Using LFL Calendar table',data:{lflCalendarTable,lflThisYearColumn,lflLastYearColumn,lflCalendarDatasetId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LFL0'})}).catch(()=>{});
+            // #endregion
+            
+            logger.info('Using LFL Calendar table', { 
+              lflCalendarTable, 
+              lflThisYearColumn, 
+              lflLastYearColumn 
+            });
+            
+            const lflCalendarResult = await calculateLFLWithCalendar(
+              tableName,
+              dateColumn,
+              column,
+              aggFunc,
+              rlsCondition,
+              filterCondition,
+              lflCalendarTable,
+              lflThisYearColumn,
+              lflLastYearColumn,
+              startDate,  // Tarih aralığı başlangıcı
+              endDate     // Tarih aralığı sonu
+            );
+            
+            if (lflCalendarResult) {
+              previousValue = lflCalendarResult.previousValue;
+              trend = lflCalendarResult.trend;
+              comparisonDays = {
+                current: lflCalendarResult.matchedDays,
+                previous: lflCalendarResult.matchedDays
+              };
+              comparisonLabel = `LFL Takvim`;
+              
+              logger.debug('LFL Calendar comparison calculated', {
+                metricId,
+                currentLFL: lflCalendarResult.currentValue,
+                previousLFL: lflCalendarResult.previousValue,
+                trend: trend?.toFixed(2)
+              });
+            }
+          } else {
+            logger.warn('LFL Calendar dataset not found', { lflCalendarDatasetId });
+          }
+        } else {
+          // Takvim tablosu yoksa: Standart LFL (dayOfYear bazlı)
+          const lflResult = await calculateLFL(
+            tableName,
+            dateColumn,
+            column,
+            aggFunc,
+            rlsCondition,
+            filterCondition
+          );
+          
+          if (lflResult) {
+            previousValue = lflResult.previousValue;
+            trend = lflResult.trend;
+            comparisonDays = {
+              current: lflResult.commonDays,
+              previous: lflResult.commonDays
+            };
+            comparisonLabel = `LFL (${lflResult.commonDays} gün)`;
+            
+            logger.debug('LFL comparison calculated', {
+              metricId,
+              currentLFL: lflResult.currentValue,
+              previousLFL: lflResult.previousValue,
+              commonDays: lflResult.commonDays,
+              trend: trend?.toFixed(2)
+            });
+          }
         }
       } else {
         // ============================================
