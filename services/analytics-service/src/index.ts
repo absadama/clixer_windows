@@ -1642,76 +1642,157 @@ async function executeMetric(
       } else {
         // ============================================
         // STANDART KARŞILAŞTIRMA (YoY, MoM, WoW, YTD)
+        // LFL Takvim seçilmişse → LFL takvimini kullan
+        // LFL Takvim seçilmemişse → Standart takvim hesaplama
         // ============================================
-        const { prevStartDate, prevEndDate, currentDays } = calculatePreviousPeriodDates(compType);
         
-        // Bugünün tarihini hesapla (GÜNCEL DÖNEM)
-        const today = new Date();
-        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        // LFL Takvim kontrolü (tüm karşılaştırma tipleri için)
+        const lflCalendarDatasetId = chartConfig?.lflCalendarDatasetId;
+        const lflThisYearColumn = chartConfig?.lflThisYearColumn || 'this_year';
+        const lflLastYearColumn = chartConfig?.lflLastYearColumn || 'last_year';
         
-        // GÜNCEL DÖNEM değerini hesapla (bugün için)
-        let currentWhereConditions: string[] = [];
-        currentWhereConditions.push(`toDate(${dateColumn}) = '${todayStr}'`);
-        
-        if (rlsColumn && rlsValue) {
-          currentWhereConditions.push(`${rlsColumn} = '${rlsValue}'`);
-        }
-        
-        if (metric.filter_sql) {
-          currentWhereConditions.push(`(${metric.filter_sql})`);
-        }
-        
-        const currentSql = `SELECT ${aggFunc} as value FROM ${tableName} WHERE ${currentWhereConditions.join(' AND ')}`;
-        const currentResult = await clickhouse.query<{ value: number }>(currentSql);
-        
-        // Güncel değeri güncelle (tarih filtreli)
-        let currentValue = value; // Fallback: ana değer
-        if (currentResult.length > 0 && currentResult[0].value !== null) {
-          currentValue = Number(currentResult[0].value);
-          value = currentValue; // Ana değeri güncelle
-        }
-        
-        // ÖNCEKİ DÖNEM değerini hesapla
-        let whereConditions: string[] = [];
-        whereConditions.push(`toDate(${dateColumn}) >= '${prevStartDate}' AND toDate(${dateColumn}) <= '${prevEndDate}'`);
-        
-        if (rlsColumn && rlsValue) {
-          whereConditions.push(`${rlsColumn} = '${rlsValue}'`);
-        }
-        
-        if (metric.filter_sql) {
-          whereConditions.push(`(${metric.filter_sql})`);
-        }
-        
-        const prevSql = `SELECT ${aggFunc} as value FROM ${tableName} WHERE ${whereConditions.join(' AND ')}`;
-        
-        // Önceki dönem verisini çek
-        const prevResult = await clickhouse.query<{ value: number }>(prevSql);
-        
-        if (prevResult.length > 0 && prevResult[0].value !== null) {
-          previousValue = Number(prevResult[0].value);
+        if (lflCalendarDatasetId) {
+          // ============================================
+          // LFL TAKVİM KULLANARAK KARŞILAŞTIRMA
+          // (YoY, MoM, WoW, YTD hepsi için geçerli)
+          // ============================================
           
-          // Trend hesapla (yüzde değişim)
-          if (previousValue !== 0) {
-            trend = ((currentValue - previousValue) / Math.abs(previousValue)) * 100;
-          } else if (currentValue > 0) {
-            trend = 100;
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/d3b02dfa-f486-4199-a348-f67a116073c3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'analytics-service:standard-with-lfl',message:'Using LFL Calendar for standard comparison',data:{compType,lflCalendarDatasetId,startDate,endDate},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'STD-LFL'})}).catch(()=>{});
+          // #endregion
+          
+          logger.info('Using LFL Calendar for standard comparison', { 
+            compType, 
+            lflCalendarDatasetId 
+          });
+          
+          // LFL takvim tablosunu bul
+          const calendarDatasetResult = await db.query(
+            'SELECT clickhouse_table FROM datasets WHERE id = $1',
+            [lflCalendarDatasetId]
+          );
+          
+          if (calendarDatasetResult.rows.length > 0) {
+            const lflCalendarTable = `clixer_analytics.${calendarDatasetResult.rows[0].clickhouse_table}`;
+            
+            // LFL fonksiyonunu çağır (tarih aralığı ile)
+            const lflResult = await calculateLFLWithCalendar(
+              tableName,
+              dateColumn,
+              column,
+              aggFunc,
+              rlsCondition,
+              filterCondition,
+              lflCalendarTable,
+              lflThisYearColumn,
+              lflLastYearColumn,
+              startDate,
+              endDate
+            );
+            
+            if (lflResult) {
+              previousValue = lflResult.previousValue;
+              trend = lflResult.trend;
+              comparisonDays = {
+                current: lflResult.matchedDays,
+                previous: lflResult.matchedDays
+              };
+              
+              // Karşılaştırma etiketini ayarla
+              const compLabels: Record<string, string> = {
+                'yoy': 'Geçen Yıl (LFL)',
+                'mom': 'Geçen Ay (LFL)',
+                'wow': 'Geçen Hafta (LFL)',
+                'ytd': 'YTD (LFL)'
+              };
+              comparisonLabel = compLabels[compType] || `${compType.toUpperCase()} (LFL)`;
+              
+              logger.debug('LFL Calendar comparison for standard type', {
+                metricId,
+                compType,
+                currentValue: lflResult.currentValue,
+                previousValue: lflResult.previousValue,
+                trend: trend?.toFixed(2),
+                matchedDays: lflResult.matchedDays
+              });
+            }
           } else {
-            trend = 0;
+            logger.warn('LFL Calendar dataset not found for standard comparison', { lflCalendarDatasetId });
+          }
+        } else {
+          // ============================================
+          // STANDART TAKVİM HESAPLAMASI (LFL Takvim YOK)
+          // ============================================
+          const { prevStartDate, prevEndDate, currentDays } = calculatePreviousPeriodDates(compType);
+          
+          // Bugünün tarihini hesapla (GÜNCEL DÖNEM)
+          const today = new Date();
+          const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+          
+          // GÜNCEL DÖNEM değerini hesapla (bugün için)
+          let currentWhereConditions: string[] = [];
+          currentWhereConditions.push(`toDate(${dateColumn}) = '${todayStr}'`);
+          
+          if (rlsColumn && rlsValue) {
+            currentWhereConditions.push(`${rlsColumn} = '${rlsValue}'`);
           }
           
-          comparisonDays = { current: currentDays, previous: currentDays };
+          if (metric.filter_sql) {
+            currentWhereConditions.push(`(${metric.filter_sql})`);
+          }
+          
+          const currentSql = `SELECT ${aggFunc} as value FROM ${tableName} WHERE ${currentWhereConditions.join(' AND ')}`;
+          const currentResult = await clickhouse.query<{ value: number }>(currentSql);
+          
+          // Güncel değeri güncelle (tarih filtreli)
+          let currentValue = value; // Fallback: ana değer
+          if (currentResult.length > 0 && currentResult[0].value !== null) {
+            currentValue = Number(currentResult[0].value);
+            value = currentValue; // Ana değeri güncelle
+          }
+          
+          // ÖNCEKİ DÖNEM değerini hesapla
+          let whereConditions: string[] = [];
+          whereConditions.push(`toDate(${dateColumn}) >= '${prevStartDate}' AND toDate(${dateColumn}) <= '${prevEndDate}'`);
+          
+          if (rlsColumn && rlsValue) {
+            whereConditions.push(`${rlsColumn} = '${rlsValue}'`);
+          }
+          
+          if (metric.filter_sql) {
+            whereConditions.push(`(${metric.filter_sql})`);
+          }
+          
+          const prevSql = `SELECT ${aggFunc} as value FROM ${tableName} WHERE ${whereConditions.join(' AND ')}`;
+          
+          // Önceki dönem verisini çek
+          const prevResult = await clickhouse.query<{ value: number }>(prevSql);
+          
+          if (prevResult.length > 0 && prevResult[0].value !== null) {
+            previousValue = Number(prevResult[0].value);
+            
+            // Trend hesapla (yüzde değişim)
+            if (previousValue !== 0) {
+              trend = ((currentValue - previousValue) / Math.abs(previousValue)) * 100;
+            } else if (currentValue > 0) {
+              trend = 100;
+            } else {
+              trend = 0;
+            }
+            
+            comparisonDays = { current: currentDays, previous: currentDays };
+          }
+          
+          logger.debug('Standard comparison calculated (no LFL)', {
+            metricId,
+            compType,
+            currentValue,
+            previousValue,
+            trend: trend?.toFixed(2),
+            currentPeriod: todayStr,
+            prevPeriod: `${prevStartDate} - ${prevEndDate}`
+          });
         }
-        
-        logger.debug('Comparison calculated', {
-          metricId,
-          compType,
-          currentValue,
-          previousValue,
-          trend: trend?.toFixed(2),
-          currentPeriod: todayStr,
-          prevPeriod: `${prevStartDate} - ${prevEndDate}`
-        });
       }
     } catch (compError: any) {
       logger.warn('Comparison calculation failed', { 

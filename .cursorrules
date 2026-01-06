@@ -6430,12 +6430,372 @@ SELECT SUM(amount) FROM sales WHERE date = '2024-12-29'
 -- trend = ((current - previous) / previous) * 100
 ```
 
-### LFL Ayarları (system_settings)
+### LFL Ayarları (Metrik Bazlı - chartConfig)
 
 | Key | Açıklama | Varsayılan |
 |-----|----------|------------|
-| lfl_calendar_dataset_id | LFL takvim dataset'inin ID'si | null |
-| lfl_this_year_column | Bu yıl tarihi kolonu | this_year |
-| lfl_last_year_column | Geçen yıl tarihi kolonu | last_year |
+| lflCalendarDatasetId | LFL takvim dataset'inin ID'si (UUID) | null |
+| lflThisYearColumn | Bu yıl tarihi kolonu adı | this_year |
+| lflLastYearColumn | Geçen yıl tarihi kolonu adı | last_year |
+
+---
+
+## 🔴🔴🔴 LFL TAKVİM SİSTEMİ - DETAYLI MİMARİ (KRİTİK!)
+
+### MUTLAK KURAL: LFL Takvimi Kullanıcı Tanımlı Excel'den Gelir!
+
+**Prensip:** Like-for-Like karşılaştırması, standart takvim hesaplaması (bugün - 365 gün) yerine, kullanıcının yüklediği özel bir referans takvim kullanır. Bu sayede:
+- Haftanın aynı günü (Pazartesi vs Pazartesi) karşılaştırılır
+- Merchandising takvimleri desteklenir
+- Tatil/kampanya günleri doğru eşleştirilir
+
+### LFL Takvim Excel Formatı
+
+| Kolon | Tip | Açıklama | Örnek |
+|-------|-----|----------|-------|
+| this_year | Date | Bu yılın tarihi | 2026-01-05 |
+| last_year | Date | Geçen yıl karşılık gelen tarih | 2025-01-06 |
+| merch_ay | Int (opsiyonel) | Merchandising ayı | 1 |
+| merch_hafta | Int (opsiyonel) | Merchandising haftası | 1 |
+
+**Örnek Veri:**
+```
+| this_year  | last_year  | merch_ay | merch_hafta |
+|------------|------------|----------|-------------|
+| 2026-01-01 | 2025-01-02 | 1        | 1           |
+| 2026-01-02 | 2025-01-03 | 1        | 1           |
+| 2026-01-03 | 2025-01-04 | 1        | 1           |
+| 2026-01-04 | 2025-01-05 | 1        | 1           |
+| 2026-01-05 | 2025-01-06 | 1        | 2           |
+| 2026-01-06 | 2025-01-07 | 1        | 2           |
+| 2026-01-07 | 2024-01-08 | 1        | 2           |
+```
+
+### Frontend - Metrik Formu (MetricsPage.tsx)
+
+1. **Karşılaştırma Tipi = LFL seçildiğinde:**
+   - "LFL Takvim Ayarları" bölümü görünür
+   - Kullanıcı dataset seçer (önceden Excel'den import edilmiş)
+   - Kolonlar dinamik olarak yüklenir
+   - "Bu Yıl Kolonu" ve "Geçen Yıl Kolonu" seçilir
+
+2. **chartConfig'e kaydedilen değerler:**
+```typescript
+chartConfig: {
+  comparisonType: 'lfl',
+  comparisonColumn: 'created_at', // Ana veri tablosundaki tarih kolonu
+  lflCalendarDatasetId: '9bb935df-5b59-4bbd-a1eb-7477ffb9a722',
+  lflThisYearColumn: 'this_year',
+  lflLastYearColumn: 'last_year'
+}
+```
+
+### Backend - Metrik Çalıştırma (analytics-service)
+
+#### calculateLFLWithCalendar Fonksiyonu
+
+```typescript
+async function calculateLFLWithCalendar(
+  tableName: string,           // Ana veri tablosu (örn: clixer_analytics.transac)
+  dateColumn: string,          // Tarih kolonu (örn: created_at)
+  valueColumn: string,         // Değer kolonu (örn: amount)
+  aggFunc: string,             // Aggregation (SUM, AVG, COUNT)
+  rlsCondition: string,        // RLS filtresi
+  filterCondition: string,     // Ek filtreler
+  lflCalendarTable: string,    // LFL takvim tablosu (clixer_analytics.ds_xxx)
+  lflThisYearColumn: string,   // Bu yıl kolonu (this_year)
+  lflLastYearColumn: string,   // Geçen yıl kolonu (last_year)
+  startDate: string,           // Başlangıç tarihi (YYYY-MM-DD)
+  endDate: string              // Bitiş tarihi (YYYY-MM-DD)
+): Promise<{
+  currentValue: number;
+  previousValue: number;
+  trend: number;
+  matchedDays: number;
+} | null>
+```
+
+#### SQL Sorgu Mantığı (Tarih Aralığı Desteği)
+
+```sql
+-- 1. LFL takviminden tarih aralığına karşılık gelen geçen yıl tarihlerini bul
+WITH calendar AS (
+  SELECT
+    toDate(this_year) as this_date,
+    toDate(last_year) as last_date
+  FROM clixer_analytics.lfl_calendar
+  WHERE toDate(this_year) >= toDate('2025-12-29')
+    AND toDate(this_year) <= toDate('2026-01-04')
+)
+
+-- 2. Bu yıl değerlerini hesapla (INNER JOIN ile eşleşen günler)
+SELECT SUM(t.amount) as current_value
+FROM clixer_analytics.transac t
+INNER JOIN calendar c ON toDate(t.created_at) = c.this_date
+
+-- 3. Geçen yıl değerlerini hesapla (LFL takvimindeki karşılık gelen tarihler)
+SELECT SUM(t.amount) as previous_value
+FROM clixer_analytics.transac t
+INNER JOIN calendar c ON toDate(t.created_at) = c.last_date
+
+-- 4. Trend hesapla
+-- trend = ((current_value - previous_value) / previous_value) * 100
+```
+
+### executeMetric İçinde LFL Kontrolü
+
+```typescript
+// analytics-service/src/index.ts - executeMetric fonksiyonu içinde
+
+// Karşılaştırma işlemi
+if (metric.comparison_enabled && chartConfig?.comparisonType) {
+  const comparisonType = chartConfig.comparisonType;
+  
+  // LFL takvim seçili mi kontrol et
+  if (comparisonType === 'lfl' && chartConfig?.lflCalendarDatasetId) {
+    // 1. LFL takvim dataset bilgilerini al
+    const lflDataset = await db.queryOne(
+      'SELECT clickhouse_table FROM datasets WHERE id = $1',
+      [chartConfig.lflCalendarDatasetId]
+    );
+    
+    // 2. LFL takvim tablosunu belirle (prefix ile!)
+    const lflCalendarTable = `clixer_analytics.${lflDataset.clickhouse_table}`;
+    
+    // 3. Tarih aralığını al
+    const startDate = parameters.startDate as string;
+    const endDate = parameters.endDate as string;
+    
+    // 4. LFL hesaplama fonksiyonunu çağır
+    const lflResult = await calculateLFLWithCalendar(
+      tableName,
+      dateColumn,
+      valueColumn,
+      aggFunc,
+      rlsCondition,
+      filterCondition,
+      lflCalendarTable,
+      chartConfig.lflThisYearColumn || 'this_year',
+      chartConfig.lflLastYearColumn || 'last_year',
+      startDate,
+      endDate
+    );
+    
+    // 5. Sonucu metadata'ya ekle
+    result.metadata = {
+      ...result.metadata,
+      previousValue: lflResult?.previousValue || 0,
+      trend: lflResult?.trend || 0,
+      trendSource: 'lfl_calendar',
+      matchedDays: lflResult?.matchedDays || 0
+    };
+  } else {
+    // Standart karşılaştırma (YoY, MoM, WoW, YTD)
+    const comparison = await calculateComparison(...);
+    // ...
+  }
+}
+```
+
+### Dosya Konumları
+
+| Dosya | İçerik |
+|-------|--------|
+| `frontend/src/pages/MetricsPage.tsx` | LFL takvim seçimi UI |
+| `services/analytics-service/src/index.ts` | calculateLFLWithCalendar fonksiyonu |
+| `services/data-service/src/index.ts` | Excel import (cellDates: true) |
+
+### Kritik Kurallar
+
+1. **LFL takvim tablosu prefix ile kullanılmalı:**
+   ```typescript
+   // ✅ DOĞRU
+   const lflCalendarTable = `clixer_analytics.${dataset.clickhouse_table}`;
+   
+   // ❌ YANLIŞ
+   const lflCalendarTable = dataset.clickhouse_table;
+   ```
+
+2. **chartConfig doğru okunmalı:**
+   ```typescript
+   // ✅ DOĞRU
+   const chartConfig = typeof metric.chart_config === 'string' 
+     ? JSON.parse(metric.chart_config) 
+     : metric.chart_config;
+   
+   // Sonra: chartConfig.lflCalendarDatasetId
+   ```
+
+3. **startDate/endDate tanımlı olmalı:**
+   ```typescript
+   // executeMetric içinde comparison bloğunda
+   const startDate = parameters.startDate as string;
+   const endDate = parameters.endDate as string;
+   ```
+
+4. **Excel import tarih formatı korunmalı:**
+   ```typescript
+   // data-service Excel okuma
+   const workbook = XLSX.readFile(filePath, { cellDates: true });
+   const data = XLSX.utils.sheet_to_json(sheet, { 
+     raw: false, 
+     dateNF: 'YYYY-MM-DD' 
+   });
+   ```
+
+### Test Senaryosu
+
+| Senaryo | Beklenen Davranış |
+|---------|-------------------|
+| LFL + Bugün | this_year = bugün, last_year = takvimden oku |
+| LFL + Geçen Hafta | 7 günlük aralık, her gün için LFL eşleşmesi |
+| LFL + Bu Ay | Ay boyunca tüm günler için LFL eşleşmesi |
+| LFL takvimi yok | Hata mesajı veya fallback standart karşılaştırma |
+
+### Hata Ayıklama
+
+**LFL sonucu 0 ise kontrol et:**
+1. LFL takvim tablosunda ilgili tarihler var mı?
+2. Ana veri tablosunda (transac) ilgili tarihlerde veri var mı?
+3. `clixer_analytics.` prefix doğru mu?
+4. chartConfig.lflCalendarDatasetId doğru mu?
+
+**Debug logları:**
+```typescript
+fetch('http://127.0.0.1:7242/ingest/...',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({
+    location:'analytics-service:calculateLFLWithCalendar',
+    message:'LFL Params',
+    data:{
+      lflCalendarTable,
+      startDate,
+      endDate,
+      currentVal,
+      previousVal
+    }
+  })
+});
+```
+
+---
+
+## 📅 v4.0.4 - 6 Ocak 2026
+
+**LFL Takvim Sistemi Tamamlandı**
+
+1. ✅ Frontend: MetricsPage'de LFL takvim dataset ve kolon seçimi
+2. ✅ Backend: calculateLFLWithCalendar fonksiyonu (tarih aralığı desteği)
+3. ✅ Excel Import: Tarih formatı korunuyor (cellDates: true)
+4. ✅ chartConfig: lflCalendarDatasetId, lflThisYearColumn, lflLastYearColumn
+5. ✅ ClickHouse: INNER JOIN ile LFL takvim eşleşmesi
+6. ✅ Hata düzeltmeleri: prefix, variable scope, date range
+7. ✅ **TÜM karşılaştırma tipleri (YoY, MoM, WoW, YTD) LFL takvimini kullanabilir**
+
+**Backup:**
+- GitHub: v4.0.4 tag
+- Lokal: backups/v4.0.4_lfl_calendar_20260106/
+
+---
+
+## 🔴 TÜM KARŞILAŞTIRMA TİPLERİ İÇİN LFL TAKVİM DESTEĞİ
+
+### MUTLAK KURAL: LFL Takvim seçilmişse TÜM karşılaştırma tipleri bu takvimi kullanır!
+
+**Prensip:** Kullanıcı bir referans takvim (LFL takvimi) seçtiyse, hangi karşılaştırma tipini seçerse seçsin (YoY, MoM, WoW, YTD, LFL), tarih eşleşmeleri bu takvimden yapılır.
+
+### Mantık
+
+```
+Karşılaştırma Tipi Seçildi (örn: MoM)
+           ↓
+LFL Takvim Dataset Seçili mi?
+           ↓
+    ┌──────┴──────┐
+    ↓             ↓
+  EVET          HAYIR
+    ↓             ↓
+LFL Takvimden    Standart Takvim
+tarih eşleşmesi  hesaplaması
+(this_year →     (bugün - 30 gün)
+ last_year)
+```
+
+### Backend Akışı (analytics-service/src/index.ts)
+
+```typescript
+// executeMetric fonksiyonu içinde
+if (metric.comparison_enabled && chartConfig?.comparisonColumn) {
+  const compType = metric.comparison_type || 'yoy'; // yoy, mom, wow, ytd, lfl
+  
+  // LFL Takvim kontrolü (TÜM karşılaştırma tipleri için)
+  const lflCalendarDatasetId = chartConfig?.lflCalendarDatasetId;
+  
+  if (lflCalendarDatasetId) {
+    // ✅ LFL takvimi kullan - hangi compType olursa olsun
+    const lflResult = await calculateLFLWithCalendar(...);
+    // Etiket: "Geçen Yıl (LFL)", "Geçen Ay (LFL)", vb.
+  } else {
+    // ❌ Standart takvim hesaplaması
+    // YoY: bugün - 365 gün
+    // MoM: bugün - 30 gün
+    // WoW: bugün - 7 gün
+  }
+}
+```
+
+### Frontend UI (MetricsPage.tsx)
+
+```
+Karşılaştırma etkinleştirildiğinde:
+┌─────────────────────────────────────────────┐
+│ ☑ Dönem Karşılaştır                         │
+│                                             │
+│ Karşılaştırma Tipi: [MoM - Geçen Ay ▼]     │
+│                                             │
+│ ┌─────────────────────────────────────────┐ │
+│ │ 📅 Referans Takvim (Opsiyonel)          │ │
+│ │                                         │ │
+│ │ LFL Takvim Dataset: [2026 LFL Takvim ▼] │ │
+│ │ Bu Yıl Kolonu: [this_year ▼]            │ │
+│ │ Geçen Yıl Kolonu: [last_year ▼]         │ │
+│ │                                         │ │
+│ │ ℹ️ Seçerseniz tüm karşılaştırmalar      │ │
+│ │    bu takvime göre yapılır.             │ │
+│ └─────────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘
+```
+
+### Karşılaştırma Etiketleri
+
+| Tip | LFL Takvim Seçili | LFL Takvim Seçilmemiş |
+|-----|-------------------|----------------------|
+| YoY | "Geçen Yıl (LFL)" | "Geçen Yıl Aynı Gün" |
+| MoM | "Geçen Ay (LFL)" | "Geçen Ay Aynı Gün" |
+| WoW | "Geçen Hafta (LFL)" | "Geçen Hafta" |
+| YTD | "YTD (LFL)" | "Yılbaşından Bugüne" |
+| LFL | "LFL Takvim" | Standart LFL (dayOfYear) |
+
+### chartConfig Yapısı
+
+```typescript
+chartConfig: {
+  comparisonType: 'mom',                    // yoy, mom, wow, ytd, lfl
+  comparisonColumn: 'created_at',           // Veri tablosundaki tarih kolonu
+  
+  // LFL Takvim ayarları (opsiyonel - seçilirse TÜM tipler için geçerli)
+  lflCalendarDatasetId: 'uuid-here',        // LFL takvim dataset ID
+  lflThisYearColumn: 'this_year',           // Bu yıl kolonu
+  lflLastYearColumn: 'last_year'            // Geçen yıl kolonu
+}
+```
+
+### Kritik Kurallar
+
+1. **LFL Takvim opsiyonel:** Seçilmezse standart takvim kullanılır
+2. **LFL tipi için zorunlu:** comparisonType = 'lfl' ise takvim seçimi zorunlu
+3. **Diğer tipler için opsiyonel:** YoY, MoM, WoW, YTD için takvim seçimi isteğe bağlı
+4. **Bir kez seçilince geçerli:** Takvim seçildiyse hangi tip seçilirse seçilsin bu takvim kullanılır
 
 ---

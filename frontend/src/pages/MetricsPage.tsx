@@ -434,10 +434,11 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
           // Karşılaştırma için tarih kolonu ve etiket
           comparisonColumn: formData.comparisonEnabled ? formData.comparisonColumn : undefined,
           comparisonLabel: formData.comparisonEnabled ? formData.comparisonLabel : undefined,
-          // LFL Takvim ayarları
-          lflCalendarDatasetId: formData.comparisonType === 'lfl' ? formData.lflCalendarDatasetId : undefined,
-          lflThisYearColumn: formData.comparisonType === 'lfl' ? formData.lflThisYearColumn : undefined,
-          lflLastYearColumn: formData.comparisonType === 'lfl' ? formData.lflLastYearColumn : undefined,
+          // LFL Takvim ayarları (tüm karşılaştırma tipleri için geçerli)
+          // Seçilmişse: LFL takvimi kullan, seçilmemişse: standart takvim
+          lflCalendarDatasetId: formData.comparisonEnabled && formData.lflCalendarDatasetId ? formData.lflCalendarDatasetId : undefined,
+          lflThisYearColumn: formData.comparisonEnabled && formData.lflCalendarDatasetId ? formData.lflThisYearColumn : undefined,
+          lflLastYearColumn: formData.comparisonEnabled && formData.lflCalendarDatasetId ? formData.lflLastYearColumn : undefined,
           // Hedef için kolon
           targetColumn: formData.targetColumn || undefined,
           // Köşe stili
@@ -1510,15 +1511,17 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
                               <option value="lfl">✨ LFL - Karşılaştırılabilir Günler</option>
                             </optgroup>
                           </select>
-                          {/* LFL Takvim Seçimi - LFL modu seçildiğinde göster */}
-                          {formData.comparisonType === 'lfl' && (
+                          {/* LFL Takvim Seçimi - Karşılaştırma etkinse HER ZAMAN göster */}
+                          {formData.comparisonEnabled && (
                             <div className="mt-3 p-3 bg-amber-900/30 border border-amber-700/50 rounded-lg space-y-3">
                               <div className="flex items-start gap-2">
                                 <span className="text-amber-400">📅</span>
                                 <div>
-                                  <p className="text-sm font-medium text-amber-300">LFL Takvim Ayarları</p>
+                                  <p className="text-sm font-medium text-amber-300">Referans Takvim (Opsiyonel)</p>
                                   <p className="text-xs text-amber-400/80 mt-0.5">
-                                    Özel bir referans takvim kullanarak haftanın aynı günlerini karşılaştırır.
+                                    {formData.comparisonType === 'lfl' 
+                                      ? 'LFL için özel takvim seçimi zorunludur.'
+                                      : 'Özel bir referans takvim seçerseniz tüm karşılaştırmalar bu takvime göre yapılır. Seçmezseniz standart takvim kullanılır.'}
                                   </p>
                                 </div>
                               </div>
@@ -1579,6 +1582,13 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
                               {/* Kolon yüklenirken */}
                               {formData.lflCalendarDatasetId && lflCalendarColumns.length === 0 && (
                                 <p className="text-xs text-amber-400/60 animate-pulse">Kolonlar yükleniyor...</p>
+                              )}
+                              
+                              {/* LFL tipi seçilmişse uyarı */}
+                              {formData.comparisonType === 'lfl' && !formData.lflCalendarDatasetId && (
+                                <div className="p-2 bg-red-900/30 border border-red-600/50 rounded text-xs text-red-300">
+                                  ⚠️ LFL modu için takvim seçimi zorunludur!
+                                </div>
                               )}
                             </div>
                           )}
