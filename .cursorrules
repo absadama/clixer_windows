@@ -7063,7 +7063,7 @@ CREATE INDEX IF NOT EXISTS idx_table_column ON table_name(column_name);
 
 **.env dosyası Git'te DEĞİL!** Yeni environment variable eklerseniz:
 
-1. `.env.example` dosyasını güncelleyin
+1. `env.example` dosyasını güncelleyin
 2. Müşteriye ayrıca bildirin (email/telefon)
 3. Müşteri `.env` dosyasını manuel güncellemeli
 
@@ -7074,5 +7074,136 @@ nano /opt/clixer/.env
 # Servisleri yeniden başlat
 pm2 reload all
 ```
+
+---
+
+## 🔴🔴🔴 PRODUCTION FİNAL KONTROL LİSTESİ (6 Ocak 2026)
+
+### ✅ HAZIR OLANLAR
+
+| Kategori | Dosya/Sistem | Durum |
+|----------|--------------|-------|
+| Install Script | `deploy/install-ubuntu.sh` | ✅ Git clone + random secrets |
+| Update Script | `scripts/update.sh` | ✅ Git pull + migrate + PM2 reload |
+| Rollback Script | `scripts/rollback.sh` | ✅ Version revert + DB restore |
+| Migration System | `scripts/migrate.sh` + `migrations/` | ✅ İdempotent SQL |
+| Health Check | `scripts/health-check.sh` | ✅ Docker + API + DB |
+| PM2 Config | `ecosystem.config.js` | ✅ Cluster mode (400+ user) |
+| Nginx Reverse Proxy | Install script'te | ✅ Otomatik yapılandırma |
+| Firewall (UFW) | Install script'te | ✅ 22, 80, 443 açık |
+| SSL | README'de | ✅ Certbot komutu |
+| Fail2ban | Install script'te | ✅ Brute force koruması |
+| PostgreSQL Seed | `00-schema-and-seed.sql` | ✅ Temiz admin@clixer |
+| Multi-customer Update | `deploy/update-all-customers.sh` | ✅ Bash + SSH |
+| Environment Template | `env.example` | ✅ Müşteri referansı |
+| Production Guide | `deploy/README-PRODUCTION.md` | ✅ Adım adım talimatlar |
+| WebSocket | Socket.IO | ✅ Real-time entegre |
+| Excel/CSV Import | data-service | ✅ Dataset olarak yükleme |
+| LFL Calendar | analytics-service | ✅ Özel takvim referansı |
+
+### 🟡 DİKKAT EDİLMESİ GEREKENLER
+
+| Risk | Önlem | Nasıl? |
+|------|-------|--------|
+| İlk admin şifresi biliniyor | Müşteriye ilk girişte değiştirmesi söylenmeli | Install script çıktısında var |
+| SSL kurulmamış | Certbot çalıştırılmalı | `sudo certbot --nginx -d domain.com` |
+| `.env` şifreleri kaybolabilir | Güvenli yerde yedeklemeli | Script uyarıyor |
+| ClickHouse disk dolabilir | Partition temizliği yapılmalı | UI'dan veya TTL policy |
+| PM2 startup yapılandırılmamış | Script otomatik yapıyor | Kontrol: `pm2 startup` |
+
+### 📋 MÜŞTERİ KURULUM SONRASI CHECKLIST
+
+```
+□ 1. Servisleri başlat: sudo -u clixer /opt/clixer/scripts/start-production.sh
+□ 2. SSL al: sudo certbot --nginx -d analytics.domain.com
+□ 3. Sistemi test et: http://domain.com → Login sayfası görünmeli
+□ 4. Admin girişi: admin@clixer / Admin1234!
+□ 5. Admin şifresini DEĞİŞTİR! (Profil → Güvenlik)
+□ 6. PM2 durumunu kontrol et: pm2 status
+□ 7. .env dosyasını yedekle: cp /opt/clixer/.env ~/clixer-env-backup.txt
+□ 8. Health check: bash /opt/clixer/scripts/health-check.sh
+```
+
+### 🔧 GÜNCELLEME GÖNDERME AKIŞI
+
+```bash
+# 1. Yerel değişiklikleri commit et
+git add -A
+git commit -m "v4.1.0 - Yeni özellik açıklaması"
+
+# 2. GitHub'a push et
+git push origin master
+
+# 3. Tag oluştur (önerilir)
+git tag -a v4.1.0 -m "Yeni özellik açıklaması"
+git push origin v4.1.0
+
+# 4. Tüm müşterileri güncelle
+bash deploy/update-all-customers.sh v4.1.0
+```
+
+### 🚨 ACIL DURUM SENARYOLARI
+
+| Senaryo | Çözüm |
+|---------|-------|
+| Güncelleme sonrası hata | `bash /opt/clixer/scripts/rollback.sh` |
+| Servis çöktü | `pm2 restart all` veya `pm2 logs` ile hata bul |
+| PostgreSQL bağlanamıyor | `docker restart clixer_postgres` |
+| ClickHouse bağlanamıyor | `docker restart clixer_clickhouse` |
+| Redis bağlanamıyor | `docker restart clixer_redis` |
+| 401 hataları | JWT secret kontrolü, `pm2 restart clixer-auth` |
+| Disk doldu | `docker system prune -a` veya ClickHouse partition sil |
+
+### 📁 DOSYA YAPISI ÖZETİ
+
+```
+/opt/clixer/
+├── .env                    # Şifreler (GIT'TE DEĞİL!)
+├── env.example             # Şablon
+├── ecosystem.config.js     # PM2 ayarları
+├── deploy/
+│   ├── install-ubuntu.sh   # İlk kurulum
+│   ├── update-all-customers.sh
+│   ├── customers.txt       # Müşteri listesi
+│   └── README-PRODUCTION.md
+├── scripts/
+│   ├── update.sh           # Tek müşteri güncellemesi
+│   ├── rollback.sh         # Geri dönüş
+│   ├── migrate.sh          # DB migrasyonları
+│   ├── health-check.sh     # Sağlık kontrolü
+│   ├── start-production.sh # Servisleri başlat
+│   └── stop-production.sh  # Servisleri durdur
+├── migrations/             # SQL migration dosyaları
+├── docker/
+│   ├── docker-compose.yml
+│   └── clickhouse/users.xml
+├── db-backup/
+│   └── postgresql_full.sql # Temiz seed
+├── frontend/
+├── gateway/
+├── services/
+│   ├── auth-service/
+│   ├── core-service/
+│   ├── data-service/
+│   ├── analytics-service/
+│   ├── notification-service/
+│   └── etl-worker/
+└── shared/
+```
+
+---
+
+## 📅 v4.1.0 - 6 Ocak 2026
+
+**Production Final Kontrol & env.example**
+
+1. ✅ `env.example` dosyası oluşturuldu
+2. ✅ Production Final Kontrol Listesi .cursorrules'a eklendi
+3. ✅ Müşteri Kurulum Sonrası Checklist eklendi
+4. ✅ Acil Durum Senaryoları dokümante edildi
+5. ✅ Dosya yapısı özeti eklendi
+6. ✅ Güncelleme gönderme akışı detaylandırıldı
+
+**Tüm Sistemler PRODUCTION READY! 🚀**
 
 ---
