@@ -226,10 +226,25 @@ pm2 start services/analytics-service/src/index.ts --name clixer-analytics --inte
 pm2 start services/notification-service/src/index.ts --name clixer-notification --interpreter ./node_modules/.bin/ts-node
 pm2 start services/etl-worker/src/index.ts --name clixer-etl --interpreter ./node_modules/.bin/ts-node
 
-# Frontend (build ve serve)
+# Frontend - HTTPS için .env.production düzelt
 cd frontend
+
+# 🔴 KRİTİK: Mixed Content hatası önlemek için /api kullan
+echo 'VITE_API_URL=/api' > .env.production
+
 npm run build
-pm2 serve dist 3000 --name clixer-frontend --spa
+
+# Build doğrulama
+HARDCODED_COUNT=$(grep -o "http://[^\"']*:4000" dist/assets/*.js 2>/dev/null | wc -l)
+if [ "$HARDCODED_COUNT" -gt 0 ]; then
+    echo "⚠️  UYARI: Build'de $HARDCODED_COUNT adet hardcoded URL var!"
+    echo "   Mixed Content hatası oluşabilir!"
+fi
+
+# Nginx dist klasöründen serve ediyor, PM2'ye gerek yok
+# İzinleri ayarla
+chown -R www-data:www-data /opt/clixer/frontend/dist
+chmod -R 755 /opt/clixer/frontend/dist
 
 pm2 save
 EOF
@@ -242,41 +257,62 @@ chown $CLIXER_USER:$CLIXER_USER $CLIXER_DIR/scripts/start-production.sh
 log_info "Nginx yapılandırılıyor..."
 
 cat > /etc/nginx/sites-available/clixer << EOF
+# HTTP -> HTTPS yönlendirme (SSL kurulduktan sonra aktif edin)
+# server {
+#     listen 80;
+#     server_name $DOMAIN;
+#     return 301 https://\$host\$request_uri;
+# }
+
 server {
-    listen 80;
+    listen 80 default_server;
+    # listen 443 ssl http2 default_server;  # SSL için bu satırı açın
     server_name $DOMAIN;
 
-    # Frontend
+    # SSL ayarları (sertifika kurulduktan sonra açın)
+    # ssl_certificate /etc/ssl/certs/certificate.crt;
+    # ssl_certificate_key /etc/ssl/private/certificate.key;
+    # ssl_protocols TLSv1.2 TLSv1.3;
+    # ssl_prefer_server_ciphers on;
+
+    # Sıkıştırma
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+
+    # Frontend - Static dosyalar (Production Build)
     location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_cache_bypass \$http_upgrade;
+        root /opt/clixer/frontend/dist;
+        index index.html;
+        try_files \$uri \$uri/ /index.html;
+
+        # Önbellekleme
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+            expires 30d;
+            add_header Cache-Control "public, no-transform";
+        }
     }
 
     # API Gateway
     location /api {
         proxy_pass http://localhost:4000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 300;
         proxy_connect_timeout 300;
     }
 
     # WebSocket
-    location /socket.io {
+    location /socket.io/ {
         proxy_pass http://localhost:4004;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 }
 EOF
@@ -323,6 +359,18 @@ echo ""
 echo "   SSL için (Let's Encrypt):"
 echo "   sudo apt install certbot python3-certbot-nginx"
 echo "   sudo certbot --nginx -d $DOMAIN"
+echo ""
+echo "   SSL için (Özel Sertifika - PFX):"
+echo "   1. scp C:\\cert.pfx user@server:/tmp/"
+echo "   2. openssl pkcs12 -in /tmp/cert.pfx -clcerts -nokeys -out /etc/ssl/certs/certificate.crt"
+echo "   3. openssl pkcs12 -in /tmp/cert.pfx -nocerts -nodes -out /etc/ssl/private/certificate.key"
+echo "   4. /etc/nginx/sites-available/clixer dosyasında SSL satırlarını açın"
+echo "   5. sudo nginx -t && sudo systemctl restart nginx"
+echo ""
+echo "   🔴 HTTPS Sonrası Build (KRİTİK!):"
+echo "   echo 'VITE_API_URL=/api' > /opt/clixer/frontend/.env.production"
+echo "   cd /opt/clixer/frontend && npm run build"
+echo "   chown -R www-data:www-data /opt/clixer/frontend/dist"
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
 

@@ -6013,17 +6013,481 @@ column reference "status" is ambiguous (etl performans endpoint'i)
 
 ---
 
+### HATA 10: LDAP Sunucu Adresi localhost Olarak Kaydediliyor
+
+**Belirti:**
+```
+LDAP server URL: ldap://localhost:389
+error: connect ECONNREFUSED 127.0.0.1:389
+LDAP bind failed
+Hatalı şifre (LDAP kullanıcısı için)
+```
+
+**Kök Neden:** 
+Admin Panel'den LDAP ayarları kaydedilirken `ldap_server_url` değeri veritabanına `localhost` olarak yazılıyor. Bu durum şu senaryolarda oluşabilir:
+1. UI'dan gönderilen değer yanlış parse ediliyor
+2. Varsayılan değer override edilemiyor
+3. JSON formatı hatalı kaydediliyor
+
+**Çözüm:**
+```bash
+# Veritabanında LDAP sunucu adresini düzelt
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "UPDATE system_settings SET value = '\"ldap://20.10.10.2:389\"' WHERE key = 'ldap_server_url';"
+
+# Değeri kontrol et
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "SELECT key, value FROM system_settings WHERE key LIKE 'ldap%';"
+```
+
+**⚠️ DİKKAT:** Value JSON formatında olmalı, yani çift tırnak içinde: `'"ldap://IP:PORT"'`
+
+**Önleme:**
+- LDAP ayarlarını UI'dan kaydettikten sonra veritabanını kontrol et
+- Hostname yerine her zaman IP adresi kullan (DNS çözümlemesi sorun çıkarabilir)
+- `getaddrinfo EAI_AGAIN` hatası alınıyorsa DNS sorunu var, IP kullan
+
+---
+
+### HATA 11: getaddrinfo EAI_AGAIN (DNS Çözümlemesi Başarısız)
+
+**Belirti:**
+```
+Sync hatası: LDAP senkronizasyonu başarısız: getaddrinfo EAI_AGAIN TD-DC01.tavukdunyasi.local
+```
+
+**Kök Neden:**
+Clixer sunucusu müşterinin internal DNS'ini çözemiyoru. `TD-DC01.tavukdunyasi.local` gibi internal hostname'ler çözümlenemiyor.
+
+**Çözüm:**
+LDAP sunucu alanına hostname yerine IP adresi kullan:
+- **Yanlış:** `ldap://TD-DC01.tavukdunyasi.local:389`
+- **Doğru:** `ldap://20.10.10.2:389`
+
+**IP Adresini Bulma (Müşteri sunucusundan):**
+```bash
+getent hosts TD-DC01.tavukdunyasi.local
+# veya
+nslookup TD-DC01.tavukdunyasi.local
+```
+
+---
+
+## 🔐 LDAP ENTEGRASYONU KONTROL LİSTESİ
+
+### Kurulum Öncesi Testler (SSH ile müşteri sunucusundan):
+
+```bash
+# 1. LDAP portları açık mı?
+nc -zv LDAP_IP 389
+nc -zv LDAP_IP 636
+
+# 2. LDAP bağlantısı çalışıyor mu?
+ldapsearch -x -H ldap://LDAP_IP:389 -D "BIND_USER@domain.local" -w 'BIND_SIFRE' -b "DC=domain,DC=local" "(sAMAccountName=BIND_USER)" cn
+
+# 3. Kullanıcı araması çalışıyor mu?
+ldapsearch -x -H ldap://LDAP_IP:389 -D "BIND_USER@domain.local" -w 'BIND_SIFRE' -b "DC=domain,DC=local" "(sAMAccountName=TEST_KULLANICI)" cn mail displayName
+
+# 4. Kullanıcı kimlik doğrulaması çalışıyor mu?
+ldapwhoami -x -H ldap://LDAP_IP:389 -D "kullanici@domain.local" -w 'KULLANICI_SIFRESI'
+```
+
+### Clixer'da LDAP Ayarları:
+
+| Alan | Değer | Örnek |
+|------|-------|-------|
+| LDAP Sunucu | `ldap://IP:389` veya `ldaps://IP:636` | `ldap://20.10.10.2:389` |
+| Base DN | `DC=domain,DC=local` | `DC=tavukdunyasi,DC=local` |
+| Bind DN | `user@domain.local` | `manageengine@tavukdunyasi.local` |
+| Bind Şifre | Bind kullanıcısının şifresi | `***` |
+| Kullanıcı Arama Filtresi | `(sAMAccountName={{username}})` | Tek kullanıcı aramak için |
+| Senkronizasyon Filtresi | `(&(objectClass=user)(objectCategory=person))` | Tüm kullanıcıları çekmek için |
+
+### Kurulum Sonrası Kontrol:
+
+```bash
+# Veritabanında LDAP ayarlarını kontrol et
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "SELECT key, value FROM system_settings WHERE key LIKE 'ldap%';"
+
+# ldap_server_url değeri IP ile mi kayıtlı?
+# Eğer localhost veya hostname ise düzelt!
+
+# Senkronize edilen kullanıcıları kontrol et
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "SELECT email, ldap_dn FROM users WHERE ldap_dn IS NOT NULL LIMIT 5;"
+```
+
+### Giriş Testi:
+
+```bash
+# Auth loglarını canlı izle
+tail -f /opt/clixer/logs/auth*.log
+
+# Başka terminalde login dene
+# Logda şunları görmelisin:
+# - "Attempting LDAP authentication"
+# - "LDAP server URL": "ldap://IP:389" (localhost DEĞİL!)
+# - "LDAP authentication successful"
+# - "User logged in"
+```
+
+### Sorun Giderme:
+
+| Hata | Sebep | Çözüm |
+|------|-------|-------|
+| `ECONNREFUSED 127.0.0.1:389` | LDAP sunucu adresi localhost | IP adresi ile güncelle |
+| `getaddrinfo EAI_AGAIN` | DNS çözümlenemiyor | Hostname yerine IP kullan |
+| `Invalid credentials (49)` | Yanlış şifre veya kullanıcı formatı | `user@domain.local` formatını dene |
+| `LDAP bind failed` | Bind kullanıcısı yetkisiz | Doğru bind kullanıcısı ve şifre |
+| `0 kullanıcı bulundu` | Arama filtresi yanlış | `(&(objectClass=user)(objectCategory=person))` |
+
+---
+
+### HATA 12: Docker Compose Tüm Servisleri Build Etmeye Çalışıyor
+
+**Belirti:**
+```
+ERROR [data-service 3/8] COPY shared /app/shared
+ERROR [auth-service 7/8] COPY services/auth-service .
+```
+
+**Kök Neden:**
+`docker-compose up -d` komutu TÜM servisleri (backend dahil) Docker container olarak build etmeye çalışıyor. Ama müşteri sunucusunda servisler Docker'da DEĞİL, direkt Node.js olarak çalışıyor.
+
+**Çözüm:**
+```bash
+# SADECE veritabanlarını başlat (backend servisleri DEĞİL!)
+cd /opt/clixer/docker
+sudo docker-compose up -d postgres redis clickhouse
+
+# Sonra Node.js servislerini başlat
+sudo bash /opt/clixer/scripts/start-all.sh
+```
+
+**Doğru Mimari:**
+| Bileşen | Nerede Çalışır | Başlatma |
+|---------|----------------|----------|
+| PostgreSQL | Docker container | `docker-compose up -d postgres` |
+| Redis | Docker container | `docker-compose up -d redis` |
+| ClickHouse | Docker container | `docker-compose up -d clickhouse` |
+| Auth Service | Node.js process | `scripts/start-all.sh` |
+| Core Service | Node.js process | `scripts/start-all.sh` |
+| Data Service | Node.js process | `scripts/start-all.sh` |
+| Analytics Service | Node.js process | `scripts/start-all.sh` |
+| Notification Service | Node.js process | `scripts/start-all.sh` |
+| ETL Worker | Node.js process | `scripts/start-all.sh` |
+| Gateway | Node.js process | `scripts/start-all.sh` |
+| Frontend | Vite dev server | `scripts/start-all.sh` |
+
+---
+
+### HATA 13: Varsayılan Tema Clixer Değil
+
+**Belirti:**
+Kullanıcılar giriş yaptığında beyaz (light/corporate) tema görüyorlar, Clixer (koyu) tema değil.
+
+**Kök Neden:**
+Veritabanındaki `default_theme` değeri `corporate` veya `light` olarak kayıtlı.
+
+**Çözüm:**
+```bash
+# Mevcut değeri kontrol et
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "SELECT value FROM system_settings WHERE key = 'default_theme';"
+
+# Clixer temasına güncelle
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "UPDATE system_settings SET value = '{\"type\": \"select\", \"label\": \"Varsayılan Tema\", \"value\": \"clixer\", \"description\": \"Yeni kullanıcılar için varsayılan tema\"}' WHERE key = 'default_theme';"
+```
+
+**Kullanıcı Tarafında:**
+Eğer kullanıcı hala eski temayı görüyorsa:
+- Ctrl + Shift + R (hard refresh)
+- Veya gizli pencere ile aç
+- Veya F12 → Application → Local Storage → Temizle
+
+---
+
 ## 🔧 KURULUM KOMUT ÖZETİ
 
 ```bash
 # TEK KOMUTLA KURULUM (Ubuntu)
 curl -fsSL https://raw.githubusercontent.com/absadama/clixer_windows/main/deploy/install-ubuntu.sh | sudo bash
 
-# MANUEL KURULUM
-cd /opt/clixer/docker && sudo docker-compose up -d
-cd /opt/clixer && sudo bash scripts/start-all.sh
+# MANUEL KURULUM - DOĞRU SIRA!
+# 1. Sadece veritabanlarını başlat
+cd /opt/clixer/docker
+sudo docker-compose up -d postgres redis clickhouse
+
+# 2. Servisleri başlat
+sudo bash /opt/clixer/scripts/start-all.sh
 
 # GİRİŞ BİLGİLERİ
 # Email: admin@clixer
 # Şifre: Admin1234!
 ```
+
+---
+
+## 🔴 MÜŞTERİ ORTAMI SERVİS YÖNETİMİ
+
+### Servisler Durduğunda / Bağlantı Koptuğunda:
+
+```bash
+# 1. Docker container'ları kontrol et
+sudo docker ps
+
+# Container'lar durmuşsa:
+cd /opt/clixer/docker
+sudo docker-compose up -d postgres redis clickhouse
+
+# 2. Node.js servislerini başlat
+sudo bash /opt/clixer/scripts/start-all.sh
+```
+
+### Tek Servis Yeniden Başlatma:
+
+```bash
+# Auth service
+sudo pkill -f "auth-service"
+cd /opt/clixer/services/auth-service
+sudo nohup npm run dev > /opt/clixer/logs/auth-out.log 2>&1 &
+
+# Veya tüm servisleri yeniden başlat
+sudo bash /opt/clixer/scripts/stop-all.sh
+sudo bash /opt/clixer/scripts/start-all.sh
+```
+
+### Log İzleme:
+
+```bash
+# Tüm auth logları
+tail -f /opt/clixer/logs/auth*.log
+
+# Gateway logları
+tail -f /opt/clixer/logs/gateway-out.log
+
+# Tüm loglar
+tail -f /opt/clixer/logs/*.log
+```
+
+### Sağlık Kontrolü:
+
+```bash
+# API Gateway
+curl http://localhost:4000/health
+
+# Auth Service
+curl http://localhost:4001/health
+
+# PostgreSQL
+sudo docker exec clixer_postgres pg_isready
+
+# ClickHouse
+curl "http://localhost:8123/?user=clixer&password=clixer_click_2025" --data "SELECT 1"
+
+# Redis
+sudo docker exec clixer_redis redis-cli ping
+```
+
+---
+
+## 🔴🔴🔴 HTTPS/SSL PRODUCTION KURULUMU - KRİTİK! (v4.1 - 7 Ocak 2026)
+
+### MUTLAK KURAL: HTTPS Ortamında `.env.production` ZORUNLU Düzeltme!
+
+**Sorun:** Vite production build sırasında `.env.production` dosyasındaki `VITE_API_URL` değerini hardcode ediyor. Eğer bu dosyada `http://IP:4000/api` gibi bir değer varsa, HTTPS sayfasında "Mixed Content" hatası alınır ve uygulama ÇALIŞMAZ!
+
+**Belirti:**
+```
+Mixed Content: The page at 'https://...' was loaded over HTTPS, but requested an insecure XMLHttpRequest endpoint 'http://...:4000/api/auth/login'. This request has been blocked.
+```
+
+### ✅ ÇÖZÜM - Production Build Öncesi ZORUNLU Adımlar
+
+**1. `.env.production` Dosyasını Düzelt:**
+```bash
+# YANLIŞ (Mixed Content hatası verir!)
+VITE_API_URL=http://20.10.10.30:4000/api
+
+# DOĞRU (Nginx reverse proxy kullanır)
+VITE_API_URL=/api
+```
+
+**Komut:**
+```bash
+echo 'VITE_API_URL=/api' | sudo tee /opt/clixer/frontend/.env.production
+```
+
+**2. Production Build Al:**
+```bash
+cd /opt/clixer/frontend
+sudo rm -rf dist node_modules/.vite
+sudo npm run build
+```
+
+**3. Build Doğrulama (ZORUNLU!):**
+```bash
+# Bu komut 0 dönmeli! 0'dan fazla ise hala hardcoded URL var!
+grep -o "http://[^\"']*:4000" /opt/clixer/frontend/dist/assets/*.js | wc -l
+```
+
+**4. İzinler ve Nginx:**
+```bash
+sudo chown -R www-data:www-data /opt/clixer/frontend/dist
+sudo chmod -R 755 /opt/clixer/frontend/dist
+sudo systemctl restart nginx
+```
+
+### 📋 NGINX HTTPS YAPILANDIRMASI
+
+```nginx
+# /etc/nginx/sites-available/default
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2 default_server;
+    listen [::]:443 ssl http2 default_server;
+    server_name _;
+
+    ssl_certificate /etc/ssl/certs/certificate.crt;
+    ssl_certificate_key /etc/ssl/private/certificate.key;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    # Sıkıştırma (Hız için)
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    # Frontend - Static dosyalar (Production Build)
+    location / {
+        root /opt/clixer/frontend/dist;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+
+        # Önbellekleme (Hız için)
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+            expires 30d;
+            add_header Cache-Control "public, no-transform";
+        }
+    }
+
+    # API Proxy (Gateway'e yönlendir)
+    location /api {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket Proxy (Notification Service'e yönlendir)
+    location /socket.io/ {
+        proxy_pass http://localhost:4004;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+### 📋 SSL SERTİFİKA KURULUMU (PFX'ten)
+
+```bash
+# 1. PFX dosyasını sunucuya kopyala (Windows'tan)
+scp C:\cert.pfx kullanici@SUNUCU_IP:/tmp/
+
+# 2. PFX'ten CRT ve KEY çıkar
+cd /tmp
+sudo openssl pkcs12 -in cert.pfx -clcerts -nokeys -out /etc/ssl/certs/certificate.crt
+sudo openssl pkcs12 -in cert.pfx -nocerts -nodes -out /etc/ssl/private/certificate.key
+
+# 3. İzinleri ayarla
+sudo chmod 600 /etc/ssl/private/certificate.key
+sudo chmod 644 /etc/ssl/certs/certificate.crt
+
+# 4. Nginx'i yeniden başlat
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+### ⚠️ ASLA YAPMA!
+
+| Yanlış | Doğru |
+|--------|-------|
+| `.env.production`'da `http://IP:4000/api` | `.env.production`'da `/api` |
+| Development modda production deploy | `npm run build` ile static dosya |
+| Nginx'te `proxy_pass` trailing slash | Trailing slash OLMADAN |
+| Frontend'i port 3000'de çalıştırma | `dist` klasöründen static serve |
+
+### 🔍 HATA AYIKLAMA
+
+**"Mixed Content" Hatası:**
+```bash
+# Build edilmiş dosyada hardcoded URL var mı?
+grep -o "http://[^\"']*:4000" /opt/clixer/frontend/dist/assets/*.js | wc -l
+# 0 dönmeli!
+
+# .env.production kontrol
+cat /opt/clixer/frontend/.env.production
+# VITE_API_URL=/api olmalı!
+```
+
+**502 Bad Gateway:**
+```bash
+# Servisler çalışıyor mu?
+sudo ss -tlnp | grep -E "4000|4001|4002|4003|4004|4005"
+
+# Dist klasörü var mı ve izinler doğru mu?
+ls -la /opt/clixer/frontend/dist/
+```
+
+**ServiceWorker SSL Hatası:**
+```bash
+# Sertifika geçerli mi?
+openssl s_client -connect localhost:443 -servername localhost < /dev/null 2>/dev/null | openssl x509 -noout -dates
+```
+
+---
+
+## 📅 v4.1 - 7 Ocak 2026
+
+**HTTPS/SSL Production Kurulumu - Mixed Content Çözümü**
+
+### Çözülen Sorunlar
+
+1. ✅ **Mixed Content Hatası** - `.env.production` dosyasında `VITE_API_URL=http://IP:4000/api` → `/api` olarak düzeltildi
+2. ✅ **Production Build** - `npm run build` ile static dosyalar oluşturuldu
+3. ✅ **Nginx Reverse Proxy** - `/api` → `localhost:4000`, `/socket.io/` → `localhost:4004`
+4. ✅ **SSL Sertifika** - PFX'ten CRT ve KEY çıkarılarak Nginx'e eklendi
+5. ✅ **WebSocket HTTPS** - `wss://` için Nginx proxy eklendi
+
+### Kök Neden
+
+Vite, production build sırasında `.env.production` dosyasındaki `VITE_API_URL` değerini **compile-time'da** JavaScript'e inject ediyor. Bu değer `http://...` ise, HTTPS sayfasında "Mixed Content" hatası oluşuyor.
+
+### Önleme Kuralı
+
+**Yeni müşteri kurulumunda MUTLAKA:**
+1. `.env.production` dosyasını kontrol et
+2. `VITE_API_URL=/api` olduğundan emin ol
+3. Build al ve `grep` ile doğrula
+4. Nginx'te `/api` ve `/socket.io/` proxy'leri ekle
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `/opt/clixer/frontend/.env.production` | `VITE_API_URL=/api` |
+| `/etc/nginx/sites-available/default` | HTTPS, reverse proxy, WebSocket |
+| `/opt/clixer/frontend/src/services/api.ts` | `baseURL: '/api'` (zaten doğruydu) |
+
+### Yedekleme
+
+- **Backup**: Müşteri sunucusunda production çalışıyor
+- **GitHub**: Güncellenmeli (`v4.1` tag)

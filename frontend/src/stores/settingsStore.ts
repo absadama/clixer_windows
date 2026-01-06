@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { useAuthStore } from './authStore'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 interface MenuPermission {
   menu_key: string
@@ -66,7 +66,7 @@ const defaultSettings = {
   appName: 'Clixer',
   appLogo: '/logo.png',
   appFavicon: '/favicon.ico',
-  defaultTheme: 'light' as const,
+  defaultTheme: 'clixer' as const,
   defaultLanguage: 'tr' as const,
   dateFormat: 'DD.MM.YYYY',
   currency: 'TRY',

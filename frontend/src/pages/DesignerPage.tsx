@@ -167,7 +167,7 @@ export default function DesignerPage() {
   const loadMetrics = async () => {
     if (!accessToken) return
     try {
-      const res = await fetch('http://localhost:4000/api/analytics/metrics', {
+      const res = await fetch(`${API_BASE}/analytics/metrics`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       })
       if (res.ok) {
@@ -183,7 +183,7 @@ export default function DesignerPage() {
   const loadDesigns = async () => {
     if (!accessToken) return
     try {
-      const res = await fetch('http://localhost:4000/api/analytics/designs', {
+      const res = await fetch(`${API_BASE}/analytics/designs`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       })
       if (res.ok) {
@@ -277,8 +277,8 @@ export default function DesignerPage() {
       
       const isNew = currentDesign.id.startsWith('design-')
       const url = isNew 
-        ? 'http://localhost:4000/api/analytics/designs'
-        : `http://localhost:4000/api/analytics/designs/${currentDesign.id}`
+        ? `${API_BASE}/analytics/designs`
+        : `${API_BASE}/analytics/designs/${currentDesign.id}`
       
       const res = await fetch(url, {
         method: isNew ? 'POST' : 'PUT',
@@ -320,7 +320,7 @@ export default function DesignerPage() {
     }
     
     try {
-      const res = await fetch(`http://localhost:4000/api/analytics/designs/${designId}`, {
+      const res = await fetch(`${API_BASE}/analytics/designs/${designId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${accessToken}` }
       })

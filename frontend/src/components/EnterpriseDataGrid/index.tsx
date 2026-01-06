@@ -52,7 +52,7 @@ import { ExportModal } from './ExportModal'
 import { useTheme } from '../../hooks/useTheme'
 import { useAuthStore } from '../../stores/authStore'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 // Sürüklenebilir Kolon Başlığı - Sadece grip ikonu sürüklenebilir
 const DraggableHeader: React.FC<{

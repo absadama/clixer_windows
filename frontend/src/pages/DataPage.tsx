@@ -48,7 +48,7 @@ import clsx from 'clsx'
 import { useAuthStore } from '../stores/authStore'
 
 // API Base URL
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 // ============================================
 // TYPES
@@ -6853,7 +6853,7 @@ function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection, theme,
 
   // API call helper
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
-    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}${endpoint}`, {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',

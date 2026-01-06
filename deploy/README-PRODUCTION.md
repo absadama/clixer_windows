@@ -52,7 +52,9 @@ pm2 logs
 
 ---
 
-## 🔒 SSL Sertifikası (Let's Encrypt)
+## 🔒 SSL Sertifikası
+
+### Seçenek 1: Let's Encrypt (Ücretsiz, Domain Gerekli)
 
 ```bash
 # Certbot kur
@@ -63,6 +65,106 @@ sudo certbot --nginx -d analytics.sirketiniz.com
 
 # Otomatik yenileme test
 sudo certbot renew --dry-run
+```
+
+### Seçenek 2: Özel Sertifika (PFX dosyasından)
+
+```bash
+# 1. PFX dosyasını sunucuya kopyala (Windows'tan)
+scp C:\cert.pfx kullanici@SUNUCU_IP:/tmp/
+
+# 2. PFX'ten CRT ve KEY çıkar
+cd /tmp
+sudo openssl pkcs12 -in cert.pfx -clcerts -nokeys -out /etc/ssl/certs/certificate.crt
+sudo openssl pkcs12 -in cert.pfx -nocerts -nodes -out /etc/ssl/private/certificate.key
+
+# 3. İzinleri ayarla
+sudo chmod 600 /etc/ssl/private/certificate.key
+sudo chmod 644 /etc/ssl/certs/certificate.crt
+
+# 4. Nginx'i yeniden başlat
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+---
+
+## 🔴🔴🔴 HTTPS İÇİN KRİTİK ADIM: Frontend .env.production
+
+**MUTLAKA** production build öncesi `.env.production` dosyasını kontrol edin!
+
+### Problem
+Vite, build sırasında `.env.production` dosyasındaki `VITE_API_URL` değerini JavaScript'e hardcode eder. Eğer bu değer `http://IP:4000/api` ise, HTTPS sayfasında **"Mixed Content"** hatası oluşur ve uygulama ÇALIŞMAZ!
+
+### Çözüm
+
+```bash
+# .env.production dosyasını düzelt
+echo 'VITE_API_URL=/api' | sudo tee /opt/clixer/frontend/.env.production
+
+# Yeniden build al
+cd /opt/clixer/frontend
+sudo rm -rf dist node_modules/.vite
+sudo npm run build
+
+# DOĞRULAMA (0 dönmeli!)
+grep -o "http://[^\"']*:4000" /opt/clixer/frontend/dist/assets/*.js | wc -l
+
+# İzinler
+sudo chown -R www-data:www-data /opt/clixer/frontend/dist
+sudo chmod -R 755 /opt/clixer/frontend/dist
+sudo systemctl restart nginx
+```
+
+### Nginx HTTPS Yapılandırması
+
+`/etc/nginx/sites-available/default` dosyası:
+
+```nginx
+server {
+    listen 80 default_server;
+    server_name _;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2 default_server;
+    server_name _;
+
+    ssl_certificate /etc/ssl/certs/certificate.crt;
+    ssl_certificate_key /etc/ssl/private/certificate.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript;
+
+    location / {
+        root /opt/clixer/frontend/dist;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+            expires 30d;
+            add_header Cache-Control "public, no-transform";
+        }
+    }
+
+    location /api {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /socket.io/ {
+        proxy_pass http://localhost:4004;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+    }
+}
 ```
 
 ---
