@@ -6948,3 +6948,131 @@ ssh-copy-id root@musteri.com
 **Öneri:** Production'da her zaman sabit versiyon kullanın (v4.0.6 gibi)
 
 ---
+
+## 🔴🔴🔴 GÜNCELLEME ÖNCESİ KONTROL LİSTESİ (ZORUNLU!)
+
+### MUTLAK KURAL: Şema değişikliği = Migration dosyası ZORUNLU!
+
+**Prensip:** Veritabanı şemasında yapılan HER değişiklik için `migrations/` altına SQL dosyası eklenmeli. Aksi halde müşteri sunucularında HATA oluşur!
+
+### ⚠️ Migration Gerektiren Değişiklikler
+
+| Değişiklik Tipi | Migration Gerekli mi? | Örnek |
+|-----------------|----------------------|-------|
+| Yeni kolon ekleme | ✅ EVET | `ALTER TABLE ADD COLUMN` |
+| Kolon silme | ✅ EVET | `ALTER TABLE DROP COLUMN` |
+| Kolon tipi değiştirme | ✅ EVET | `ALTER TABLE ALTER COLUMN` |
+| Yeni tablo oluşturma | ✅ EVET | `CREATE TABLE` |
+| Tablo silme | ✅ EVET | `DROP TABLE` |
+| Index ekleme | ✅ EVET | `CREATE INDEX` |
+| Constraint ekleme | ✅ EVET | `ALTER TABLE ADD CONSTRAINT` |
+| Varsayılan değer değiştirme | ✅ EVET | `ALTER TABLE ALTER COLUMN SET DEFAULT` |
+
+### ❌ Migration GEREKMEyen Değişiklikler
+
+| Değişiklik Tipi | Neden? |
+|-----------------|--------|
+| Bug fix (kod) | Git pull ile gider |
+| Yeni API endpoint | Git pull ile gider |
+| Frontend değişikliği | Git pull ile gider |
+| Yeni npm paketi | npm install ile gider |
+| ecosystem.config.js | Git pull ile gider |
+
+### 📋 Güncelleme Öncesi Checklist
+
+**Güncelleme göndermeden önce şu soruları sor:**
+
+```
+□ Veritabanı şemasında değişiklik yaptım mı?
+  → EVET ise: migrations/ altına SQL dosyası ekledim mi?
+  
+□ Yeni servis ekledim mi?
+  → EVET ise: ecosystem.config.js'te tanımladım mı?
+  
+□ Yeni npm paketi ekledim mi?
+  → EVET ise: package.json'a eklendi (otomatik)
+  
+□ .env'de yeni değişken var mı?
+  → EVET ise: Müşteriye manuel bildirilmeli!
+  
+□ ClickHouse'da yeni tablo gerekli mi?
+  → EVET ise: ETL veya init script'e eklenmeli
+```
+
+### 🚨 HATA SENARYOSU (Migration Unutulursa)
+
+```
+1. Kod: SELECT new_column FROM users → Çalışır (sizde var)
+2. Git push → Kod gider
+3. Müşteri update.sh → Kod güncellenir
+4. Uygulama başlar → HATA!
+   "ERROR: column new_column does not exist"
+
+ÇÖZÜM: Migration dosyası ekle, tekrar push et, tekrar güncelle
+```
+
+### ✅ DOĞRU İŞ AKIŞI
+
+```bash
+# 1. Kod değişikliği yap
+
+# 2. Şema değişikliği varsa migration ekle
+cat > migrations/20260106_001_add_status.sql << 'EOF'
+-- Migration: 20260106_001_add_status
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS status VARCHAR(50);
+EOF
+
+# 3. ecosystem.config.js güncelle (yeni servis varsa)
+
+# 4. Commit + push + tag
+git add -A
+git commit -m "v4.0.8 - Yeni özellik + migration"
+git push origin master
+git tag -a v4.0.8 -m "Yeni özellik"
+git push origin v4.0.8
+
+# 5. Müşterilere gönder
+bash deploy/update-all-customers.sh v4.0.8
+```
+
+### 📝 Migration Dosyası Şablonu
+
+```sql
+-- Migration: YYYYMMDD_NNN_aciklama
+-- Açıklama: Ne yapıldığını yaz
+-- Tarih: YYYY-MM-DD
+-- Geliştirici: İsim
+
+-- Kolon ekleme
+ALTER TABLE table_name ADD COLUMN IF NOT EXISTS column_name TYPE;
+
+-- Kolon silme (DİKKAT: Veri kaybı!)
+ALTER TABLE table_name DROP COLUMN IF EXISTS column_name;
+
+-- Tablo oluşturma
+CREATE TABLE IF NOT EXISTS table_name (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Index ekleme
+CREATE INDEX IF NOT EXISTS idx_table_column ON table_name(column_name);
+```
+
+### 🔒 .env Değişikliği Durumu
+
+**.env dosyası Git'te DEĞİL!** Yeni environment variable eklerseniz:
+
+1. `.env.example` dosyasını güncelleyin
+2. Müşteriye ayrıca bildirin (email/telefon)
+3. Müşteri `.env` dosyasını manuel güncellemeli
+
+```bash
+# Müşteri sunucusunda (SSH ile)
+nano /opt/clixer/.env
+# Yeni değişkeni ekle
+# Servisleri yeniden başlat
+pm2 reload all
+```
+
+---
