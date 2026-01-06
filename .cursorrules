@@ -5706,3 +5706,324 @@ Docker PostgreSQL container'ı ilk başlatıldığında `docker/init-scripts/pos
 
 - **Backup:** `backups/v4.0_customer_install_fixes_YYYYMMDD/`
 - **GitHub Tag:** `v4.0`
+
+---
+
+## 🔴🔴🔴 MÜŞTERİ KURULUM KONTROL LİSTESİ (Ubuntu SSH ile)
+
+### ÖN GEREKSİNİMLER
+
+| Gereksinim | Kontrol Komutu | Beklenen |
+|------------|----------------|----------|
+| Docker | `docker --version` | 20.10+ |
+| Docker Compose | `docker-compose --version` | 2.0+ |
+| Node.js | `node --version` | 18+ veya 20+ |
+| npm | `npm --version` | 9+ |
+| Git | `git --version` | 2.30+ |
+
+### KURULUM ADIMLARI
+
+```bash
+# 1. Sunucuya bağlan
+ssh root@SUNUCU_IP
+
+# 2. Kodu çek
+cd /opt
+git clone https://github.com/absadama/clixer_windows.git clixer
+cd /opt/clixer
+
+# 3. .env oluştur
+cp env.example .env
+# .env dosyasını düzenle (şifreler, domain vb.)
+
+# 4. Docker container'ları başlat
+cd /opt/clixer/docker
+sudo docker-compose up -d
+
+# 5. PostgreSQL veritabanını yükle (varsa backup)
+# İlk kurulumda init-scripts otomatik çalışır
+
+# 6. npm install (tüm servisler)
+cd /opt/clixer/shared && npm install && npm run build
+cd /opt/clixer/gateway && npm install
+cd /opt/clixer/services/auth-service && npm install
+cd /opt/clixer/services/core-service && npm install
+cd /opt/clixer/services/data-service && npm install
+cd /opt/clixer/services/notification-service && npm install
+cd /opt/clixer/services/analytics-service && npm install
+cd /opt/clixer/services/etl-worker && npm install
+
+# 7. Script izinleri
+sudo chmod +x /opt/clixer/scripts/*.sh
+
+# 8. Servisleri başlat
+cd /opt/clixer
+sudo bash scripts/start-all.sh
+
+# 9. Frontend build (production için)
+cd /opt/clixer/frontend && npm install && npm run build
+```
+
+### KURULUM SONRASI KONTROLLER
+
+```bash
+# Docker container'lar
+sudo docker ps
+
+# Servis portları
+ss -tlnp | grep -E "3000|4000|4001|4002|4003|4004|4005"
+
+# API testi
+TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@clixer","password":"Admin1234!"}' | \
+  grep -o '"accessToken":"[^"]*"' | cut -d'"' -f4)
+
+curl -s http://localhost:4000/api/core/labels/menu -H "Authorization: Bearer $TOKEN"
+curl -s http://localhost:4000/api/data/clickhouse/tables -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## 🔴 MÜŞTERİ KURULUM HATALARI VE ÇÖZÜMLERİ
+
+### HATA 1: Docker Permission Denied
+
+**Belirti:**
+```
+permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+```
+
+**Çözüm:**
+```bash
+# Tüm docker komutlarının başına sudo ekle
+sudo docker ps
+sudo docker-compose up -d
+```
+
+---
+
+### HATA 2: ClickHouse Authentication Failed
+
+**Belirti:**
+```
+ClickHouse: clixer: Authentication failed: password is incorrect, or there is no user with such name.
+```
+
+**Kök Neden:** Docker'ın `CLICKHOUSE_USER` environment değişkeni `default-user.xml` oluşturup default kullanıcıyı siliyor.
+
+**Çözüm:**
+```bash
+# 1. Klasör oluştur
+sudo mkdir -p /opt/clixer/docker/clickhouse
+
+# 2. users.xml yaz
+sudo tee /opt/clixer/docker/clickhouse/users.xml << 'EOF'
+<?xml version="1.0"?>
+<clickhouse>
+    <users>
+        <default>
+            <password></password>
+            <networks><ip>::/0</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </default>
+        <clixer>
+            <password>clixer_click_2025</password>
+            <networks><ip>::/0</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </clixer>
+    </users>
+</clickhouse>
+EOF
+
+# 3. docker-compose.yml'de volume mount'u kontrol et:
+# volumes:
+#   - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/users.xml
+
+# 4. ClickHouse'u yeniden başlat
+cd /opt/clixer/docker
+sudo docker-compose up -d --force-recreate clickhouse
+
+# 5. Test et
+curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025" --data "SELECT currentUser()"
+# Beklenen çıktı: clixer
+```
+
+---
+
+### HATA 3: Labels Tablosu Yok (500 Internal Server Error)
+
+**Belirti:**
+```
+GET /api/core/labels/menu 500 (Internal Server Error)
+```
+
+**Çözüm:**
+```bash
+# 07-labels.sql otomatik çalışmalı. Çalışmadıysa manuel oluştur:
+sudo docker exec -i clixer_postgres psql -U clixer -d clixer << 'EOF'
+CREATE TABLE IF NOT EXISTS labels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL,
+  label_type VARCHAR(50) NOT NULL,
+  label_key VARCHAR(100) NOT NULL,
+  label_value VARCHAR(200) NOT NULL,
+  description TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (tenant_id, label_type, label_key)
+);
+
+INSERT INTO labels (tenant_id, label_type, label_key, label_value) VALUES
+('00000000-0000-0000-0000-000000000001', 'menu', 'dashboard', 'Kokpit'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'finance', 'Finans'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'operations', 'Operasyon'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'analysis', 'Detayli Analiz'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'stores', 'Magazalar'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'designer', 'Tasarim Studyosu'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'data', 'Veri Baglantilari'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'admin', 'Yonetim Paneli'),
+('00000000-0000-0000-0000-000000000001', 'menu', 'datagrid', 'DataGrid Demo'),
+('00000000-0000-0000-0000-000000000001', 'position', 'GENERAL_MANAGER', 'Genel Mudur'),
+('00000000-0000-0000-0000-000000000001', 'position', 'DIRECTOR', 'Direktor'),
+('00000000-0000-0000-0000-000000000001', 'position', 'REGIONAL_MANAGER', 'Bolge Muduru'),
+('00000000-0000-0000-0000-000000000001', 'position', 'STORE_MANAGER', 'Magaza Muduru'),
+('00000000-0000-0000-0000-000000000001', 'position', 'ANALYST', 'Analist'),
+('00000000-0000-0000-0000-000000000001', 'position', 'VIEWER', 'Izleyici')
+ON CONFLICT (tenant_id, label_type, label_key) DO NOTHING;
+EOF
+```
+
+---
+
+### HATA 4: Grid Designs Eksik Kolonlar
+
+**Belirti:**
+```
+column gd.dataset_id does not exist
+column gd.grid_id does not exist
+column gd.state does not exist
+```
+
+**Çözüm:**
+```bash
+sudo docker exec -i clixer_postgres psql -U clixer -d clixer << 'EOF'
+CREATE TABLE IF NOT EXISTS grid_designs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  tenant_id UUID NOT NULL,
+  grid_key VARCHAR(100) NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  config JSONB NOT NULL DEFAULT '{}',
+  is_default BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (user_id, grid_key, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_grid_designs_user ON grid_designs(user_id);
+CREATE INDEX IF NOT EXISTS idx_grid_designs_grid_key ON grid_designs(grid_key);
+
+ALTER TABLE grid_designs ADD COLUMN IF NOT EXISTS dataset_id UUID;
+ALTER TABLE grid_designs ADD COLUMN IF NOT EXISTS grid_id VARCHAR(100);
+ALTER TABLE grid_designs ADD COLUMN IF NOT EXISTS state JSONB DEFAULT '{}';
+EOF
+```
+
+---
+
+### HATA 5: Cannot find module 'multer' (Data Service)
+
+**Belirti:**
+```
+Error: Cannot find module 'multer'
+```
+
+**Çözüm:**
+```bash
+cd /opt/clixer/services/data-service
+sudo npm install multer @types/multer
+```
+
+---
+
+### HATA 6: Cannot find module 'socket.io' (Notification Service)
+
+**Belirti:**
+```
+Error: Cannot find module 'socket.io'
+```
+
+**Çözüm:**
+```bash
+cd /opt/clixer/services/notification-service
+sudo npm install socket.io
+```
+
+---
+
+### HATA 7: EADDRINUSE - Port Zaten Kullanımda
+
+**Belirti:**
+```
+Error: listen EADDRINUSE: address already in use :::4002
+```
+
+**Çözüm:**
+```bash
+# Tüm Node.js process'lerini öldür
+sudo pkill -9 -f "node"
+
+# Temiz başlat
+cd /opt/clixer
+sudo bash scripts/stop-all.sh
+sleep 3
+sudo bash scripts/start-all.sh
+```
+
+---
+
+### HATA 8: Log Dosyasına Permission Denied
+
+**Belirti:**
+```
+Permission denied: /opt/clixer/logs/xxx.log
+```
+
+**Çözüm:**
+```bash
+sudo chmod 777 /opt/clixer/logs/
+```
+
+---
+
+### HATA 9: column reference "status" is ambiguous
+
+**Belirti:**
+```
+column reference "status" is ambiguous (etl performans endpoint'i)
+```
+
+**Çözüm:** Bu kod hatası. `data-service/src/index.ts` dosyasındaki SQL sorgusunda tablo alias'ı eksik. Windows'ta düzeltilmeli.
+
+---
+
+## 🔧 KURULUM KOMUT ÖZETİ
+
+```bash
+# TEK KOMUTLA KURULUM (Ubuntu)
+curl -fsSL https://raw.githubusercontent.com/absadama/clixer_windows/main/deploy/install-ubuntu.sh | sudo bash
+
+# MANUEL KURULUM
+cd /opt/clixer/docker && sudo docker-compose up -d
+cd /opt/clixer && sudo bash scripts/start-all.sh
+
+# GİRİŞ BİLGİLERİ
+# Email: admin@clixer
+# Şifre: Admin1234!
+```
