@@ -8,7 +8,7 @@ import { ColumnConfig, ServerSideAggregates, LoadedDesignInfo } from '../compone
 import { useTheme } from '../hooks/useTheme'
 import { useAuthStore } from '../stores/authStore'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`
 
 // Demo veri oluşturucu
 const generateDemoData = (count: number) => {

@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } fro
 import { useTheme } from '../components/Layout'
 import { useAuthStore } from '../stores/authStore'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`
 import RGL, { WidthProvider, Layout as GridLayout, Layouts } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'

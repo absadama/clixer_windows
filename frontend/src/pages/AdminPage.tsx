@@ -48,7 +48,7 @@ import {
 import clsx from 'clsx'
 import { SystemSetting } from '../types'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`
 
 
 // Menü öğeleri - Sadeleştirilmiş
@@ -3576,7 +3576,7 @@ function ServiceManagement({ theme, isDark, accessToken }: { theme: any; isDark:
   const [message, setMessage] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+  const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`;
 
   const fetchServices = async () => {
     try {

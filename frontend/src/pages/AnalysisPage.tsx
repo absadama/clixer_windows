@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useTheme } from '../components/Layout'
 import { useAuthStore } from '../stores/authStore'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000/api`
 import { useFilterStore } from '../stores/filterStore'
 import { useSocket } from '../hooks/useSocket'
 import FilterBar from '../components/FilterBar'
