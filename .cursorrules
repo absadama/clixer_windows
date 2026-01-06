@@ -6873,8 +6873,42 @@ clixer@musteri-b.com   # Müşteri B
 3. ✅ Git pull (belirtilen versiyon)
 4. ✅ npm install (tüm servisler)
 5. ✅ npm run build
-6. ✅ PM2 reload (zero-downtime)
-7. ✅ Health check
+6. ✅ **Veritabanı migrasyonları** (varsa)
+7. ✅ PM2 reload (zero-downtime)
+8. ✅ Health check
+
+### Migrasyon Sistemi
+
+Yeni şema değişiklikleri `migrations/` dizinindeki SQL dosyaları ile uygulanır.
+
+**Dosya Adı Formatı:**
+```
+YYYYMMDD_NNN_aciklama.sql
+Örnek: 20260106_001_add_phone_column.sql
+```
+
+**Örnek Migrasyon:**
+```sql
+-- Migration: 20260106_001_add_phone_column
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+```
+
+**Kurallar:**
+- Her migrasyon sadece BİR KEZ çalışır (`_migrations` tablosunda kaydedilir)
+- Alfabetik sıraya göre çalışır
+- `IF NOT EXISTS` / `IF EXISTS` kullanarak idempotent olmalı
+
+### 🔒 Güncelleme Güvenliği
+
+| Bileşen | Güncellemede? | Neden? |
+|---------|---------------|--------|
+| PostgreSQL verileri | ❌ DEĞİŞMEZ | Docker volume'da |
+| ClickHouse verileri | ❌ DEĞİŞMEZ | Docker volume'da |
+| Kullanıcı tasarımları | ❌ DEĞİŞMEZ | PostgreSQL'de |
+| Metrikler, yetkiler | ❌ DEĞİŞMEZ | PostgreSQL'de |
+| .env dosyası | ❌ DEĞİŞMEZ | Git'te değil |
+| Kod dosyaları | ✅ GÜNCELLENİR | Git'ten çekilir |
+| npm paketleri | ✅ GÜNCELLENİR | npm install |
 
 ### Rollback (Geri Dönüş)
 
