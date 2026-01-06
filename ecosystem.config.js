@@ -26,7 +26,10 @@ module.exports = {
       exec_mode: 'cluster',
       env: {
         NODE_ENV: 'production',
-        GATEWAY_PORT: 4000
+        GATEWAY_PORT: 4000,
+        // CORS - Kurulum scripti bu değeri sunucu IP'si ile günceller
+        // Manuel kurulumda: http://SUNUCU_IP:3000,http://SUNUCU_IP,http://localhost:3000
+        CORS_ORIGIN: 'http://localhost:3000,http://localhost,http://127.0.0.1:3000'
       },
       max_memory_restart: '500M',
       error_file: './logs/gateway-error.log',

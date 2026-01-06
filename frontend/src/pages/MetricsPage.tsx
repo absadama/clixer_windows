@@ -15,6 +15,8 @@ import { useAuthStore } from '../stores/authStore';
 import { useTheme } from '../components/Layout';
 import clsx from 'clsx';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+
 // Types
 interface Metric {
   id: string;
@@ -150,7 +152,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
   
   // API helper
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
-    const response = await fetch(`http://localhost:4000/api/analytics${endpoint}`, {
+    const response = await fetch(`${API_BASE}/analytics${endpoint}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -186,7 +188,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
       // Dataset'leri ayrı çek (data-service)
       let datasetsData: Dataset[] = [];
       try {
-        const dsRes = await fetch('http://localhost:4000/api/data/datasets', {
+        const dsRes = await fetch(`${API_BASE}/data/datasets`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         });
         if (dsRes.ok) {
@@ -225,7 +227,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
         tableName = dataset.clickhouse_table;
       } else {
         // Dataset detayını API'den çek
-        const dsRes = await fetch(`http://localhost:4000/api/data/datasets/${datasetId}`, {
+        const dsRes = await fetch(`${API_BASE}/data/datasets/${datasetId}`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         });
         if (dsRes.ok) {
@@ -257,7 +259,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
       if (dataset?.clickhouse_table) {
         tableName = dataset.clickhouse_table;
       } else {
-        const dsRes = await fetch(`http://localhost:4000/api/data/datasets/${datasetId}`, {
+        const dsRes = await fetch(`${API_BASE}/data/datasets/${datasetId}`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         });
         if (dsRes.ok) {

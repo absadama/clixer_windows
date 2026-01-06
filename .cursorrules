@@ -7242,3 +7242,192 @@ sudo certbot --nginx -d analytics.domain.com
 **🎉 Tüm Sistemler PRODUCTION READY!**
 
 ---
+
+## 🔴🔴🔴 MÜŞTERİ SUNUCU KURULUM HATALARI VE ÇÖZÜMLERİ (6 Ocak 2026)
+
+### Bu bölüm gerçek müşteri kurulumunda yaşanan sorunları ve çözümlerini içerir.
+
+---
+
+### HATA 1: ecosystem.config.js'de CORS_ORIGIN Eksik
+
+**Belirti:** Login isteği CORS hatası veriyor:
+```
+Access to XMLHttpRequest at 'http://IP:4000/auth/login' from origin 'http://IP:3000' 
+has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header
+```
+
+**Kök Neden:** 
+- `ecosystem.config.js` dosyasındaki gateway env bloğunda `CORS_ORIGIN` tanımlı değildi
+- Gateway kodu `.env` dosyasından `CORS_ORIGIN` okuyordu ama PM2 bu değişkeni yüklemiyordu
+
+**Çözüm - ecosystem.config.js'e CORS_ORIGIN ekle:**
+```javascript
+// ecosystem.config.js - gateway bloğu
+{
+  name: 'gateway',
+  script: './gateway/dist/index.js',
+  instances: 4,
+  exec_mode: 'cluster',
+  max_memory_restart: '500M',
+  env: {
+    NODE_ENV: 'production',
+    PORT: 4000,
+    CORS_ORIGIN: 'http://SUNUCU_IP:3000,http://SUNUCU_IP,http://localhost:3000'  // ← BU SATIR ZORUNLU!
+  },
+  // ...
+}
+```
+
+**Kurulum Scripti Güncellemesi:**
+`deploy/install-ubuntu.sh` scriptine eklenmeli:
+```bash
+# ecosystem.config.js'de CORS_ORIGIN güncelle
+sed -i "s|CORS_ORIGIN: '.*'|CORS_ORIGIN: 'http://${SERVER_IP}:3000,http://${SERVER_IP},http://localhost:3000'|g" /opt/clixer/ecosystem.config.js
+```
+
+---
+
+### HATA 2: Frontend VITE_API_URL Sonunda /api Eksik
+
+**Belirti:** Login isteği 404 dönüyor:
+```
+POST /auth/login {"status":404}
+```
+Gateway loglarında `/auth/login` görünüyor ama Gateway route'ları `/api/auth` şeklinde.
+
+**Kök Neden:**
+- `frontend/.env.production` dosyasında `VITE_API_URL=http://IP:4000` (sonunda `/api` YOK!)
+- Frontend `api.post('/auth/login')` çağırıyor
+- Ama Gateway route'ları `/api/auth/*` şeklinde tanımlı
+
+**Çözüm - VITE_API_URL'e /api ekle:**
+```bash
+# frontend/.env.production
+VITE_API_URL=http://SUNUCU_IP:4000/api   # ← Sonunda /api OLMALI!
+```
+
+**Kurulum Scripti Güncellemesi:**
+`deploy/install-ubuntu.sh` scriptine eklenmeli:
+```bash
+# Frontend .env.production oluştur
+echo "VITE_API_URL=http://${SERVER_IP}:4000/api" > /opt/clixer/frontend/.env.production
+```
+
+---
+
+### HATA 3: Firewall Portları Kapalı
+
+**Belirti:** Tarayıcıdan sunucuya erişilemiyor:
+```
+ERR_CONNECTION_TIMED_OUT
+```
+
+**Kök Neden:** UFW firewall 3000 ve 4000 portlarını engelliyor.
+
+**Çözüm:**
+```bash
+sudo ufw allow 22/tcp    # SSH
+sudo ufw allow 80/tcp    # HTTP
+sudo ufw allow 443/tcp   # HTTPS
+sudo ufw allow 3000/tcp  # Frontend
+sudo ufw allow 4000/tcp  # Gateway
+sudo ufw enable
+```
+
+---
+
+### HATA 4: Frontend Servisi Başlatılmamış
+
+**Belirti:** `http://IP:3000` açılmıyor ama Gateway çalışıyor.
+
+**Kök Neden:** `ecosystem.config.js`'de frontend tanımlı değil, ayrıca başlatılmalı.
+
+**Çözüm:**
+```bash
+# Frontend'i PM2 ile başlat
+sudo -u clixer pm2 start "npm run preview -- --host 0.0.0.0 --port 3000" \
+  --name frontend --cwd /opt/clixer/frontend
+```
+
+**Alternatif - ecosystem.config.js'e frontend ekle:**
+```javascript
+{
+  name: 'frontend',
+  script: 'npm',
+  args: 'run preview -- --host 0.0.0.0 --port 3000',
+  cwd: './frontend',
+  instances: 1,
+  exec_mode: 'fork',
+  env: {
+    NODE_ENV: 'production'
+  }
+}
+```
+
+---
+
+### 📋 KURULUM ÖNCESİ KONTROL LİSTESİ (Gelecek Kurulumlar İçin)
+
+Kurulum scriptini çalıştırmadan önce şunları kontrol et:
+
+| # | Kontrol | Dosya | Değer |
+|---|---------|-------|-------|
+| 1 | CORS_ORIGIN | `ecosystem.config.js` | Gateway env'de SUNUCU_IP ile tanımlı mı? |
+| 2 | VITE_API_URL | `frontend/.env.production` | `http://IP:4000/api` (sonunda /api var mı?) |
+| 3 | Firewall | UFW | 22, 80, 443, 3000, 4000 açık mı? |
+| 4 | Frontend PM2 | PM2 status | frontend servisi çalışıyor mu? |
+| 5 | CORS değişkeni | `pm2 env gateway \| grep CORS` | CORS_ORIGIN görünüyor mu? |
+
+---
+
+### 🔧 KURULUM SCRIPTI GÜNCELLEMELERİ
+
+`deploy/install-ubuntu.sh` dosyasına eklenecekler:
+
+```bash
+# 1. Sunucu IP'sini al
+SERVER_IP=$(hostname -I | awk '{print $1}')
+
+# 2. ecosystem.config.js'de CORS_ORIGIN güncelle
+sed -i "s|CORS_ORIGIN: '.*'|CORS_ORIGIN: 'http://${SERVER_IP}:3000,http://${SERVER_IP},http://localhost:3000'|g" /opt/clixer/ecosystem.config.js
+
+# 3. Frontend .env.production oluştur
+echo "VITE_API_URL=http://${SERVER_IP}:4000/api" > /opt/clixer/frontend/.env.production
+
+# 4. Frontend build
+cd /opt/clixer/frontend && npm run build
+
+# 5. Firewall ayarları
+ufw allow 3000/tcp
+ufw allow 4000/tcp
+
+# 6. Frontend'i PM2'ye ekle
+pm2 start "npm run preview -- --host 0.0.0.0 --port 3000" --name frontend --cwd /opt/clixer/frontend
+pm2 save
+```
+
+---
+
+### 📅 v4.2.0 - 6 Ocak 2026
+
+**Müşteri Sunucu Kurulum Düzeltmeleri**
+
+1. ✅ CORS_ORIGIN artık ecosystem.config.js'de tanımlı
+2. ✅ VITE_API_URL sonunda /api var
+3. ✅ Firewall portları (3000, 4000) açık
+4. ✅ Frontend PM2 ile başlatılıyor
+5. ✅ Kurulum scripti güncellemeleri dokümante edildi
+6. ✅ Kontrol listesi oluşturuldu
+
+**Test Edilen Ortam:**
+- Ubuntu 22.04 LTS
+- PM2 cluster mode
+- Sunucu IP: 20.10.10.30
+
+**Giriş Bilgileri:**
+- URL: `http://20.10.10.30:3000`
+- Email: `admin@clixer`
+- Şifre: `Admin1234!`
+
+---

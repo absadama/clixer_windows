@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useTheme } from '../components/Layout'
 import { useAuthStore } from '../stores/authStore'
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 import { useFilterStore } from '../stores/filterStore'
 import { useSocket } from '../hooks/useSocket'
 import FilterBar from '../components/FilterBar'
@@ -312,7 +314,7 @@ export default function AnalysisPage() {
   const fetchDrillDownData = async (metricId: string, field: string, value: string | number) => {
     try {
       setDrillDownLoading(true);
-      const response = await fetch(`http://localhost:4000/api/analytics/metrics/${metricId}/drill-down`, {
+      const response = await fetch(`${API_BASE}/analytics/metrics/${metricId}/drill-down`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -365,7 +367,7 @@ export default function AnalysisPage() {
       
       const queryString = params.toString() ? `?${params.toString()}` : ''
       
-      const res = await fetch(`http://localhost:4000/api/analytics/dashboard/${designId}/full${queryString}`, {
+      const res = await fetch(`${API_BASE}/analytics/dashboard/${designId}/full${queryString}`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       })
       if (res.ok) {
@@ -421,7 +423,7 @@ export default function AnalysisPage() {
   const loadSavedDesigns = async () => {
     setLoading(true)
     try {
-      const res = await fetch('http://localhost:4000/api/analytics/designs', {
+      const res = await fetch(`${API_BASE}/analytics/designs`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       })
       if (res.ok) {

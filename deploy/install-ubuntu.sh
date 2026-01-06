@@ -317,13 +317,30 @@ else
     pm2 start services/etl-worker/src/index.ts --name clixer-etl --interpreter ./node_modules/.bin/ts-node
 fi
 
-# Frontend (build ve serve)
+# Sunucu IP'sini al
+SERVER_IP=$(hostname -I | awk '{print $1}')
+echo "Sunucu IP: $SERVER_IP"
+
+# ecosystem.config.js'de CORS_ORIGIN güncelle
+if [ -f "/opt/clixer/ecosystem.config.js" ]; then
+    echo "ecosystem.config.js'de CORS_ORIGIN güncelleniyor..."
+    sed -i "s|CORS_ORIGIN: '.*'|CORS_ORIGIN: 'http://${SERVER_IP}:3000,http://${SERVER_IP},http://localhost:3000'|g" /opt/clixer/ecosystem.config.js
+fi
+
+# Frontend .env.production oluştur (VITE_API_URL sonunda /api OLMALI!)
 echo "[4/4] Frontend başlatılıyor..."
-cd frontend
-if [ ! -d "dist" ]; then
+cd /opt/clixer/frontend
+echo "VITE_API_URL=http://${SERVER_IP}:4000/api" > .env.production
+echo "Frontend .env.production oluşturuldu: VITE_API_URL=http://${SERVER_IP}:4000/api"
+
+# Frontend build
+if [ ! -d "dist" ] || [ ".env.production" -nt "dist/index.html" ]; then
+    echo "Frontend build ediliyor..."
     npm run build
 fi
-pm2 serve dist 3000 --name clixer-frontend --spa
+
+# Frontend'i PM2 ile başlat
+pm2 start "npm run preview -- --host 0.0.0.0 --port 3000" --name clixer-frontend --cwd /opt/clixer/frontend
 
 # PM2 durumunu kaydet (sunucu restart'ında otomatik başlaması için)
 pm2 save
@@ -406,6 +423,8 @@ ufw --force enable
 ufw allow ssh
 ufw allow 80/tcp
 ufw allow 443/tcp
+ufw allow 3000/tcp  # Frontend (PM2 preview)
+ufw allow 4000/tcp  # Gateway API
 ufw reload
 
 # ============================================
