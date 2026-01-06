@@ -3120,6 +3120,17 @@ async function mssqlSync(
                 // processedRow key olarak orijinal source adını kullanıyor
                 let val = r[col.source];
                 
+                // ⚠️ KRİTİK: Date objesi ise önce string'e çevir!
+                // ClickHouse client Date objelerini JSON'a düzgün serialize edemiyor
+                if (val instanceof Date) {
+                  const formatted = formatDate(val);
+                  if (formatted) {
+                    val = col.clickhouseType === 'Date' ? formatted.split(' ')[0] : formatted;
+                  } else {
+                    val = col.clickhouseType === 'Date' ? '1970-01-01' : '1970-01-01 00:00:00';
+                  }
+                }
+                
                 // Date/DateTime tiplerini düzelt
                 if (col.clickhouseType === 'DateTime' || col.clickhouseType === 'Date') {
                   if (val === null || val === undefined || val === '') {
@@ -3182,6 +3193,16 @@ async function mssqlSync(
               for (const col of columnMapping) {
                 // processedRow key olarak orijinal source adını kullanıyor
                 let val = r[col.source];
+                
+                // ⚠️ KRİTİK: Date objesi ise önce string'e çevir!
+                if (val instanceof Date) {
+                  const formatted = formatDate(val);
+                  if (formatted) {
+                    val = col.clickhouseType === 'Date' ? formatted.split(' ')[0] : formatted;
+                  } else {
+                    val = col.clickhouseType === 'Date' ? '1970-01-01' : '1970-01-01 00:00:00';
+                  }
+                }
                 
                 // Date/DateTime tiplerini düzelt
                 if (col.clickhouseType === 'DateTime' || col.clickhouseType === 'Date') {
