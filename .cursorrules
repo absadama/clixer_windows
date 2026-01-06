@@ -6799,3 +6799,118 @@ chartConfig: {
 4. **Bir kez seçilince geçerli:** Takvim seçildiyse hangi tip seçilirse seçilsin bu takvim kullanılır
 
 ---
+
+## 🚀 MÜŞTERİ GÜNCELLEME SİSTEMİ (Multi-Tenant Deployment)
+
+### Strateji: Merkezi Güncelleme Yönetimi
+
+Birden fazla müşteri sunucusuna güncelleme göndermek için script tabanlı sistem.
+
+### Dosya Yapısı
+
+| Dosya | Konum | Açıklama |
+|-------|-------|----------|
+| `update.sh` | `/opt/clixer/scripts/` | Müşteri sunucusunda çalışır |
+| `rollback.sh` | `/opt/clixer/scripts/` | Hata durumunda geri dönüş |
+| `update-all-customers.sh` | `deploy/` | Sizin PC'de, tüm müşterileri günceller |
+| `customers.txt` | `deploy/` | Müşteri listesi |
+
+### Kullanım
+
+#### Tek Müşteri Güncelleme (SSH ile)
+```bash
+ssh root@musteri.com "bash /opt/clixer/scripts/update.sh v4.0.6"
+```
+
+#### Tüm Müşterileri Güncelleme (Sizin PC'den)
+```bash
+# Müşteri listesini düzenle
+nano deploy/customers.txt
+
+# Tüm müşterileri güncelle
+bash deploy/update-all-customers.sh v4.0.6
+
+# veya latest (master branch)
+bash deploy/update-all-customers.sh
+```
+
+### customers.txt Formatı
+
+```
+# Yorum satırları # ile başlar
+root@192.168.1.100     # Test sunucusu
+root@musteri-a.com     # Müşteri A
+clixer@musteri-b.com   # Müşteri B
+```
+
+### Güncelleme Akışı
+
+```
+┌─────────────────┐
+│  Sizin PC       │
+│  (Developer)    │
+└────────┬────────┘
+         │ bash deploy/update-all-customers.sh v4.0.6
+         │
+    ┌────┴────┬────────┬────────┐
+    ▼         ▼        ▼        ▼
+┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐
+│  SSH  │ │  SSH  │ │  SSH  │ │  SSH  │
+└───┬───┘ └───┬───┘ └───┬───┘ └───┬───┘
+    ▼         ▼        ▼        ▼
+┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐
+│Müşteri│ │Müşteri│ │Müşteri│ │Müşteri│
+│   1   │ │   2   │ │   3   │ │   4   │
+│update │ │update │ │update │ │update │
+│ .sh   │ │ .sh   │ │ .sh   │ │ .sh   │
+└───────┘ └───────┘ └───────┘ └───────┘
+```
+
+### update.sh Yapılanları
+
+1. ✅ Mevcut versiyonu kaydet (rollback için)
+2. ✅ PostgreSQL yedeği al
+3. ✅ Git pull (belirtilen versiyon)
+4. ✅ npm install (tüm servisler)
+5. ✅ npm run build
+6. ✅ PM2 reload (zero-downtime)
+7. ✅ Health check
+
+### Rollback (Geri Dönüş)
+
+```bash
+# Müşteri sunucusunda
+bash /opt/clixer/scripts/rollback.sh
+
+# veya belirli backup
+bash /opt/clixer/scripts/rollback.sh /opt/clixer-backups/20260106_150000
+```
+
+### SSH Key Ayarı (Önerilir)
+
+Şifresiz SSH bağlantısı için:
+
+```bash
+# Sizin PC'de
+ssh-keygen -t ed25519 -C "clixer-deploy"
+
+# Her müşteriye key'i kopyala
+ssh-copy-id root@musteri.com
+```
+
+### Log Dosyaları
+
+- Güncelleme logları: `deploy/update_YYYYMMDD_HHMMSS.log`
+- Her müşteri için detaylı çıktı
+- Başarılı/başarısız özet
+
+### Versiyon Yönetimi
+
+| Format | Örnek | Kullanım |
+|--------|-------|----------|
+| `vX.Y.Z` | `v4.0.6` | Sabit versiyon (önerilir) |
+| `latest` | - | master branch son hali |
+
+**Öneri:** Production'da her zaman sabit versiyon kullanın (v4.0.6 gibi)
+
+---
