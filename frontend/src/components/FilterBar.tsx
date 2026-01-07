@@ -3,7 +3,7 @@
  * Tüm ana sayfalarda kullanılan üst filtre çubuğu
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useFilterStore, DATE_PRESETS } from '../stores/filterStore'
 import { useAuthStore } from '../stores/authStore'
 import { useTheme } from './Layout'
@@ -16,7 +16,10 @@ import {
   Filter,
   X,
   Building,
-  Store
+  Store,
+  Search,
+  CheckSquare,
+  Square
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -61,6 +64,7 @@ export default function FilterBar({
   const [showStoreDropdown, setShowStoreDropdown] = useState(false)
   const [showDateDropdown, setShowDateDropdown] = useState(false)
   const [showTypeDropdown, setShowTypeDropdown] = useState(false)
+  const [storeSearchQuery, setStoreSearchQuery] = useState('')
 
   // Filtreleri yükle
   useEffect(() => {
@@ -72,6 +76,31 @@ export default function FilterBar({
   const filteredStores = getFilteredStores()
   const selectedRegion = regions.find(r => r.id === selectedRegionId)
   const selectedDatePreset = DATE_PRESETS.find(p => p.id === datePreset)
+
+  // Arama ve sıralama ile filtrelenmiş mağazalar
+  const searchedStores = useMemo(() => {
+    let result = [...filteredStores]
+    
+    // Arama filtresi
+    if (storeSearchQuery.trim()) {
+      const query = storeSearchQuery.toLowerCase().trim()
+      result = result.filter(store => 
+        store.name.toLowerCase().includes(query) ||
+        store.city?.toLowerCase().includes(query) ||
+        store.code?.toLowerCase().includes(query)
+      )
+    }
+    
+    // Seçili olanları üste al
+    result.sort((a, b) => {
+      const aSelected = selectedStoreIds.includes(a.id) ? 0 : 1
+      const bSelected = selectedStoreIds.includes(b.id) ? 0 : 1
+      if (aSelected !== bSelected) return aSelected - bSelected
+      return a.name.localeCompare(b.name, 'tr')
+    })
+    
+    return result
+  }, [filteredStores, storeSearchQuery, selectedStoreIds])
 
   // Seçili mağaza sayısı özeti
   const storeSelectionText = () => {
@@ -196,11 +225,11 @@ export default function FilterBar({
         </div>
       )}
 
-      {/* Mağaza Seçimi */}
+      {/* Mağaza Seçimi - Gelişmiş UI */}
       {showStoreFilter && (
         <div className="relative">
           <button
-            onClick={() => setShowStoreDropdown(!showStoreDropdown)}
+            onClick={() => { setShowStoreDropdown(!showStoreDropdown); setStoreSearchQuery('') }}
             className={clsx(
               'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all',
               selectedStoreIds.length > 0 && selectedStoreIds.length < stores.length
@@ -215,62 +244,178 @@ export default function FilterBar({
 
           {showStoreDropdown && (
             <div className={clsx(
-              'absolute top-full left-0 mt-2 w-72 max-h-80 rounded-xl shadow-xl z-50 border overflow-hidden',
-              theme.cardBg,
-              isDark ? 'border-slate-700' : 'border-slate-200'
+              'absolute top-full left-0 mt-2 w-96 rounded-xl shadow-2xl z-50 border overflow-hidden',
+              isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
             )}>
-              <div className="p-3 border-b flex gap-2">
-                <button
-                  onClick={selectAllStores}
-                  className={clsx('flex-1 px-3 py-1.5 text-xs font-medium rounded-lg', theme.buttonSecondary)}
-                >
-                  Tümünü Seç
-                </button>
-                <button
-                  onClick={() => setStores([])}
-                  className={clsx('flex-1 px-3 py-1.5 text-xs font-medium rounded-lg', theme.buttonSecondary)}
-                >
-                  Temizle
-                </button>
-              </div>
-              <div className="max-h-60 overflow-y-auto">
-                {filteredStores.map(store => (
-                  <label
-                    key={store.id}
+              {/* Header - Search */}
+              <div className={clsx(
+                'p-3 border-b',
+                isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+              )}>
+                <div className={clsx(
+                  'flex items-center gap-2 px-3 py-2 rounded-lg',
+                  isDark ? 'bg-[#21262d]' : 'bg-white border border-gray-200'
+                )}>
+                  <Search size={16} className={isDark ? 'text-gray-400' : 'text-gray-500'} />
+                  <input
+                    type="text"
+                    placeholder="Mağaza veya şehir ara..."
+                    value={storeSearchQuery}
+                    onChange={(e) => setStoreSearchQuery(e.target.value)}
                     className={clsx(
-                      'flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors',
-                      selectedStoreIds.includes(store.id) 
-                        ? 'bg-emerald-500/10' 
-                        : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                      'flex-1 bg-transparent text-sm outline-none',
+                      isDark ? 'text-gray-200 placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'
+                    )}
+                    autoFocus
+                  />
+                  {storeSearchQuery && (
+                    <button onClick={() => setStoreSearchQuery('')} className="text-gray-400 hover:text-gray-300">
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                
+                {/* Hızlı seçim butonları */}
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={selectAllStores}
+                    className={clsx(
+                      'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+                      isDark 
+                        ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' 
+                        : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
                     )}
                   >
-                    <input
-                      type="checkbox"
-                      checked={selectedStoreIds.includes(store.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setStores([...selectedStoreIds, store.id])
-                        } else {
-                          setStores(selectedStoreIds.filter(id => id !== store.id))
-                        }
-                      }}
-                      className="w-4 h-4 rounded"
-                    />
-                    <div className="flex-1">
-                      <span className={clsx('text-sm font-medium', theme.contentText)}>{store.name}</span>
-                      <span className={clsx('text-xs ml-2', theme.contentTextMuted)}>
-                        {store.storeType === 'MERKEZ' ? '🏢' : '🏪'} {store.city}
-                      </span>
-                    </div>
-                  </label>
-                ))}
+                    <CheckSquare size={12} />
+                    Tümünü Seç
+                  </button>
+                  <button
+                    onClick={() => setStores([])}
+                    className={clsx(
+                      'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+                      isDark 
+                        ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' 
+                        : 'bg-red-50 text-red-600 hover:bg-red-100'
+                    )}
+                  >
+                    <Square size={12} />
+                    Temizle
+                  </button>
+                </div>
               </div>
-              <div className="p-2 border-t">
+
+              {/* Store List */}
+              <div className="max-h-72 overflow-y-auto">
+                {searchedStores.length === 0 ? (
+                  <div className={clsx('p-6 text-center', isDark ? 'text-gray-500' : 'text-gray-400')}>
+                    <Store size={32} className="mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">Mağaza bulunamadı</p>
+                  </div>
+                ) : (
+                  searchedStores.map((store, index) => {
+                    const isSelected = selectedStoreIds.includes(store.id)
+                    const showDivider = index > 0 && 
+                      selectedStoreIds.includes(searchedStores[index - 1].id) !== isSelected
+                    
+                    return (
+                      <div key={store.id}>
+                        {showDivider && (
+                          <div className={clsx(
+                            'px-4 py-1.5 text-xs font-medium',
+                            isDark ? 'bg-[#14171c] text-gray-500' : 'bg-gray-50 text-gray-500'
+                          )}>
+                            Diğer Mağazalar ({filteredStores.length - selectedStoreIds.length})
+                          </div>
+                        )}
+                        <label
+                          className={clsx(
+                            'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all',
+                            isSelected 
+                              ? isDark 
+                                ? 'bg-emerald-500/15 border-l-2 border-emerald-500' 
+                                : 'bg-emerald-50 border-l-2 border-emerald-500'
+                              : isDark 
+                                ? 'hover:bg-[#21262d] border-l-2 border-transparent' 
+                                : 'hover:bg-gray-50 border-l-2 border-transparent'
+                          )}
+                        >
+                          {/* Custom Checkbox */}
+                          <div 
+                            className={clsx(
+                              'w-5 h-5 rounded flex items-center justify-center transition-all',
+                              isSelected 
+                                ? 'bg-emerald-500 text-white' 
+                                : isDark 
+                                  ? 'border-2 border-gray-600' 
+                                  : 'border-2 border-gray-300'
+                            )}
+                          >
+                            {isSelected && <Check size={12} strokeWidth={3} />}
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setStores([...selectedStoreIds, store.id])
+                              } else {
+                                setStores(selectedStoreIds.filter(id => id !== store.id))
+                              }
+                            }}
+                            className="sr-only"
+                          />
+                          
+                          {/* Store Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={clsx(
+                                'text-sm font-semibold truncate',
+                                isSelected 
+                                  ? 'text-emerald-600 dark:text-emerald-400' 
+                                  : isDark ? 'text-gray-200' : 'text-gray-800'
+                              )}>
+                                {store.name}
+                              </span>
+                              <span className={clsx(
+                                'text-xs px-1.5 py-0.5 rounded',
+                                store.storeType === 'MERKEZ' 
+                                  ? isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-700'
+                                  : isDark ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-700'
+                              )}>
+                                {store.storeType === 'MERKEZ' ? 'Merkez' : 'Franchise'}
+                              </span>
+                            </div>
+                            <div className={clsx(
+                              'text-xs mt-0.5',
+                              isDark ? 'text-gray-500' : 'text-gray-500'
+                            )}>
+                              📍 {store.city || 'Bilinmiyor'}
+                              {store.code && <span className="ml-2 opacity-60">#{store.code}</span>}
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className={clsx(
+                'p-3 border-t flex items-center justify-between',
+                isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+              )}>
+                <span className={clsx('text-xs', isDark ? 'text-gray-500' : 'text-gray-500')}>
+                  {selectedStoreIds.length} / {filteredStores.length} seçili
+                </span>
                 <button
                   onClick={() => setShowStoreDropdown(false)}
-                  className={clsx('w-full px-4 py-2 text-sm font-medium rounded-lg', theme.buttonPrimary)}
+                  className={clsx(
+                    'px-5 py-2 text-sm font-medium rounded-lg transition-all',
+                    'bg-emerald-500 text-white hover:bg-emerald-600'
+                  )}
                 >
-                  Uygula ({selectedStoreIds.length} seçili)
+                  Uygula
                 </button>
               </div>
             </div>
