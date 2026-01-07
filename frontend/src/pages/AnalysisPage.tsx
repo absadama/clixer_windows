@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useTheme } from '../components/Layout'
+
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 import { useAuthStore } from '../stores/authStore'
 import { useFilterStore } from '../stores/filterStore'
 import FilterBar from '../components/FilterBar'

@@ -256,7 +256,6 @@ export default function Layout({ children }: LayoutProps) {
   const { 
     loadSettings, 
     loadMenuPermissions,
-    loadPositionLabels,
     canViewMenu, 
     isLoaded,
     defaultTheme,
@@ -296,9 +295,8 @@ export default function Layout({ children }: LayoutProps) {
   useEffect(() => {
     if (accessToken) {
       loadMenuLabels()
-      loadPositionLabels(accessToken)
     }
-  }, [accessToken, loadMenuLabels, loadPositionLabels])
+  }, [accessToken, loadMenuLabels])
 
   // Kullanıcının pozisyon koduna göre menü izinlerini yükle
   useEffect(() => {

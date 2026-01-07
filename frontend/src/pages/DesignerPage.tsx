@@ -1,5 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react'
 import { useTheme } from '../components/Layout'
+
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 import { useAuthStore } from '../stores/authStore'
 import RGL, { WidthProvider, Layout as GridLayout, Layouts } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
