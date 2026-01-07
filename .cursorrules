@@ -7754,7 +7754,8 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-08 | **v4.13** | **ETL Schedule Cron Fix + Zamanlanmış Görevler Tam Çalışır** |
+| 2026-01-08 | **v4.14** | **No-Code Kolon Tipi Değiştirme (DataGrid Context Menu)** |
+| 2026-01-08 | v4.13 | ETL Schedule Cron Fix + Zamanlanmış Görevler Tam Çalışır |
 | 2026-01-08 | v4.12 | Admin Panel: "Servis Yönetimi" sekmesi kaldırıldı (Sistem Monitörü ile mükerrer) |
 | 2026-01-07 | v4.11 | LDAP Sync: Mevcut Kullanıcı Yetkileri Korunuyor + Otomatik Schedule |
 | 2026-01-07 | v4.10 | ETL Worker Çoklu Process Düzeltmesi |
@@ -7826,6 +7827,60 @@ ps aux | grep etl-worker | grep -v grep
 |-------|------------|
 | Veritabanı | `etl_schedules.cron_expression` düzeltildi |
 | `.cursorrules` | Schedule monitoring dokümantasyonu |
+
+---
+
+## 📅 v4.14 - 8 Ocak 2026
+
+**No-Code Kolon Tipi Değiştirme Özelliği (DataGrid)**
+
+### Eklenen Özellikler
+
+1. ✅ **Context Menu'de Kolon Tipi Seçimi**
+   - Kolon başlığına sağ tıkla → "Kolon Tipi:" bölümünden tip seç
+   - Desteklenen tipler:
+     - **Aa Metin (text)** - String değerler
+     - **# Sayı (number)** - Binlik ayraçlı (1.234.567)
+     - **123 Tam Sayı (integer)** - Binlik ayraçsız (2026, ID'ler)
+     - **₺ Para (currency)** - Para formatı
+     - **% Yüzde (percentage)** - Yüzde formatı
+     - **📅 Tarih (date)** - Tarih formatı
+     - **✓ Evet/Hayır (boolean)** - Boolean değerler
+
+2. ✅ **Kolon Tipleri Tasarıma Kaydedilir**
+   - "Tasarımı Kaydet" ile kolon tipleri de kaydedilir
+   - "Tasarımı Yükle" ile kolon tipleri otomatik uygulanır
+
+3. ✅ **Sayısal Filtrelerde Exact Match**
+   - `number`, `integer`, `currency` tiplerinde tam eşleşme filtresi
+   - Örn: BranchID = 141 → Sadece 141 gelir (14, 1410 gelmez)
+
+4. ✅ **Gruplu Satırlarda Aggregated Değerler**
+   - Grup satırında toplam değerler görünür
+   - Örn: "BranchName: Hilttown (31 kayıt) - Revenue: ₺61.427.412 - Visitor: 856"
+
+### Kullanım Senaryosu
+
+**Problem:** `SalesYear` kolonu `2.026` olarak görünüyor (binlik ayraç)
+
+**No-Code Çözüm:**
+1. SalesYear kolon başlığına sağ tıkla
+2. "Kolon Tipi:" → "123 Tam Sayı" seçeneğine tıkla
+3. Anında `2026` olarak görünür
+4. "Tasarımı Kaydet" ile kalıcı yap
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `EnterpriseDataGrid/types.ts` | `onColumnConfigChange` callback, `integer` tipi |
+| `EnterpriseDataGrid/index.tsx` | Context menu kolon tipi UI, filterFn, aggregatedCell |
+| `DataGridDemoPage.tsx` | `onColumnConfigChange` implementasyonu |
+
+### Yedekleme
+
+- **GitHub Tag:** `v4.14`
+- **Commit:** `ff9afb0`
 
 ---
 
