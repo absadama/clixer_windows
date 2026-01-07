@@ -1427,16 +1427,29 @@ async function executeMetric(
     const chartConfigParsed = typeof metric.chart_config === 'string' 
       ? JSON.parse(metric.chart_config) 
       : (metric.chart_config || {});
-    const dateColumn = chartConfigParsed?.comparisonColumn || chartConfigParsed?.dateColumn;
+    
+    // Tarih kolonu belirleme (SQL modu için de fallback)
+    let dateColumnSql = chartConfigParsed?.comparisonColumn || chartConfigParsed?.dateColumn;
+    if (!dateColumnSql && metric.dataset_id) {
+      const datasetDateResult = await db.query(
+        'SELECT partition_column, reference_column FROM datasets WHERE id = $1',
+        [metric.dataset_id]
+      );
+      if (datasetDateResult.rows[0]) {
+        const ds = datasetDateResult.rows[0];
+        dateColumnSql = ds.partition_column || ds.reference_column;
+      }
+    }
+    
     const startDate = parameters.startDate as string;
     const endDate = parameters.endDate as string;
     const allTime = parameters.allTime === 'true' || parameters.allTime === true;
     
     // "Tüm Zamanlar" seçiliyse tarih filtresi UYGULAMA
-    if (!allTime && startDate && endDate && dateColumn) {
+    if (!allTime && startDate && endDate && dateColumnSql) {
       const datePattern = /^\d{4}-\d{2}-\d{2}$/;
       if (datePattern.test(startDate) && datePattern.test(endDate)) {
-        const dateCondition = `toDate(${dateColumn}) >= '${startDate}' AND toDate(${dateColumn}) <= '${endDate}'`;
+        const dateCondition = `toDate(${dateColumnSql}) >= '${startDate}' AND toDate(${dateColumnSql}) <= '${endDate}'`;
         // WHERE varsa AND ile ekle, yoksa WHERE ekle
         if (sql.toLowerCase().includes('where')) {
           sql = sql.replace(/where/i, `WHERE ${dateCondition} AND `);
@@ -1449,7 +1462,7 @@ async function executeMetric(
             sql += ` WHERE ${dateCondition}`;
           }
         }
-        logger.debug('SQL Mode: Date filter applied', { startDate, endDate, dateColumn });
+        logger.debug('SQL Mode: Date filter applied', { startDate, endDate, dateColumn: dateColumnSql });
       }
     }
     
@@ -1530,7 +1543,30 @@ async function executeMetric(
     const startDate = parameters.startDate as string;
     const endDate = parameters.endDate as string;
     const allTime = parameters.allTime === 'true' || parameters.allTime === true;
-    const dateColumn = chartConfigParsed?.comparisonColumn || chartConfigParsed?.dateColumn;
+    
+    // Tarih kolonu belirleme sırası:
+    // 1. Metriğin chart_config'indeki comparisonColumn veya dateColumn
+    // 2. Dataset'in partition_column'u
+    // 3. Dataset'in reference_column'u (eğer tarih tipiyse)
+    let dateColumn = chartConfigParsed?.comparisonColumn || chartConfigParsed?.dateColumn;
+    
+    if (!dateColumn && metric.dataset_id) {
+      // Dataset'ten tarih kolonunu al
+      const datasetDateResult = await db.query(
+        'SELECT partition_column, reference_column FROM datasets WHERE id = $1',
+        [metric.dataset_id]
+      );
+      if (datasetDateResult.rows[0]) {
+        const ds = datasetDateResult.rows[0];
+        dateColumn = ds.partition_column || ds.reference_column;
+        if (dateColumn) {
+          logger.debug('Date column fallback from dataset', { 
+            dateColumn, 
+            source: ds.partition_column ? 'partition_column' : 'reference_column' 
+          });
+        }
+      }
+    }
     
     // "Tüm Zamanlar" seçiliyse tarih filtresi UYGULAMA
     if (allTime) {
