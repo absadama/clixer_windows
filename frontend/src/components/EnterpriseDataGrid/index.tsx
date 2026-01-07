@@ -184,6 +184,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
   autoLoadDefaultDesign = true, // Varsayılan tasarımı otomatik yükle
   onStateChange,
   onDesignLoaded, // Tasarım yüklendiğinde parent'a haber ver
+  onColumnConfigChange, // Kolon tipi değiştirme callback
   onRowClick,
   onRowDoubleClick,
   onSelectionChange,
@@ -444,6 +445,16 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
       })
     }
     
+    // Kaydedilmiş kolon tiplerini parent'a bildir (No-Code özelliği)
+    if (state.columns && onColumnConfigChange) {
+      for (const savedCol of state.columns) {
+        const currentCol = columnConfigs.find(c => c.id === savedCol.id)
+        if (currentCol && savedCol.type && savedCol.type !== currentCol.type) {
+          onColumnConfigChange(savedCol.id, { type: savedCol.type })
+        }
+      }
+    }
+    
     // Parent'a tasarım ve dataset bilgisini bildir
     if (onDesignLoaded) {
       onDesignLoaded({
@@ -454,7 +465,7 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
         state
       })
     }
-  }, [onDesignLoaded, columnConfigs])
+  }, [onDesignLoaded, columnConfigs, onColumnConfigChange])
 
   // İlk yüklemede ve accessToken değiştiğinde tasarımları al
   useEffect(() => {
@@ -557,12 +568,27 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
       enableSorting: config.sortable !== false,
       enableGrouping: config.groupable !== false,
       enableColumnFilter: config.filterable !== false,
+      // Sayısal ve integer kolonlarda TAM EŞLEŞMEfiltresi
+      filterFn: (config.type === 'number' || config.type === 'integer' || config.type === 'currency') 
+        ? (row, columnId, filterValue) => {
+            const cellValue = row.getValue(columnId)
+            if (cellValue === null || cellValue === undefined) return false
+            if (filterValue === null || filterValue === undefined || filterValue === '') return true
+            // Tam eşleşme kontrolü (string olarak karşılaştır)
+            return String(cellValue) === String(filterValue)
+          }
+        : 'includesString', // Metin kolonlarında contains (varsayılan)
+      // Aggregation: Explicit tanımlıysa kullan, değilse sayısal kolonlar için 'sum' varsayılan
       aggregationFn: config.aggregation === 'sum' ? 'sum' 
         : config.aggregation === 'avg' ? 'mean'
         : config.aggregation === 'count' ? 'count'
         : config.aggregation === 'min' ? 'min'
         : config.aggregation === 'max' ? 'max'
-        : undefined,
+        : config.aggregation === 'none' ? undefined
+        // Varsayılan: Sayısal ve currency kolonlar için 'sum'
+        : (config.type === 'number' || config.type === 'integer' || config.type === 'currency' || config.type === 'percentage')
+          ? 'sum'
+          : undefined,
       cell: ({ getValue, row }) => {
         const value = getValue()
         
@@ -582,7 +608,15 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
               currency: 'TRY' 
             }).format(Number(value))
           case 'number':
+            // Yıl kolonları için binlik ayraç kullanma (Year, SalesYear, vb.)
+            const colName = config.id.toLowerCase()
+            if (colName.includes('year') || colName.includes('yil') || colName.includes('yıl')) {
+              return String(value)
+            }
             return new Intl.NumberFormat('tr-TR').format(Number(value))
+          case 'integer':
+            // Integer tip: Binlik ayraç olmadan göster (ID, yıl vb.)
+            return String(value)
           case 'percentage':
             return `${Number(value).toFixed(2)}%`
           case 'date':
@@ -615,7 +649,16 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
         }
         
         if (config.type === 'number' || config.type === 'percentage') {
+          // Yıl kolonları için binlik ayraç kullanma
+          const colName = config.id.toLowerCase()
+          if (colName.includes('year') || colName.includes('yil') || colName.includes('yıl')) {
+            return String(value)
+          }
           return new Intl.NumberFormat('tr-TR').format(Number(value))
+        }
+        
+        if (config.type === 'integer') {
+          return String(value)
         }
         
         return String(value)
@@ -1508,40 +1551,58 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                               <span className={clsx('text-xs', theme.contentTextMuted)}>
                                 ({row.subRows.length} kayıt)
                               </span>
-                              {/* Aggregated değerler */}
-                              <div className="flex items-center gap-4 ml-auto">
-                                {row.getVisibleCells()
-                                  .filter(cell => cell.getIsAggregated())
-                                  .map(cell => {
-                                    // Aggregated değeri doğrudan al (flexRender kullanmadan)
-                                    const rawValue = cell.getValue()
+                              {/* Aggregated değerler - Sayısal kolonların toplamları */}
+                              <div className="flex items-center gap-4 ml-auto flex-wrap">
+                                {columnConfigs
+                                  .filter(col => 
+                                    col.type === 'number' || 
+                                    col.type === 'integer' || 
+                                    col.type === 'currency' || 
+                                    col.type === 'percentage'
+                                  )
+                                  .slice(0, 5) // En fazla 5 kolon göster (çok kalabalık olmasın)
+                                  .map(col => {
+                                    // Grubun altındaki tüm satırlardan toplamı hesapla
+                                    const leafRows = row.getLeafRows()
+                                    let aggregatedValue = 0
                                     
-                                    // Değer yoksa veya geçersizse atla
-                                    if (rawValue === null || rawValue === undefined || typeof rawValue === 'function') {
-                                      return null
+                                    for (const leafRow of leafRows) {
+                                      const val = leafRow.getValue(col.id)
+                                      if (typeof val === 'number') {
+                                        aggregatedValue += val
+                                      } else if (val !== null && val !== undefined) {
+                                        const parsed = parseFloat(String(val))
+                                        if (!isNaN(parsed)) {
+                                          aggregatedValue += parsed
+                                        }
+                                      }
                                     }
                                     
-                                    // Sayısal değerleri formatla
+                                    // 0 ise gösterme
+                                    if (aggregatedValue === 0) return null
+                                    
+                                    // Formatlama
                                     let displayValue: string
-                                    if (typeof rawValue === 'number') {
+                                    if (col.type === 'currency') {
+                                      displayValue = new Intl.NumberFormat('tr-TR', {
+                                        style: 'currency',
+                                        currency: 'TRY',
+                                        maximumFractionDigits: 0
+                                      }).format(aggregatedValue)
+                                    } else {
                                       displayValue = new Intl.NumberFormat('tr-TR', {
                                         maximumFractionDigits: 2
-                                      }).format(rawValue)
-                                    } else {
-                                      displayValue = String(rawValue)
+                                      }).format(aggregatedValue)
                                     }
                                     
-                                    // Kolon başlığını güvenli şekilde al
-                                    const header = typeof cell.column.columnDef.header === 'string' 
-                                      ? cell.column.columnDef.header 
-                                      : cell.column.id
-                                    
                                     return (
-                                      <span key={cell.id} className="text-sm text-blue-400">
+                                      <span key={col.id} className="text-sm">
                                         <span className="text-xs text-gray-500 mr-1">
-                                          {header}:
+                                          {col.header}:
                                         </span>
-                                        {displayValue}
+                                        <span className="text-emerald-400 font-medium">
+                                          {displayValue}
+                                        </span>
                                       </span>
                                     )
                                   })
@@ -2130,6 +2191,47 @@ export const EnterpriseDataGrid: React.FC<DataGridProps> = ({
                 </button>
               )}
               <div className={clsx('h-px my-1', theme.border)} />
+              {/* Kolon Tipi Değiştirme */}
+              {onColumnConfigChange && (
+                <>
+                  <div className={clsx('px-4 py-1 text-xs font-semibold', theme.contentTextMuted)}>
+                    Kolon Tipi:
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 px-2 pb-1">
+                    {[
+                      { type: 'text', label: 'Metin', icon: 'Aa' },
+                      { type: 'number', label: 'Sayı', icon: '#' },
+                      { type: 'integer', label: 'Tam Sayı', icon: '123' },
+                      { type: 'currency', label: 'Para', icon: '₺' },
+                      { type: 'percentage', label: 'Yüzde', icon: '%' },
+                      { type: 'date', label: 'Tarih', icon: '📅' },
+                      { type: 'boolean', label: 'Evet/Hayır', icon: '✓' },
+                    ].map(({ type, label, icon }) => {
+                      const currentType = columnConfigs.find(c => c.id === contextMenu.columnId)?.type
+                      const isActive = currentType === type
+                      return (
+                        <button
+                          key={type}
+                          onClick={() => {
+                            onColumnConfigChange(contextMenu.columnId, { type: type as ColumnConfig['type'] })
+                            closeContextMenu()
+                          }}
+                          className={clsx(
+                            'px-2 py-1.5 text-xs rounded flex items-center gap-1',
+                            isActive 
+                              ? 'bg-blue-500/30 text-blue-400 font-medium' 
+                              : 'hover:bg-white/10 text-gray-400'
+                          )}
+                        >
+                          <span className="w-4 text-center">{icon}</span>
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className={clsx('h-px my-1', theme.border)} />
+                </>
+              )}
               <button
                 onClick={() => {
                   setColumnVisibility(prev => ({ ...prev, [contextMenu.columnId]: false }))

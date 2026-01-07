@@ -145,14 +145,27 @@ export default function DataGridDemoPage() {
           let aggregation: ColumnConfig['aggregation'] = undefined
           
           if (typeof value === 'number') {
-            const isCurrency = key.toLowerCase().includes('price') || 
-                               key.toLowerCase().includes('total') || 
-                               key.toLowerCase().includes('amount') || 
-                               key.toLowerCase().includes('tutar') ||
-                               key.toLowerCase().includes('fiyat')
-            type = isCurrency ? 'currency' : 'number'
-            aggregation = 'sum'
-            numericColumns.push(key)
+            const keyLower = key.toLowerCase()
+            const isCurrency = keyLower.includes('price') || 
+                               keyLower.includes('total') || 
+                               keyLower.includes('amount') || 
+                               keyLower.includes('tutar') ||
+                               keyLower.includes('fiyat') ||
+                               keyLower.includes('revenue') ||
+                               keyLower.includes('gelir')
+            // Yıl kolonları için integer tipi (binlik ayraç olmasın)
+            const isYear = keyLower.includes('year') || keyLower.includes('yil') || keyLower.includes('yıl')
+            // ID kolonları için integer tipi
+            const isId = keyLower === 'id' || keyLower.endsWith('_id') || keyLower.endsWith('id')
+            
+            if (isYear || isId) {
+              type = 'integer'
+              aggregation = undefined // Yıl ve ID'ler için toplam anlamsız
+            } else {
+              type = isCurrency ? 'currency' : 'number'
+              aggregation = 'sum'
+              numericColumns.push(key)
+            }
           } else if (typeof value === 'boolean') {
             type = 'boolean'
           } else if (value && typeof value === 'string' && !isNaN(Date.parse(value)) && value.includes('-')) {
@@ -382,6 +395,20 @@ export default function DataGridDemoPage() {
           enablePivot
           autoLoadDefaultDesign={false}
           onDesignLoaded={handleDesignLoaded}
+          onColumnConfigChange={(columnId, newConfig) => {
+            // Kolon tipini güncelle - No-Code özelliği
+            setColumns(prev => prev.map(col => 
+              col.id === columnId 
+                ? { ...col, ...newConfig } 
+                : col
+            ))
+            // Demo veri için de güncelle
+            setDemoColumns(prev => prev.map(col => 
+              col.id === columnId 
+                ? { ...col, ...newConfig } 
+                : col
+            ))
+          }}
           onRowClick={(row) => {
             // Row clicked
           }}

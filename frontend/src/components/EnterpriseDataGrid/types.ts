@@ -4,7 +4,7 @@ export interface ColumnConfig {
   id: string
   accessorKey: string
   header: string
-  type: 'text' | 'number' | 'date' | 'datetime' | 'currency' | 'percentage' | 'boolean'
+  type: 'text' | 'number' | 'integer' | 'date' | 'datetime' | 'currency' | 'percentage' | 'boolean'
   width?: number
   minWidth?: number
   maxWidth?: number
@@ -135,6 +135,7 @@ export interface DataGridProps {
   onSaveDesign?: (design: Omit<SavedGridDesign, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>
   onLoadDesign?: (designId: string) => Promise<SavedGridDesign>
   onDesignLoaded?: (info: LoadedDesignInfo) => void // Tasarım yüklendiğinde parent'a haber ver
+  onColumnConfigChange?: (columnId: string, newConfig: Partial<ColumnConfig>) => void // Kolon tipini değiştirme
   onRowClick?: (row: any) => void
   onRowDoubleClick?: (row: any) => void
   onSelectionChange?: (selectedRows: any[]) => void
