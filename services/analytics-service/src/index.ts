@@ -1512,6 +1512,9 @@ async function executeMetric(
     }
 
     // GROUP BY varsa
+    // Çoklu kolon için flag - ORDER BY'da kullanılacak
+    let multiValueOrderColumn: string | null = null;
+    
     if (metric.group_by_column && aggType !== 'LIST') {
       // chart_config'den gridColumns var mı kontrol et (çoklu değer kolonu için)
       const chartConfig = typeof metric.chart_config === 'string' 
@@ -1532,7 +1535,9 @@ async function executeMetric(
         // Çoklu değer kolonu - her biri için SUM
         const valueSelects = valueColumns.map((col: string) => `sum(${col}) as ${col}`).join(', ');
         sql = `SELECT toString(${metric.group_by_column}) as label, ${valueSelects} FROM ${tableName}`;
-        logger.debug('Multi-value ranking list SQL', { valueColumns, sql: sql.substring(0, 200) });
+        // İlk değer kolonu ORDER BY için kullanılacak
+        multiValueOrderColumn = valueColumns[0];
+        logger.debug('Multi-value ranking list SQL', { valueColumns, orderBy: multiValueOrderColumn, sql: sql.substring(0, 200) });
       } else {
         // Tek değer kolonu - mevcut davranış
         sql = `SELECT toString(${metric.group_by_column}) as label, ${aggFunc} as value FROM ${tableName}`;
@@ -1691,7 +1696,9 @@ async function executeMetric(
     if (metric.order_by_column) {
       sql += ` ORDER BY ${metric.order_by_column} ${metric.order_direction || 'DESC'}`;
     } else if (metric.group_by_column) {
-      sql += ` ORDER BY value ${metric.order_direction || 'DESC'}`;
+      // Çoklu kolon modunda ilk değer kolonuna göre sırala, aksi halde 'value' kullan
+      const orderColumn = multiValueOrderColumn || 'value';
+      sql += ` ORDER BY ${orderColumn} ${metric.order_direction || 'DESC'}`;
     }
 
     // LIMIT (grafik ve listeler için) - chart_config.limit varsa kullan
