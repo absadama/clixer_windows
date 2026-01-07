@@ -163,10 +163,10 @@ async function calculateLFL(
           sum(this_year_value) as current_value,
           sum(last_year_value) as previous_value,
           count() as common_days_count,
-          uniq(store_id) as unique_stores
+          uniq(store_id_col) as unique_stores
         FROM (
           SELECT 
-            ty.store_id,
+            ty.store_id as store_id_col,
             ty.sale_date as this_year_date,
             lfl.ly_date as last_year_date,
             ty.agg_value as this_year_value,
