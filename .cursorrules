@@ -7754,7 +7754,8 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-07 | **v4.11** | **LDAP Sync: Mevcut Kullanıcı Yetkileri Korunuyor + Otomatik Schedule** |
+| 2026-01-08 | **v4.12** | **Admin Panel: "Servis Yönetimi" sekmesi kaldırıldı (Sistem Monitörü ile mükerrer)** |
+| 2026-01-07 | v4.11 | LDAP Sync: Mevcut Kullanıcı Yetkileri Korunuyor + Otomatik Schedule |
 | 2026-01-07 | v4.10 | ETL Worker Çoklu Process Düzeltmesi |
 | 2026-01-07 | v4.9 | Ranking List Multi-Value Columns + Trend Hesaplama |
 | 2026-01-07 | v4.8 | Sıralama Listesi dbColumn Düzeltmesi |
