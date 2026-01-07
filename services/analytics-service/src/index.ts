@@ -2050,48 +2050,85 @@ async function executeMetric(
       
       if (dateColumn) {
         try {
-          // Güncel dönem tarihlerini hesapla
-          const today = new Date();
-          const currentYear = today.getFullYear();
-          const currentMonth = today.getMonth(); // 0-indexed
+          // Dashboard'dan gelen tarih aralığını kullan (yoksa bugünü kullan)
+          const paramStartDate = parameters.startDate as string;
+          const paramEndDate = parameters.endDate as string;
           
-          // MoM için: Bu ay vs Geçen ay
-          // YoY için: Bu yılın bu ayı vs Geçen yılın bu ayı
-          // WoW için: Bu hafta vs Geçen hafta
           let currStartDate: string, currEndDate: string;
           let prevStartDate: string, prevEndDate: string;
           
-          if (trendCompType === 'mom') {
-            // Bu ay
-            currStartDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
-            currEndDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-            // Geçen ay
-            const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-            const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-            const lastDayPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
-            prevStartDate = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-01`;
-            prevEndDate = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(Math.min(today.getDate(), lastDayPrevMonth)).padStart(2, '0')}`;
-          } else if (trendCompType === 'yoy') {
-            // Bu yıl bu ay
-            currStartDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
-            currEndDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-            // Geçen yıl aynı ay
-            prevStartDate = `${currentYear - 1}-${String(currentMonth + 1).padStart(2, '0')}-01`;
-            prevEndDate = `${currentYear - 1}-${String(currentMonth + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-          } else {
-            // WoW - Bu hafta vs Geçen hafta
-            const dayOfWeek = today.getDay();
-            const monday = new Date(today);
-            monday.setDate(today.getDate() - dayOfWeek + 1);
-            const prevMonday = new Date(monday);
-            prevMonday.setDate(monday.getDate() - 7);
+          if (paramStartDate && paramEndDate) {
+            // Dashboard'dan gelen tarihleri kullan
+            currStartDate = paramStartDate;
+            currEndDate = paramEndDate;
             
-            currStartDate = monday.toISOString().slice(0, 10);
-            currEndDate = today.toISOString().slice(0, 10);
-            prevStartDate = prevMonday.toISOString().slice(0, 10);
-            const prevSunday = new Date(prevMonday);
-            prevSunday.setDate(prevMonday.getDate() + (dayOfWeek - 1));
-            prevEndDate = prevSunday.toISOString().slice(0, 10);
+            // Önceki dönem tarihlerini karşılaştırma tipine göre hesapla
+            const start = new Date(paramStartDate);
+            const end = new Date(paramEndDate);
+            const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+            
+            if (trendCompType === 'mom') {
+              // Geçen ay aynı günler
+              const prevStart = new Date(start);
+              prevStart.setMonth(prevStart.getMonth() - 1);
+              const prevEnd = new Date(end);
+              prevEnd.setMonth(prevEnd.getMonth() - 1);
+              prevStartDate = prevStart.toISOString().slice(0, 10);
+              prevEndDate = prevEnd.toISOString().slice(0, 10);
+            } else if (trendCompType === 'yoy') {
+              // Geçen yıl aynı günler
+              const prevStart = new Date(start);
+              prevStart.setFullYear(prevStart.getFullYear() - 1);
+              const prevEnd = new Date(end);
+              prevEnd.setFullYear(prevEnd.getFullYear() - 1);
+              prevStartDate = prevStart.toISOString().slice(0, 10);
+              prevEndDate = prevEnd.toISOString().slice(0, 10);
+            } else {
+              // WoW - Geçen hafta (7 gün geri)
+              const prevStart = new Date(start);
+              prevStart.setDate(prevStart.getDate() - 7);
+              const prevEnd = new Date(end);
+              prevEnd.setDate(prevEnd.getDate() - 7);
+              prevStartDate = prevStart.toISOString().slice(0, 10);
+              prevEndDate = prevEnd.toISOString().slice(0, 10);
+            }
+            
+            logger.debug('Ranking list trend: Using dashboard dates', {
+              currStartDate, currEndDate, prevStartDate, prevEndDate, trendCompType
+            });
+          } else {
+            // Fallback: Bugünü kullan
+            const today = new Date();
+            const currentYear = today.getFullYear();
+            const currentMonth = today.getMonth();
+            
+            if (trendCompType === 'mom') {
+              currStartDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+              currEndDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+              const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+              const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+              const lastDayPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
+              prevStartDate = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-01`;
+              prevEndDate = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(Math.min(today.getDate(), lastDayPrevMonth)).padStart(2, '0')}`;
+            } else if (trendCompType === 'yoy') {
+              currStartDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+              currEndDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+              prevStartDate = `${currentYear - 1}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+              prevEndDate = `${currentYear - 1}-${String(currentMonth + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            } else {
+              const dayOfWeek = today.getDay();
+              const monday = new Date(today);
+              monday.setDate(today.getDate() - dayOfWeek + 1);
+              const prevMonday = new Date(monday);
+              prevMonday.setDate(monday.getDate() - 7);
+              
+              currStartDate = monday.toISOString().slice(0, 10);
+              currEndDate = today.toISOString().slice(0, 10);
+              prevStartDate = prevMonday.toISOString().slice(0, 10);
+              const prevSunday = new Date(prevMonday);
+              prevSunday.setDate(prevMonday.getDate() + (dayOfWeek - 1));
+              prevEndDate = prevSunday.toISOString().slice(0, 10);
+            }
           }
           
           // SQL modunda GROUP BY kolonunu bul (alias yerine gerçek kolon)
@@ -2125,6 +2162,13 @@ async function executeMetric(
           
           // Otomatik trend hesaplama - 10M satıra kadar çalışır
           // Her satır için önceki dönem değerini bul ve trend hesapla
+          
+          // Normal mode için: metric.group_by_column ve metric.db_column kullan
+          if (!isSqlMode && metric.group_by_column && metric.db_column) {
+            actualGroupByColumn = metric.group_by_column;
+            actualAggregateColumn = metric.db_column;
+            logger.debug('Normal mode: Using metric columns for trend', { actualGroupByColumn, actualAggregateColumn });
+          }
           
           if (actualGroupByColumn && actualAggregateColumn) {
             // Tablo adı: metric.clickhouse_table kullan (SQL'deki alias değil!)
