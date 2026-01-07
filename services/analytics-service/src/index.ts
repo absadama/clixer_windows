@@ -1513,7 +1513,8 @@ async function executeMetric(
 
     // GROUP BY varsa
     if (metric.group_by_column && aggType !== 'LIST') {
-      sql = `SELECT ${metric.group_by_column}, ${aggFunc} as value FROM ${tableName}`;
+      // Sıralama listesi ve grafikler için group_by_column'u "label" olarak döndür
+      sql = `SELECT toString(${metric.group_by_column}) as label, ${aggFunc} as value FROM ${tableName}`;
     } else if (aggType === 'LIST') {
       // LIST tipi için chart_config.gridColumns kullan
       const chartConfig = typeof metric.chart_config === 'string' 
@@ -1671,9 +1672,10 @@ async function executeMetric(
       sql += ` ORDER BY value ${metric.order_direction || 'DESC'}`;
     }
 
-    // LIMIT (grafik ve listeler için)
+    // LIMIT (grafik ve listeler için) - chart_config.limit varsa kullan
     if (aggType === 'LIST' || metric.group_by_column) {
-      sql += ' LIMIT 100';
+      const configLimit = chartConfigParsed?.limit || 100;
+      sql += ` LIMIT ${configLimit}`;
     }
   }
 
