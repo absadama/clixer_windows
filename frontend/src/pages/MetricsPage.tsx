@@ -56,7 +56,15 @@ interface Dataset {
   id: string;
   name: string;
   clickhouse_table: string;
+  partition_column?: string;
+  reference_column?: string;
 }
+
+// Tarih tipi kolon tespiti için yardımcı fonksiyon
+const isDateColumn = (columnName: string): boolean => {
+  const datePatterns = ['date', 'tarih', 'time', 'day', 'month', 'year', 'created', 'updated', 'modified', 'report'];
+  return datePatterns.some(pattern => columnName.toLowerCase().includes(pattern));
+};
 
 interface AggregationType {
   value: string;
@@ -1017,6 +1025,29 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
                             Clixer Tablo: <code className="text-purple-400">{datasets.find(d => d.id === formData.datasetId)?.clickhouse_table}</code>
                           </p>
                         )}
+                        
+                        {/* SQL Modu için Tarih Kolonu Uyarısı */}
+                        {formData.datasetId && !formData.comparisonColumn && (
+                          (() => {
+                            const selectedDataset = datasets.find(d => d.id === formData.datasetId);
+                            const partitionColumn = selectedDataset?.partition_column;
+                            
+                            if (partitionColumn) {
+                              return (
+                                <div className="mt-2 p-2 bg-amber-500/10 border border-amber-500/40 rounded-lg">
+                                  <p className="text-xs text-amber-400 flex items-start gap-1">
+                                    <span>⚠️</span>
+                                    <span>
+                                      Tarih filtresi için <strong>{partitionColumn}</strong> kolonu kullanılacak.
+                                      Aşağıda "Tarih Kolonu" seçerek değiştirebilirsiniz.
+                                    </span>
+                                  </p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()
+                        )}
                       </div>
                       
                       <div>
@@ -1075,6 +1106,85 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
                         <option key={d.id} value={d.id}>{d.name}</option>
                       ))}
                     </select>
+                    
+                    {/* Tarih Kolonu Uyarısı - Dashboard filtresi için kritik */}
+                    {formData.datasetId && !formData.comparisonEnabled && (
+                      (() => {
+                        const selectedDataset = datasets.find(d => d.id === formData.datasetId);
+                        const hasDateColumnInChart = formData.comparisonColumn || (formData as any).dateColumn;
+                        const partitionColumn = selectedDataset?.partition_column;
+                        const referenceColumn = selectedDataset?.reference_column;
+                        const dateColumns = columns.filter(isDateColumn);
+                        
+                        // Eğer chart_config'te tarih kolonu yoksa uyarı göster
+                        if (!hasDateColumnInChart) {
+                          return (
+                            <div className="mt-2 p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <span className="text-amber-500 text-lg">⚠️</span>
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium text-amber-400">
+                                    Tarih Kolonu Belirtilmedi
+                                  </p>
+                                  <p className="text-xs text-amber-300/80 mt-1">
+                                    Dashboard'daki tarih filtresi bu metriği etkilemeyecek!
+                                  </p>
+                                  
+                                  {/* Önerilen kolonlar */}
+                                  {(partitionColumn || referenceColumn || dateColumns.length > 0) && (
+                                    <div className="mt-2">
+                                      <p className="text-xs text-slate-400 mb-1">Dataset'teki tarih kolonları:</p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {partitionColumn && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, comparisonColumn: partitionColumn })}
+                                            className="px-2 py-1 bg-green-600/30 hover:bg-green-600/50 text-green-300 text-xs rounded border border-green-500/50 flex items-center gap-1"
+                                          >
+                                            <span>📅</span> {partitionColumn} <span className="text-green-500">(önerilen - partition)</span>
+                                          </button>
+                                        )}
+                                        {referenceColumn && referenceColumn !== partitionColumn && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, comparisonColumn: referenceColumn })}
+                                            className="px-2 py-1 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-xs rounded border border-blue-500/50 flex items-center gap-1"
+                                          >
+                                            <span>📆</span> {referenceColumn} <span className="text-blue-400">(referans)</span>
+                                          </button>
+                                        )}
+                                        {dateColumns.filter(c => c !== partitionColumn && c !== referenceColumn).map(col => (
+                                          <button
+                                            key={col}
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, comparisonColumn: col })}
+                                            className="px-2 py-1 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 text-xs rounded border border-slate-500/50"
+                                          >
+                                            {col}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Backend fallback bilgisi */}
+                                  {(partitionColumn || referenceColumn) && (
+                                    <p className="text-xs text-green-400 mt-2 flex items-center gap-1">
+                                      <span>✅</span>
+                                      <span>
+                                        Backend otomatik olarak <code className="bg-green-500/20 px-1 rounded">{partitionColumn || referenceColumn}</code> kolonunu kullanacak.
+                                        Yine de açıkça seçmeniz önerilir.
+                                      </span>
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()
+                    )}
                   </div>
                   
                   {/* Tek kolon seçimi (aggregation için) - Grid/List hariç */}

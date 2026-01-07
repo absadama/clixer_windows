@@ -7340,11 +7340,114 @@ CREATE TABLE users (
 
 ---
 
+## 🔴 METRİK TARİH KOLONU KURALI (KRİTİK!)
+
+### MUTLAK KURAL: Metrik tarih kolonuyla dashboard tarih filtresine tepki verir!
+
+**Sorun:** Metrikte `chart_config.comparisonColumn` veya `chart_config.dateColumn` tanımlı değilse, dashboard'daki tarih filtresi **ETKİSİZ** olur ve TÜM zamanların toplamı görünür!
+
+### Tarih Kolonu Belirleme Sırası (Backend)
+
+```javascript
+// analytics-service/src/index.ts - executeMetric fonksiyonu
+// Tarih kolonu belirleme sırası:
+const dateColumn = 
+  chartConfigParsed?.comparisonColumn ||  // 1. Metrikte tanımlı
+  chartConfigParsed?.dateColumn ||         // 2. Alternatif alan
+  (metric.dataset_id ? (await getDatasetPartitionColumn(metric.dataset_id)) : null);  // 3. Dataset fallback
+```
+
+### Dataset Fallback Mekanizması (v4.6)
+
+Eğer metrikte tarih kolonu tanımlı değilse, backend **otomatik olarak** dataset'in `partition_column` veya `reference_column` değerini kullanır.
+
+```
+Metrik: chart_config.comparisonColumn = null ❌
+Dataset: partition_column = 'ReportDay' ✅
+Sonuç: WHERE toDate(ReportDay) BETWEEN ... ← Otomatik uygulanır!
+```
+
+### UI Uyarısı (Frontend)
+
+Metrik oluştururken, tarih kolonu belirtilmezse kullanıcıya uyarı gösterilir:
+
+```
+⚠️ Tarih Kolonu Belirtilmedi
+Dashboard'daki tarih filtresi bu metriği etkilemeyecek!
+
+Dataset'teki tarih kolonları:
+[📅 ReportDay (önerilen - partition)] [📆 ModifyDate] [CreateDate]
+
+✅ Backend otomatik olarak ReportDay kolonunu kullanacak.
+   Yine de açıkça seçmeniz önerilir.
+```
+
+### Önleme Kuralları
+
+1. **Metrik oluştururken:**
+   - Tarih kolonu seçimi önerilir (UI uyarısı ile)
+   - Seçilmezse dataset'in `partition_column`'u kullanılır
+
+2. **Dataset oluştururken:**
+   - `partition_column` MUTLAKA ayarlanmalı
+   - Bu değer tarih filtresi için fallback olarak kullanılır
+
+3. **Mevcut metriklerde sorun varsa:**
+   - Ya metriğe `comparisonColumn` ekle
+   - Ya da dataset'e `partition_column` ekle
+
+### Örnek Sorun ve Çözüm
+
+| Metrik | chart_config | Dataset partition_column | Sonuç |
+|--------|--------------|-------------------------|-------|
+| Visitor | `{"comparisonColumn": "ReportDay"}` | ReportDay | ✅ Tarih filtresi çalışır |
+| Revenue | `{"colorMode": "full"}` ← YOK! | ReportDay | ✅ Fallback ile çalışır (v4.6+) |
+| Revenue (eski) | `{"colorMode": "full"}` | null | ❌ TÜM zamanlar! |
+
+### Kontrol Sorgusu
+
+```sql
+-- Tarih kolonu olmayan metrikleri bul
+SELECT m.name, m.chart_config->>'comparisonColumn' as metric_date_col, d.partition_column as dataset_date_col
+FROM metrics m
+LEFT JOIN datasets d ON m.dataset_id = d.id
+WHERE m.chart_config->>'comparisonColumn' IS NULL 
+  AND m.chart_config->>'dateColumn' IS NULL
+  AND m.use_sql_mode = false;
+```
+
+---
+
+## 📅 v4.6 - 7 Ocak 2026
+
+**Metrik Tarih Kolonu Fallback & UI Uyarısı**
+
+### Çözülen Sorunlar
+
+1. ✅ **Revenue 42 milyar sorunu** - Dataset partition_column fallback eklendi
+2. ✅ **UI Uyarısı** - Tarih kolonu yoksa kullanıcıya uyarı gösteriliyor
+3. ✅ **Önerilen kolonlar** - Dataset'ten tarih kolonları listeleniyor
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `services/analytics-service/src/index.ts` | Dataset partition_column fallback (SQL ve normal mod) |
+| `frontend/src/pages/MetricsPage.tsx` | Tarih kolonu uyarısı ve önerilen kolonlar UI |
+| `.cursorrules` | Metrik Tarih Kolonu Kuralı dokümantasyonu |
+
+### Yedekleme
+
+- **GitHub Tag:** `v4.6`
+
+---
+
 ## 📋 VERSİYON GEÇMİŞİ (Özet - Güncel)
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-07 | **v4.5** | **Mağaza Filtresi Cache Collision Düzeltmesi - MD5 Hash** |
+| 2026-01-07 | **v4.6** | **Metrik Tarih Kolonu Fallback & UI Uyarısı** |
+| 2026-01-07 | v4.5 | Mağaza Filtresi Cache Collision Düzeltmesi - MD5 Hash |
 | 2026-01-07 | v4.4 | Mağaza Filtresi LFL Entegrasyonu |
 | 2026-01-07 | v4.3 | Cache Key Tarih Parametresi Düzeltmesi |
 | 2026-01-07 | v4.2 | ETL ORDER BY Tarih Kolonu Düzeltmesi |
