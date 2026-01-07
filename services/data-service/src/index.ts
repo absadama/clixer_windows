@@ -477,11 +477,10 @@ app.get('/admin/system/stats', authenticate, async (req: Request, res: Response,
         u.id,
         u.email,
         u.name,
-        p.name as position_name,
+        u.position as position_name,
         u.last_login_at,
         u.last_login_ip
       FROM users u
-      LEFT JOIN positions p ON u.position_id = p.id
       WHERE u.last_login_at IS NOT NULL
       ORDER BY u.last_login_at DESC
       LIMIT 10
