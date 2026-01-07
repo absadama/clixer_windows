@@ -32,7 +32,6 @@ import {
   Eraser,
   Tag,
   Save,
-  Server,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { SystemSetting } from '../types'
@@ -47,7 +46,6 @@ const menuItems = [
   { id: 'performance', label: 'Performans', icon: Gauge, category: 'SİSTEM' },
   { id: 'master', label: 'Master Veriler', icon: Database, category: 'SİSTEM' },
   { id: 'monitor', label: 'Sistem Monitörü', icon: Activity, category: 'SİSTEM' },
-  { id: 'services', label: 'Servis Yönetimi', icon: Server, category: 'SİSTEM' },
   { id: 'backup', label: 'Yedekleme', icon: HardDrive, category: 'SİSTEM' },
   { id: 'users', label: 'Kullanıcı Yönetimi', icon: Users, category: 'KULLANICILAR' },
   { id: 'roles', label: 'Rol & Yetkiler', icon: Lock, category: 'KULLANICILAR' },
@@ -165,9 +163,6 @@ export default function AdminPage() {
   const [activeSessions, setActiveSessions] = useState<any[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   
-  // Servis Yönetimi States
-  const [services, setServices] = useState<any[]>([])
-  const [servicesLoading, setServicesLoading] = useState(false)
   
   // Yedekleme States
   const [backups, setBackups] = useState<any[]>([])
@@ -538,22 +533,6 @@ export default function AdminPage() {
     }
   }, [accessToken, apiCall])
 
-  // Servisleri yükle
-  const loadServices = useCallback(async () => {
-    if (!accessToken) return
-    setServicesLoading(true)
-    try {
-      const result = await apiCall('/data/admin/services')
-      // Backend { services: [...], summary: {...} } döndürüyor
-      const data = result.data
-      setServices(Array.isArray(data) ? data : (data?.services || []))
-    } catch (err) {
-      console.error('Servisler yüklenemedi:', err)
-      setServices([])
-    } finally {
-      setServicesLoading(false)
-    }
-  }, [accessToken, apiCall])
 
   // Yedekleri yükle
   const loadBackups = useCallback(async () => {
@@ -1266,9 +1245,8 @@ export default function AdminPage() {
   // Tab değiştiğinde ilgili verileri yükle
   useEffect(() => {
     if (activeTab === 'monitor') loadSessions()
-    if (activeTab === 'services') loadServices()
     if (activeTab === 'backup') loadBackups()
-  }, [activeTab, loadSessions, loadServices, loadBackups])
+  }, [activeTab, loadSessions, loadBackups])
 
   // Kategoriye göre grupla
   const groupedMenuItems = menuItems.reduce((acc, item) => {
@@ -3341,88 +3319,6 @@ export default function AdminPage() {
                       ))}
                     </tbody>
                   </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Servis Yönetimi */}
-        {activeTab === 'services' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-violet-500/20' : 'bg-violet-100')}>
-                  <Server size={24} className={isDark ? 'text-violet-400' : 'text-violet-600'} />
-                </div>
-                <div>
-                  <h1 className={clsx('text-xl font-bold', theme.contentText)}>Servis Yönetimi</h1>
-                  <p className={clsx('text-sm', theme.contentTextMuted)}>
-                    Backend servislerin durumu ve yönetimi
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={loadServices}
-                disabled={servicesLoading}
-                className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
-              >
-                <RefreshCw size={16} className={servicesLoading ? 'animate-spin' : ''} />
-                Yenile
-              </button>
-            </div>
-
-            <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
-              <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>Servisler</h3>
-              
-              {servicesLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 size={32} className="animate-spin text-violet-500" />
-                </div>
-              ) : services.length === 0 ? (
-                <p className={clsx('text-sm text-center py-6', theme.contentTextMuted)}>
-                  Servis bilgisi alınamadı. "Yenile" butonuna tıklayın.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {services.map((service: any) => (
-                    <div
-                      key={service.name}
-                      className={clsx(
-                        'p-4 rounded-xl border-2',
-                        service.status === 'up' || service.status === 'healthy'
-                          ? 'border-emerald-500/30 bg-emerald-500/10'
-                          : 'border-rose-500/30 bg-rose-500/10'
-                      )}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className={clsx('font-semibold', theme.contentText)}>{service.name}</h4>
-                        <span className={clsx(
-                          'px-2 py-1 rounded-full text-xs font-medium',
-                          service.status === 'up' || service.status === 'healthy'
-                            ? 'bg-emerald-500 text-white'
-                            : 'bg-rose-500 text-white'
-                        )}>
-                          {service.status === 'up' || service.status === 'healthy' ? '● Çalışıyor' : '● Durdu'}
-                        </span>
-                      </div>
-                      <div className="space-y-1">
-                        <p className={clsx('text-sm', theme.contentTextMuted)}>
-                          Port: <span className={theme.contentText}>{service.port || '-'}</span>
-                        </p>
-                        {service.uptime && (
-                          <p className={clsx('text-sm', theme.contentTextMuted)}>
-                            Uptime: <span className={theme.contentText}>{service.uptime}</span>
-                          </p>
-                        )}
-                        {service.memory && (
-                          <p className={clsx('text-sm', theme.contentTextMuted)}>
-                            Bellek: <span className={theme.contentText}>{service.memory}</span>
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
                 </div>
               )}
             </div>
