@@ -51,6 +51,52 @@ const demoColumns: ColumnConfig[] = [
   { id: 'is_promotion', accessorKey: 'is_promotion', header: 'Promosyon', type: 'boolean', width: 100 },
 ]
 
+// Tarih preset'leri
+const DATE_PRESETS = [
+  { label: 'Bugün', days: 0 },
+  { label: 'Dün', days: 1 },
+  { label: 'Son 7 Gün', days: 7 },
+  { label: 'Son 30 Gün', days: 30 },
+  { label: 'Bu Ay', days: -1 }, // Özel hesaplama
+  { label: 'Geçen Ay', days: -2 }, // Özel hesaplama
+  { label: 'Bu Yıl', days: -3 }, // Özel hesaplama
+]
+
+// Tarih hesaplama yardımcısı
+const calculateDateRange = (preset: number): { startDate: string; endDate: string } => {
+  const today = new Date()
+  const formatDate = (d: Date) => d.toISOString().split('T')[0]
+  
+  if (preset === 0) {
+    // Bugün
+    return { startDate: formatDate(today), endDate: formatDate(today) }
+  } else if (preset === 1) {
+    // Dün
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    return { startDate: formatDate(yesterday), endDate: formatDate(yesterday) }
+  } else if (preset > 1) {
+    // Son X gün
+    const start = new Date(today)
+    start.setDate(start.getDate() - preset + 1)
+    return { startDate: formatDate(start), endDate: formatDate(today) }
+  } else if (preset === -1) {
+    // Bu ay
+    const start = new Date(today.getFullYear(), today.getMonth(), 1)
+    return { startDate: formatDate(start), endDate: formatDate(today) }
+  } else if (preset === -2) {
+    // Geçen ay
+    const start = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    const end = new Date(today.getFullYear(), today.getMonth(), 0)
+    return { startDate: formatDate(start), endDate: formatDate(end) }
+  } else if (preset === -3) {
+    // Bu yıl
+    const start = new Date(today.getFullYear(), 0, 1)
+    return { startDate: formatDate(start), endDate: formatDate(today) }
+  }
+  return { startDate: '', endDate: '' }
+}
+
 export default function DataGridDemoPage() {
   const { theme, isDark } = useTheme()
   const { accessToken } = useAuthStore()
@@ -83,6 +129,13 @@ export default function DataGridDemoPage() {
   const [selectedDataset, setSelectedDataset] = useState('')
   const [totalRows, setTotalRows] = useState<number>(0)
   const [serverAggregates, setServerAggregates] = useState<ServerSideAggregates>({})
+  
+  // Tarih filtresi state'leri
+  const [dateColumn, setDateColumn] = useState<string>('')
+  const [startDate, setStartDate] = useState<string>('')
+  const [endDate, setEndDate] = useState<string>('')
+  const [dateColumns, setDateColumns] = useState<string[]>([])
+  const [showDatePicker, setShowDatePicker] = useState(false)
 
   // Dataset'leri yükle (sadece bir kez)
   useEffect(() => {
@@ -119,15 +172,20 @@ export default function DataGridDemoPage() {
   }
 
   // Dataset'ten veri yükle
-  const loadDatasetData = async (datasetId: string) => {
+  const loadDatasetData = async (datasetId: string, filterStartDate?: string, filterEndDate?: string, filterDateColumn?: string) => {
     if (!accessToken || !datasetId) return
 
     setLoading(true)
     setData([])
-    setColumns([])
     
     try {
-      const response = await fetch(`${API_BASE}/data/datasets/${datasetId}/preview?limit=10000`, {
+      // URL oluştur - tarih filtresi varsa ekle
+      let url = `${API_BASE}/data/datasets/${datasetId}/preview?limit=10000`
+      if (filterStartDate && filterEndDate && filterDateColumn) {
+        url += `&startDate=${filterStartDate}&endDate=${filterEndDate}&dateColumn=${filterDateColumn}`
+      }
+      
+      const response = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` }
       })
       const result = await response.json()
@@ -136,81 +194,109 @@ export default function DataGridDemoPage() {
         const rows = result.data.rows
         setTotalRows(result.data.totalRows || rows.length)
         
-        // Kolon yapılandırmasını otomatik oluştur
-        const firstRow = rows[0]
-        const numericColumns: string[] = []
-        const cols: ColumnConfig[] = Object.keys(firstRow).map(key => {
-          const value = firstRow[key]
-          let type: ColumnConfig['type'] = 'text'
-          let aggregation: ColumnConfig['aggregation'] = undefined
+        // Kolon yapılandırmasını otomatik oluştur (sadece ilk yüklemede)
+        if (columns.length === 0) {
+          const firstRow = rows[0]
+          const numericColumns: string[] = []
+          const detectedDateColumns: string[] = []
           
-          if (typeof value === 'number') {
-            const keyLower = key.toLowerCase()
-            const isCurrency = keyLower.includes('price') || 
-                               keyLower.includes('total') || 
-                               keyLower.includes('amount') || 
-                               keyLower.includes('tutar') ||
-                               keyLower.includes('fiyat') ||
-                               keyLower.includes('revenue') ||
-                               keyLower.includes('gelir')
-            // Yıl kolonları için integer tipi (binlik ayraç olmasın)
-            const isYear = keyLower.includes('year') || keyLower.includes('yil') || keyLower.includes('yıl')
-            // ID kolonları için integer tipi
-            const isId = keyLower === 'id' || keyLower.endsWith('_id') || keyLower.endsWith('id')
+          const cols: ColumnConfig[] = Object.keys(firstRow).map(key => {
+            const value = firstRow[key]
+            let type: ColumnConfig['type'] = 'text'
+            let aggregation: ColumnConfig['aggregation'] = undefined
             
-            if (isYear || isId) {
-              type = 'integer'
-              aggregation = undefined // Yıl ve ID'ler için toplam anlamsız
-            } else {
-              type = isCurrency ? 'currency' : 'number'
-              aggregation = 'sum'
-              numericColumns.push(key)
+            if (typeof value === 'number') {
+              const keyLower = key.toLowerCase()
+              const isCurrency = keyLower.includes('price') || 
+                                 keyLower.includes('total') || 
+                                 keyLower.includes('amount') || 
+                                 keyLower.includes('tutar') ||
+                                 keyLower.includes('fiyat') ||
+                                 keyLower.includes('revenue') ||
+                                 keyLower.includes('gelir')
+              // Yıl kolonları için integer tipi (binlik ayraç olmasın)
+              const isYear = keyLower.includes('year') || keyLower.includes('yil') || keyLower.includes('yıl')
+              // ID kolonları için integer tipi
+              const isId = keyLower === 'id' || keyLower.endsWith('_id') || keyLower.endsWith('id')
+              
+              if (isYear || isId) {
+                type = 'integer'
+                aggregation = undefined // Yıl ve ID'ler için toplam anlamsız
+              } else {
+                type = isCurrency ? 'currency' : 'number'
+                aggregation = 'sum'
+                numericColumns.push(key)
+              }
+            } else if (typeof value === 'boolean') {
+              type = 'boolean'
+            } else if (value && typeof value === 'string' && !isNaN(Date.parse(value)) && value.includes('-')) {
+              type = 'date'
+              detectedDateColumns.push(key)
             }
-          } else if (typeof value === 'boolean') {
-            type = 'boolean'
-          } else if (value && typeof value === 'string' && !isNaN(Date.parse(value)) && value.includes('-')) {
-            type = 'date'
+            
+            return {
+              id: key,
+              accessorKey: key,
+              header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+              type,
+              width: 150,
+              aggregation
+            }
+          })
+          
+          setColumns(cols)
+          setDateColumns(detectedDateColumns)
+          
+          // Varsayılan tarih kolonunu seç (ReportDay, Date, Created vb.)
+          if (detectedDateColumns.length > 0 && !dateColumn) {
+            const preferredNames = ['reportday', 'report_day', 'date', 'tarih', 'created_at', 'transaction_date']
+            const preferred = detectedDateColumns.find(c => preferredNames.includes(c.toLowerCase()))
+            setDateColumn(preferred || detectedDateColumns[0])
           }
           
-          return {
-            id: key,
-            accessorKey: key,
-            header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-            type,
-            width: 150,
-            aggregation
+          // Server-side aggregates
+          if (numericColumns.length > 0) {
+            loadAggregates(datasetId, numericColumns, filterStartDate, filterEndDate, filterDateColumn)
           }
-        })
-        
-        setColumns(cols)
-        setData(rows)
-        
-        // Server-side aggregates
-        if (numericColumns.length > 0) {
-          loadAggregates(datasetId, numericColumns)
+        } else {
+          // Sadece aggregates yeniden yükle
+          const numericColumns = columns.filter(c => c.type === 'number' || c.type === 'currency').map(c => c.id)
+          if (numericColumns.length > 0) {
+            loadAggregates(datasetId, numericColumns, filterStartDate, filterEndDate, filterDateColumn)
+          }
         }
+        
+        setData(rows)
       } else {
         setData([])
-        setColumns([])
+        if (!filterStartDate) {
+          setColumns([])
+        }
         setTotalRows(0)
         setServerAggregates({})
       }
     } catch (error) {
       console.error('Failed to load dataset data:', error)
       setData([])
-      setColumns([])
     } finally {
       setLoading(false)
     }
   }
 
   // Server-side aggregates yükle
-  const loadAggregates = async (datasetId: string, numericColumns: string[]) => {
+  const loadAggregates = async (datasetId: string, numericColumns: string[], filterStartDate?: string, filterEndDate?: string, filterDateColumn?: string) => {
     if (!accessToken || numericColumns.length === 0) return
 
     try {
       const columnsParam = numericColumns.map(col => `${col}:sum`).join(',')
-      const response = await fetch(`${API_BASE}/data/datasets/${datasetId}/aggregates?columns=${encodeURIComponent(columnsParam)}`, {
+      let url = `${API_BASE}/data/datasets/${datasetId}/aggregates?columns=${encodeURIComponent(columnsParam)}`
+      
+      // Tarih filtresi ekle
+      if (filterStartDate && filterEndDate && filterDateColumn) {
+        url += `&startDate=${filterStartDate}&endDate=${filterEndDate}&dateColumn=${filterDateColumn}`
+      }
+      
+      const response = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` }
       })
       const result = await response.json()
@@ -225,6 +311,35 @@ export default function DataGridDemoPage() {
       }
     } catch (error) {
       console.error('Failed to load aggregates:', error)
+    }
+  }
+  
+  // Tarih filtresini uygula
+  const applyDateFilter = () => {
+    if (selectedDataset && startDate && endDate && dateColumn) {
+      loadDatasetData(selectedDataset, startDate, endDate, dateColumn)
+    }
+  }
+  
+  // Tarih preset'i seç
+  const selectDatePreset = (days: number) => {
+    const range = calculateDateRange(days)
+    setStartDate(range.startDate)
+    setEndDate(range.endDate)
+    setShowDatePicker(false)
+    
+    // Otomatik uygula
+    if (selectedDataset && dateColumn) {
+      loadDatasetData(selectedDataset, range.startDate, range.endDate, dateColumn)
+    }
+  }
+  
+  // Tarih filtresini temizle
+  const clearDateFilter = () => {
+    setStartDate('')
+    setEndDate('')
+    if (selectedDataset) {
+      loadDatasetData(selectedDataset)
     }
   }
 
@@ -343,6 +458,111 @@ export default function DataGridDemoPage() {
           )}
         </div>
       </div>
+
+      {/* Tarih Filtresi - Sadece API modunda ve dataset seçildiğinde */}
+      {dataSource === 'api' && selectedDataset && dateColumns.length > 0 && (
+        <div className={clsx(
+          'flex items-center gap-4 p-4 rounded-lg border',
+          theme.border,
+          isDark ? 'bg-[#181B21]' : 'bg-slate-50'
+        )}>
+          {/* Tarih Kolonu Seçici */}
+          <div className="flex items-center gap-2">
+            <label className={clsx('text-sm font-medium', theme.contentText)}>📅 Tarih Kolonu:</label>
+            <select
+              value={dateColumn}
+              onChange={(e) => setDateColumn(e.target.value)}
+              className={clsx(
+                'px-3 py-1.5 rounded-lg border text-sm',
+                isDark ? 'bg-[#21252E] text-gray-200 border-[#2F3542]' : 'bg-white text-gray-800 border-gray-300'
+              )}
+            >
+              {dateColumns.map(col => (
+                <option key={col} value={col}>{col}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="h-6 w-px bg-gray-500/30" />
+
+          {/* Hızlı Tarih Seçenekleri */}
+          <div className="flex items-center gap-2">
+            {DATE_PRESETS.slice(0, 4).map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => selectDatePreset(preset.days)}
+                className={clsx(
+                  'px-3 py-1.5 rounded-lg text-sm transition-colors',
+                  startDate && endDate && calculateDateRange(preset.days).startDate === startDate && calculateDateRange(preset.days).endDate === endDate
+                    ? 'bg-[#00CFDE] text-white'
+                    : isDark 
+                      ? 'bg-white/10 text-gray-300 hover:bg-white/20' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-6 w-px bg-gray-500/30" />
+
+          {/* Özel Tarih Aralığı */}
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className={clsx(
+                'px-3 py-1.5 rounded-lg border text-sm',
+                isDark ? 'bg-[#21252E] text-gray-200 border-[#2F3542]' : 'bg-white text-gray-800 border-gray-300'
+              )}
+            />
+            <span className={theme.contentTextMuted}>-</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className={clsx(
+                'px-3 py-1.5 rounded-lg border text-sm',
+                isDark ? 'bg-[#21252E] text-gray-200 border-[#2F3542]' : 'bg-white text-gray-800 border-gray-300'
+              )}
+            />
+            <button
+              onClick={applyDateFilter}
+              disabled={!startDate || !endDate || !dateColumn}
+              className={clsx(
+                'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                startDate && endDate && dateColumn
+                  ? 'bg-[#00CFDE] text-white hover:bg-[#00B8C5]'
+                  : 'bg-gray-500/30 text-gray-500 cursor-not-allowed'
+              )}
+            >
+              Uygula
+            </button>
+          </div>
+
+          {/* Temizle butonu */}
+          {(startDate || endDate) && (
+            <button
+              onClick={clearDateFilter}
+              className={clsx(
+                'px-3 py-1.5 rounded-lg text-sm',
+                isDark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-600 hover:bg-red-100'
+              )}
+            >
+              ✕ Temizle
+            </button>
+          )}
+
+          {/* Aktif filtre bilgisi */}
+          {startDate && endDate && (
+            <div className={clsx('ml-auto text-sm', theme.contentTextMuted)}>
+              <span className="text-green-500">●</span> {dateColumn}: {startDate} → {endDate}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Özellik Listesi */}
       <div className={clsx('grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3')}>

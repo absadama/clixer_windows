@@ -1966,7 +1966,21 @@ app.get('/datasets/:id/aggregates', authenticate, tenantIsolation, async (req: R
         }
       });
 
-      const sql = `SELECT ${selectParts.join(', ')} FROM clixer_analytics.${dataset.clickhouse_table}`;
+      // Tarih filtresi parametreleri
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+      const dateColumnParam = req.query.dateColumn as string;
+      
+      let sql = `SELECT ${selectParts.join(', ')} FROM clixer_analytics.${dataset.clickhouse_table}`;
+      
+      // Tarih filtresi ekle
+      if (startDate && endDate && dateColumnParam) {
+        // Güvenlik kontrolü
+        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(dateColumnParam) && /^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+          sql += ` WHERE toDate(${dateColumnParam}) >= '${startDate}' AND toDate(${dateColumnParam}) <= '${endDate}'`;
+        }
+      }
+      
       const result = await clickhouse.query(sql);
       
       let totalCount = 0;
@@ -2082,12 +2096,31 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
       }
     }
 
+    // Tarih filtresi parametreleri
+    const startDate = req.query.startDate as string;
+    const endDate = req.query.endDate as string;
+    const dateColumnParam = req.query.dateColumn as string;
+    
     // ClickHouse'dan veri çek - ORDER BY ile (en yeni veriler önce)
     const startTime = Date.now();
     const maxLimit = Math.min(limit, 10000); // Max 10K satır
     const validSortOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     
     let sql = `SELECT * FROM clixer_analytics.${dataset.clickhouse_table}`;
+    
+    // Tarih filtresi ekle
+    const whereConditions: string[] = [];
+    if (startDate && endDate && dateColumnParam) {
+      // Güvenlik kontrolü
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(dateColumnParam) && /^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        whereConditions.push(`toDate(${dateColumnParam}) >= '${startDate}' AND toDate(${dateColumnParam}) <= '${endDate}'`);
+      }
+    }
+    
+    if (whereConditions.length > 0) {
+      sql += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+    
     if (orderByColumn) {
       sql += ` ORDER BY ${orderByColumn} ${validSortOrder}`;
     }
@@ -2101,8 +2134,12 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
       ? Object.keys(rows[0]).map(name => ({ name, type: typeof rows[0][name] }))
       : [];
 
-    // Toplam satır sayısı
-    const countResult = await clickhouse.query(`SELECT count() as cnt FROM clixer_analytics.${dataset.clickhouse_table}`);
+    // Toplam satır sayısı (tarih filtresi dahil)
+    let countSql = `SELECT count() as cnt FROM clixer_analytics.${dataset.clickhouse_table}`;
+    if (whereConditions.length > 0) {
+      countSql += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+    const countResult = await clickhouse.query(countSql);
     const totalRows = countResult[0]?.cnt || 0;
 
     res.json({ 
