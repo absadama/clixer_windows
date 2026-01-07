@@ -7754,7 +7754,8 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-08 | **v4.12** | **Admin Panel: "Servis Yönetimi" sekmesi kaldırıldı (Sistem Monitörü ile mükerrer)** |
+| 2026-01-08 | **v4.13** | **ETL Schedule Cron Fix + Zamanlanmış Görevler Tam Çalışır** |
+| 2026-01-08 | v4.12 | Admin Panel: "Servis Yönetimi" sekmesi kaldırıldı (Sistem Monitörü ile mükerrer) |
 | 2026-01-07 | v4.11 | LDAP Sync: Mevcut Kullanıcı Yetkileri Korunuyor + Otomatik Schedule |
 | 2026-01-07 | v4.10 | ETL Worker Çoklu Process Düzeltmesi |
 | 2026-01-07 | v4.9 | Ranking List Multi-Value Columns + Trend Hesaplama |
@@ -7767,3 +7768,106 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 | 2026-01-07 | v4.2 | ETL ORDER BY Tarih Kolonu Düzeltmesi |
 | 2026-01-07 | v4.1 | HTTPS/SSL Production Kurulumu |
 | 2026-01-06 | v4.0 | Müşteri Kurulum Düzeltmeleri |
+
+---
+
+## 📅 v4.13 - 8 Ocak 2026
+
+**ETL Schedule Cron Fix + Zamanlanmış Görevler Tam Çalışır**
+
+### 1. ✅ ETL Schedule Cron Expression Düzeltmesi
+
+**Sorun:** UI'dan "Günlük" seçildiğinde `cron_expression` alanına `daily` string'i kaydediliyordu. ETL Worker bu formatı parse edemiyordu.
+
+**Çözüm:** `cron_expression` değeri `0 2 * * *` (Her gün 02:00) olarak düzeltildi.
+
+| Eski (Hatalı) | Yeni (Doğru) |
+|---------------|--------------|
+| `daily` | `0 2 * * *` |
+| `hourly` | `0 * * * *` |
+
+### 2. ✅ Zamanlanmış Görevler Kontrol Sorgusu
+
+Terminalde çalıştırılacak monitoring sorguları eklendi:
+
+```bash
+# Çalışan job'lar
+SELECT * FROM etl_jobs WHERE status = 'running';
+
+# Zamanlanmış ETL job'lar
+SELECT d.name, s.cron_expression, s.next_run_at, s.is_active
+FROM etl_schedules s
+JOIN datasets d ON s.dataset_id = d.id
+WHERE s.is_active = true;
+
+# LDAP schedule
+SELECT name, sync_schedule, last_sync_at, is_active FROM ldap_config;
+```
+
+### 3. ✅ Test Edilen Schedule'lar
+
+| Dataset | UI Seçim | Cron | Durum |
+|---------|----------|------|-------|
+| rprSalesGroupDaily | daily | `0 2 * * *` | ✅ Çalışıyor |
+| VW_PBI_Branch | daily | `0 2 * * *` | ✅ Çalışıyor |
+| Default LDAP | daily | - | ✅ Çalışıyor |
+
+### 4. ✅ ETL Worker Tek Instance Kontrolü
+
+```bash
+# Tek instance kontrolü
+ps aux | grep etl-worker | grep -v grep
+# Sadece 2 satır olmalı (ts-node-dev wrapper + worker)
+```
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| Veritabanı | `etl_schedules.cron_expression` düzeltildi |
+| `.cursorrules` | Schedule monitoring dokümantasyonu |
+
+---
+
+## 🔴 ETL SCHEDULE KONTROL KURALLARI
+
+### MUTLAK KURAL: cron_expression geçerli cron formatında olmalı!
+
+**Geçerli Cron Formatları:**
+
+| UI Seçimi | cron_expression | Açıklama |
+|-----------|-----------------|----------|
+| Her 15 dakika | `*/15 * * * *` | Her 15 dakikada bir |
+| Saatlik | `0 * * * *` | Her saat başı |
+| Günlük 02:00 | `0 2 * * *` | Her gün 02:00 |
+| Günlük 03:00 | `0 3 * * *` | Her gün 03:00 |
+| Haftalık | `0 2 * * 1` | Her Pazartesi 02:00 |
+
+**Geçersiz Formatlar (KULLANMA!):**
+- ❌ `daily`
+- ❌ `hourly`
+- ❌ `weekly`
+
+### Schedule Sorun Giderme
+
+```bash
+# 1. Schedule durumunu kontrol et
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+SELECT d.name, s.cron_expression, s.next_run_at, s.is_active,
+       CASE WHEN s.next_run_at <= NOW() THEN 'GECİKMİŞ' ELSE 'Bekliyor' END as durum
+FROM etl_schedules s
+JOIN datasets d ON s.dataset_id = d.id
+WHERE s.is_active = true;
+"
+
+# 2. ETL Worker loglarını kontrol et
+tail -50 /opt/clixer/logs/etl-worker-out.log | grep -i -E "schedule|ldap|checking"
+
+# 3. Cron expression düzelt (örnek)
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+UPDATE etl_schedules 
+SET cron_expression = '0 2 * * *',
+    next_run_at = NOW() + INTERVAL '1 minute'
+WHERE dataset_id = (SELECT id FROM datasets WHERE name = 'DATASET_ADI');
+"
+```
