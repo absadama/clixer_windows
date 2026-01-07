@@ -161,6 +161,19 @@ export default function AdminPage() {
   const [showMappingModal, setShowMappingModal] = useState<'position' | 'store' | null>(null)
   const [mappingForm, setMappingForm] = useState({ ldap_group_dn: '', ldap_group_name: '', position_code: 'VIEWER', store_id: '', store_name: '', grants_all_stores: false })
   
+  // Sistem Monitörü States
+  const [activeSessions, setActiveSessions] = useState<any[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  
+  // Servis Yönetimi States
+  const [services, setServices] = useState<any[]>([])
+  const [servicesLoading, setServicesLoading] = useState(false)
+  
+  // Yedekleme States
+  const [backups, setBackups] = useState<any[]>([])
+  const [backupsLoading, setBackupsLoading] = useState(false)
+  const [backupCreating, setBackupCreating] = useState(false)
+  
   // Mağaza ve bölge verileri (API'den gelecek)
   const [availableStores, setAvailableStores] = useState<{
     store_id: string
@@ -493,6 +506,77 @@ export default function AdminPage() {
       alert('Hata: ' + err.message)
     } finally {
       setSeeding(false)
+    }
+  }
+
+  // Aktif oturumları yükle
+  const loadSessions = useCallback(async () => {
+    if (!accessToken) return
+    setSessionsLoading(true)
+    try {
+      const result = await apiCall('/data/admin/sessions')
+      setActiveSessions(result.data || [])
+    } catch (err) {
+      console.error('Oturumlar yüklenemedi:', err)
+      setActiveSessions([])
+    } finally {
+      setSessionsLoading(false)
+    }
+  }, [accessToken, apiCall])
+
+  // Servisleri yükle
+  const loadServices = useCallback(async () => {
+    if (!accessToken) return
+    setServicesLoading(true)
+    try {
+      const result = await apiCall('/data/admin/services')
+      setServices(result.data || [])
+    } catch (err) {
+      console.error('Servisler yüklenemedi:', err)
+      setServices([])
+    } finally {
+      setServicesLoading(false)
+    }
+  }, [accessToken, apiCall])
+
+  // Yedekleri yükle
+  const loadBackups = useCallback(async () => {
+    if (!accessToken) return
+    setBackupsLoading(true)
+    try {
+      const result = await apiCall('/data/admin/backup/list')
+      setBackups(result.data || [])
+    } catch (err) {
+      console.error('Yedekler yüklenemedi:', err)
+      setBackups([])
+    } finally {
+      setBackupsLoading(false)
+    }
+  }, [accessToken, apiCall])
+
+  // Yedek oluştur
+  const createBackup = async () => {
+    setBackupCreating(true)
+    try {
+      await apiCall('/data/admin/backup/create', { method: 'POST' })
+      alert('✅ Yedek oluşturma başlatıldı!')
+      loadBackups()
+    } catch (err: any) {
+      alert('Yedek oluşturulamadı: ' + err.message)
+    } finally {
+      setBackupCreating(false)
+    }
+  }
+
+  // Oturumu sonlandır
+  const killSession = async (userId: string) => {
+    if (!confirm('Bu kullanıcının oturumunu sonlandırmak istediğinize emin misiniz?')) return
+    try {
+      await apiCall(`/data/admin/sessions/${userId}`, { method: 'DELETE' })
+      alert('✅ Oturum sonlandırıldı')
+      loadSessions()
+    } catch (err: any) {
+      alert('Oturum sonlandırılamadı: ' + err.message)
     }
   }
 
@@ -1075,6 +1159,13 @@ export default function AdminPage() {
     loadPerfSettings()
     loadLabels()
   }, [loadSettings, loadUsers, loadPositions, loadStoresAndRegions, loadLdapConfig, loadPositionMappings, loadStoreMappings, loadSyncLogs, loadPerfSettings, loadLabels])
+
+  // Tab değiştiğinde ilgili verileri yükle
+  useEffect(() => {
+    if (activeTab === 'monitor') loadSessions()
+    if (activeTab === 'services') loadServices()
+    if (activeTab === 'backup') loadBackups()
+  }, [activeTab, loadSessions, loadServices, loadBackups])
 
   // Kategoriye göre grupla
   const groupedMenuItems = menuItems.reduce((acc, item) => {
@@ -3057,23 +3148,86 @@ export default function AdminPage() {
         {/* Sistem Monitörü */}
         {activeTab === 'monitor' && (
           <div className="space-y-6">
-            <div className="flex items-center gap-4">
-              <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-cyan-500/20' : 'bg-cyan-100')}>
-                <Activity size={24} className={isDark ? 'text-cyan-400' : 'text-cyan-600'} />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-cyan-500/20' : 'bg-cyan-100')}>
+                  <Activity size={24} className={isDark ? 'text-cyan-400' : 'text-cyan-600'} />
+                </div>
+                <div>
+                  <h1 className={clsx('text-xl font-bold', theme.contentText)}>Sistem Monitörü</h1>
+                  <p className={clsx('text-sm', theme.contentTextMuted)}>
+                    Aktif kullanıcılar ve sistem durumu
+                  </p>
+                </div>
               </div>
-              <div>
-                <h1 className={clsx('text-xl font-bold', theme.contentText)}>Sistem Monitörü</h1>
-                <p className={clsx('text-sm', theme.contentTextMuted)}>
-                  Aktif kullanıcılar ve sistem durumu
-                </p>
-              </div>
+              <button
+                onClick={loadSessions}
+                disabled={sessionsLoading}
+                className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
+              >
+                <RefreshCw size={16} className={sessionsLoading ? 'animate-spin' : ''} />
+                Yenile
+              </button>
             </div>
 
             <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
-              <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>Aktif Kullanıcılar</h3>
-              <p className={clsx('text-sm', theme.contentTextMuted)}>
-                Bu özellik yakında eklenecek. Backend endpoint'leri hazır.
-              </p>
+              <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>
+                Aktif Oturumlar ({activeSessions.length})
+              </h3>
+              
+              {sessionsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 size={32} className="animate-spin text-cyan-500" />
+                </div>
+              ) : activeSessions.length === 0 ? (
+                <p className={clsx('text-sm text-center py-6', theme.contentTextMuted)}>
+                  Şu an aktif oturum bulunmuyor
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className={clsx('border-b', theme.border)}>
+                        <th className={clsx('px-4 py-3 text-left font-medium', theme.contentTextMuted)}>Kullanıcı</th>
+                        <th className={clsx('px-4 py-3 text-left font-medium', theme.contentTextMuted)}>Pozisyon</th>
+                        <th className={clsx('px-4 py-3 text-left font-medium', theme.contentTextMuted)}>IP Adresi</th>
+                        <th className={clsx('px-4 py-3 text-left font-medium', theme.contentTextMuted)}>Giriş Zamanı</th>
+                        <th className={clsx('px-4 py-3 text-left font-medium', theme.contentTextMuted)}>Süre</th>
+                        <th className={clsx('px-4 py-3 text-center font-medium', theme.contentTextMuted)}>İşlem</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeSessions.map((session: any) => (
+                        <tr key={session.user_id} className={clsx('border-b', theme.border)}>
+                          <td className={clsx('px-4 py-3', theme.contentText)}>
+                            <div>
+                              <p className="font-medium">{session.name || session.email}</p>
+                              <p className={clsx('text-xs', theme.contentTextMuted)}>{session.email}</p>
+                            </div>
+                          </td>
+                          <td className={clsx('px-4 py-3', theme.contentText)}>{session.position_code || '-'}</td>
+                          <td className={clsx('px-4 py-3', theme.contentText)}>{session.ip_address || '-'}</td>
+                          <td className={clsx('px-4 py-3', theme.contentText)}>
+                            {session.session_start ? new Date(session.session_start).toLocaleString('tr-TR') : '-'}
+                          </td>
+                          <td className={clsx('px-4 py-3', theme.contentText)}>
+                            {session.duration ? `${Math.floor(session.duration / 60)} dk` : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={() => killSession(session.user_id)}
+                              className="p-2 rounded-lg hover:bg-rose-500/20 text-rose-500"
+                              title="Oturumu Sonlandır"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -3081,23 +3235,81 @@ export default function AdminPage() {
         {/* Servis Yönetimi */}
         {activeTab === 'services' && (
           <div className="space-y-6">
-            <div className="flex items-center gap-4">
-              <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-violet-500/20' : 'bg-violet-100')}>
-                <Server size={24} className={isDark ? 'text-violet-400' : 'text-violet-600'} />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-violet-500/20' : 'bg-violet-100')}>
+                  <Server size={24} className={isDark ? 'text-violet-400' : 'text-violet-600'} />
+                </div>
+                <div>
+                  <h1 className={clsx('text-xl font-bold', theme.contentText)}>Servis Yönetimi</h1>
+                  <p className={clsx('text-sm', theme.contentTextMuted)}>
+                    Backend servislerin durumu ve yönetimi
+                  </p>
+                </div>
               </div>
-              <div>
-                <h1 className={clsx('text-xl font-bold', theme.contentText)}>Servis Yönetimi</h1>
-                <p className={clsx('text-sm', theme.contentTextMuted)}>
-                  Backend servislerin durumu ve yönetimi
-                </p>
-              </div>
+              <button
+                onClick={loadServices}
+                disabled={servicesLoading}
+                className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
+              >
+                <RefreshCw size={16} className={servicesLoading ? 'animate-spin' : ''} />
+                Yenile
+              </button>
             </div>
 
             <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
               <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>Servisler</h3>
-              <p className={clsx('text-sm', theme.contentTextMuted)}>
-                Bu özellik yakında eklenecek. Backend endpoint'leri hazır.
-              </p>
+              
+              {servicesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 size={32} className="animate-spin text-violet-500" />
+                </div>
+              ) : services.length === 0 ? (
+                <p className={clsx('text-sm text-center py-6', theme.contentTextMuted)}>
+                  Servis bilgisi alınamadı. "Yenile" butonuna tıklayın.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {services.map((service: any) => (
+                    <div
+                      key={service.name}
+                      className={clsx(
+                        'p-4 rounded-xl border-2',
+                        service.status === 'up' || service.status === 'healthy'
+                          ? 'border-emerald-500/30 bg-emerald-500/10'
+                          : 'border-rose-500/30 bg-rose-500/10'
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className={clsx('font-semibold', theme.contentText)}>{service.name}</h4>
+                        <span className={clsx(
+                          'px-2 py-1 rounded-full text-xs font-medium',
+                          service.status === 'up' || service.status === 'healthy'
+                            ? 'bg-emerald-500 text-white'
+                            : 'bg-rose-500 text-white'
+                        )}>
+                          {service.status === 'up' || service.status === 'healthy' ? '● Çalışıyor' : '● Durdu'}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        <p className={clsx('text-sm', theme.contentTextMuted)}>
+                          Port: <span className={theme.contentText}>{service.port || '-'}</span>
+                        </p>
+                        {service.uptime && (
+                          <p className={clsx('text-sm', theme.contentTextMuted)}>
+                            Uptime: <span className={theme.contentText}>{service.uptime}</span>
+                          </p>
+                        )}
+                        {service.memory && (
+                          <p className={clsx('text-sm', theme.contentTextMuted)}>
+                            Bellek: <span className={theme.contentText}>{service.memory}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -3105,23 +3317,75 @@ export default function AdminPage() {
         {/* Yedekleme */}
         {activeTab === 'backup' && (
           <div className="space-y-6">
-            <div className="flex items-center gap-4">
-              <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-amber-500/20' : 'bg-amber-100')}>
-                <HardDrive size={24} className={isDark ? 'text-amber-400' : 'text-amber-600'} />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-amber-500/20' : 'bg-amber-100')}>
+                  <HardDrive size={24} className={isDark ? 'text-amber-400' : 'text-amber-600'} />
+                </div>
+                <div>
+                  <h1 className={clsx('text-xl font-bold', theme.contentText)}>Yedekleme</h1>
+                  <p className={clsx('text-sm', theme.contentTextMuted)}>
+                    Veritabanı yedekleme ve geri yükleme
+                  </p>
+                </div>
               </div>
-              <div>
-                <h1 className={clsx('text-xl font-bold', theme.contentText)}>Yedekleme</h1>
-                <p className={clsx('text-sm', theme.contentTextMuted)}>
-                  Veritabanı yedekleme ve geri yükleme
-                </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={loadBackups}
+                  disabled={backupsLoading}
+                  className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl', theme.buttonSecondary)}
+                >
+                  <RefreshCw size={16} className={backupsLoading ? 'animate-spin' : ''} />
+                  Yenile
+                </button>
+                <button
+                  onClick={createBackup}
+                  disabled={backupCreating}
+                  className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
+                >
+                  {backupCreating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                  Yedek Al
+                </button>
               </div>
             </div>
 
             <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
-              <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>Yedekler</h3>
-              <p className={clsx('text-sm', theme.contentTextMuted)}>
-                Bu özellik yakında eklenecek. Backend endpoint'leri hazır.
-              </p>
+              <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>Yedek Listesi</h3>
+              
+              {backupsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 size={32} className="animate-spin text-amber-500" />
+                </div>
+              ) : backups.length === 0 ? (
+                <div className="text-center py-8">
+                  <HardDrive size={48} className={clsx('mx-auto mb-4', theme.contentTextMuted)} />
+                  <p className={clsx('text-sm', theme.contentTextMuted)}>
+                    Henüz yedek bulunmuyor. "Yedek Al" butonuna tıklayarak yeni bir yedek oluşturun.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {backups.map((backup: any, i: number) => (
+                    <div
+                      key={i}
+                      className={clsx('p-4 rounded-xl flex items-center justify-between', isDark ? 'bg-slate-800/50' : 'bg-slate-50')}
+                    >
+                      <div>
+                        <p className={clsx('font-medium', theme.contentText)}>{backup.name || backup.filename}</p>
+                        <p className={clsx('text-sm', theme.contentTextMuted)}>
+                          {backup.date ? new Date(backup.date).toLocaleString('tr-TR') : '-'}
+                          {backup.size && ` • ${backup.size}`}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button className={clsx('p-2 rounded-lg', theme.buttonSecondary)} title="İndir">
+                          <Download size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
