@@ -2232,8 +2232,12 @@ async function executeMetric(
                 });
                 
                 // Trend değerlerini hesapla
+                // Çoklu kolon modunda "value" yerine ilk değer kolonunu kullan (örn: Revenue)
                 const valuesWithTrend = value.map((row: any) => {
-                  const currentValue = parseFloat(row.value) || 0;
+                  // row.value varsa onu kullan, yoksa actualAggregateColumn'u dene
+                  const currentValue = row.value !== undefined 
+                    ? parseFloat(row.value) || 0
+                    : parseFloat(row[actualAggregateColumn!]) || 0;
                   const prevValue = prevValueMap.get(String(row.label)) || 0;
                   
                   let trend: number | null = null;
