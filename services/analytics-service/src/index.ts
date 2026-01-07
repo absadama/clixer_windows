@@ -93,7 +93,8 @@ async function calculateLFL(
     lastYearColumn: string;
     clickhouseTable: string;
   },
-  storeColumn?: string  // Mağaza kolonu (örn: BranchID, store_id)
+  storeColumn?: string,  // Mağaza kolonu (örn: BranchID, store_id)
+  storeFilterCondition?: string  // Mağaza filtresi (örn: "AND BranchID IN (1,2,3)")
 ): Promise<{
   currentValue: number;
   previousValue: number;
@@ -158,6 +159,9 @@ async function calculateLFL(
       const lyStart = lastYearStartDate.toISOString().split('T')[0];
       const lyEnd = lastYearEndDate.toISOString().split('T')[0];
       
+      // Mağaza filtresi (FilterBar'dan gelen storeIds)
+      const storeFilter = storeFilterCondition || '';
+      
       lflSql = `
         SELECT 
           sum(this_year_value) as current_value,
@@ -176,7 +180,7 @@ async function calculateLFL(
             SELECT ${storeCol} as store_id, toDate(${dateColumn}) as sale_date, ${aggFunc} as agg_value
             FROM ${tableName}
             WHERE toDate(${dateColumn}) >= '${thisYearStart}' AND toDate(${dateColumn}) <= '${thisYearEnd}'
-              ${rlsCondition} ${filterCondition}
+              ${rlsCondition} ${filterCondition} ${storeFilter}
             GROUP BY ${storeCol}, toDate(${dateColumn})
           ) ty
           INNER JOIN (
@@ -190,7 +194,7 @@ async function calculateLFL(
             SELECT ${storeCol} as store_id, toDate(${dateColumn}) as sale_date, ${aggFunc} as agg_value
             FROM ${tableName}
             WHERE toDate(${dateColumn}) >= '${lyStart}' AND toDate(${dateColumn}) <= '${lyEnd}'
-              ${rlsCondition} ${filterCondition}
+              ${rlsCondition} ${filterCondition} ${storeFilter}
             GROUP BY ${storeCol}, toDate(${dateColumn})
           ) ly ON ty.store_id = ly.store_id AND lfl.ly_date = ly.sale_date
         )
@@ -199,6 +203,9 @@ async function calculateLFL(
       // ============================================
       // GENEL LFL (Mağaza kolonu yoksa)
       // ============================================
+      // Mağaza filtresi (FilterBar'dan gelen storeIds)
+      const storeFilter = storeFilterCondition || '';
+      
       lflSql = `
         WITH lfl_dates AS (
           SELECT 
@@ -216,6 +223,7 @@ async function calculateLFL(
           WHERE toDate(${dateColumn}) IN (SELECT this_year_date FROM lfl_dates)
             ${rlsCondition}
             ${filterCondition}
+            ${storeFilter}
         ),
         
         -- Geçen yıl satış olan günler (LFL Takvim'deki last_year_date'lerde)
@@ -225,6 +233,7 @@ async function calculateLFL(
           WHERE toDate(${dateColumn}) IN (SELECT last_year_date FROM lfl_dates)
             ${rlsCondition}
             ${filterCondition}
+            ${storeFilter}
         ),
         
         -- Her iki yılda da satış olan LFL günleri
@@ -242,6 +251,7 @@ async function calculateLFL(
             WHERE toDate(s.${dateColumn}) IN (SELECT this_year_date FROM common_lfl_days)
               ${rlsCondition}
               ${filterCondition}
+              ${storeFilter}
           ) as current_value,
           (
             SELECT ${aggFunc}
@@ -249,6 +259,7 @@ async function calculateLFL(
             WHERE toDate(s.${dateColumn}) IN (SELECT last_year_date FROM common_lfl_days)
               ${rlsCondition}
               ${filterCondition}
+              ${storeFilter}
           ) as previous_value,
           (SELECT count() FROM common_lfl_days) as common_days_count
       `;
@@ -1764,6 +1775,36 @@ async function executeMetric(
         // Dataset'teki store_column'u kullanarak mağaza bazlı LFL hesapla
         const lflStoreColumn = metric.store_column || null;
         
+        // Mağaza filtresi oluştur (storeIds varsa)
+        let lflStoreFilter = '';
+        const storeIds = parameters.storeIds as string;
+        if (storeIds && metric.dataset_id && lflStoreColumn) {
+          // Dataset'ten store_column'u al
+          const datasetResult = await db.query<{ store_column: string }>(
+            'SELECT store_column FROM datasets WHERE id = $1',
+            [metric.dataset_id]
+          );
+          if (datasetResult.rows[0]?.store_column) {
+            const storeColumn = datasetResult.rows[0].store_column;
+            const storeUUIDs = storeIds.split(',').map(s => s.trim());
+            
+            // UUID'leri BranchID'lere çevir
+            const storeCodesResult = await db.query<{ code: string }>(
+              `SELECT code FROM stores WHERE id = ANY($1::uuid[])`,
+              [storeUUIDs]
+            );
+            
+            if (storeCodesResult.rows.length > 0) {
+              const storeCodes = storeCodesResult.rows.map(r => r.code);
+              lflStoreFilter = `AND ${storeColumn} IN (${storeCodes.join(',')})`;
+              logger.debug('LFL store filter applied', { 
+                storeUUIDs: storeUUIDs.length, 
+                storeCodes: storeCodes.length 
+              });
+            }
+          }
+        }
+        
         const lflResult = await calculateLFL(
           tableName,
           dateColumn,
@@ -1774,7 +1815,8 @@ async function executeMetric(
           lflStartDate,
           lflEndDate,
           lflCalendarConfig,
-          lflStoreColumn  // Mağaza bazlı LFL için
+          lflStoreColumn,  // Mağaza bazlı LFL için
+          lflStoreFilter   // Mağaza filtresi (storeIds)
         );
         
         if (lflResult) {
