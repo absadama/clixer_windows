@@ -343,6 +343,77 @@ sudo docker exec clixer_redis redis-cli FLUSHALL
 
 ---
 
+## 📅 7 Ocak 2026 - LFL Ana Değer Düzeltmesi (v4.4)
+
+### Belirti
+- LFL kartında ana değer ile normal kartta ana değer **AYNI** gösteriliyor
+- Beklenen: LFL kartında sadece ortak mağaza-günlerin toplamı gösterilmeli
+
+### Kök Neden
+
+`executeMetric` fonksiyonunda `calculateLFL` sonucu alındıktan sonra:
+- `previousValue` güncelleniyor ✅
+- `trend` güncelleniyor ✅
+- **`value` GÜNCELLENMİYORDU!** ❌
+
+```javascript
+// ESKİ (HATALI) - satır 1779-1799
+if (lflResult) {
+  previousValue = lflResult.previousValue;
+  trend = lflResult.trend;
+  // value güncellenmedi!
+}
+```
+
+### Çözüm
+
+```javascript
+// YENİ (DOĞRU)
+if (lflResult) {
+  value = lflResult.currentValue;  // ← EKLENDİ!
+  previousValue = lflResult.previousValue;
+  trend = lflResult.trend;
+}
+
+// Return öncesi formatted yeniden hesapla
+const finalFormatted = formatMetricValue(value, metric);
+```
+
+### Uygulanan Değişiklikler
+
+| Dosya | Satır | Değişiklik |
+|-------|-------|------------|
+| `analytics-service/src/index.ts` | 1782 | `value = lflResult.currentValue` eklendi |
+| `analytics-service/src/index.ts` | 2122 | `finalFormatted = formatMetricValue(value, metric)` eklendi |
+
+### Deployment Adımları
+
+```bash
+# 1. Kod çek
+cd /opt/clixer
+sudo git pull origin master
+
+# 2. Analytics service yeniden başlat
+sudo pkill -f "analytics-service"
+cd /opt/clixer/services/analytics-service
+sudo nohup npm run dev > /opt/clixer/logs/analytics-out.log 2>&1 &
+
+# 3. Redis cache temizle
+sudo docker exec clixer_redis redis-cli FLUSHALL
+
+# 4. Test
+# LFL kartı artık farklı değer göstermeli!
+```
+
+### Beklenen Sonuç
+
+| Widget | Değer | Açıklama |
+|--------|-------|----------|
+| VİSİTOR (LFL yok) | 2.592.120 | TÜM verinin toplamı |
+| MİNİ KART (LFL var) | **~X.XXX.XXX** | Sadece LFL eşleşen mağaza-günlerin toplamı (FARKLI!) |
+
+---
+
 ## 🔧 Genel Sorun Giderme Komutları
 
 ### Servis Durumu
