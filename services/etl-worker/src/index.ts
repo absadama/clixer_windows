@@ -420,19 +420,78 @@ async function ensureTableExists(dataset: any): Promise<void> {
     });
     
     // ORDER BY için uygun kolon bul
-    const orderByCol = columnMapping.find((c: any) => {
-      const name = c.target || c.source;
-      return name === 'id' || name === 'kod' || name === 'code' ||
-        c.clickhouseType === 'Date' || c.clickhouseType === 'DateTime';
-    });
-    const orderByColumn = orderByCol ? (orderByCol.target || orderByCol.source) : '_synced_at';
+    // KRİTİK: Tarih kolonu (partition_column, reference_column) MUTLAKA dahil edilmeli!
+    // Aksi halde ReplacingMergeTree farklı tarihleri merge eder (1M satır → 3500 satır!)
     
+    // 1. Önce unique kolon ara (id, code, pk vb.)
+    const uniqueCandidates = ['id', 'code', 'kod', 'uuid', 'pk', 'primary_key', '_id'];
+    const uniqueCol = columnMapping.find((c: any) => {
+      const name = (c.target || c.source).toLowerCase();
+      return uniqueCandidates.includes(name);
+    });
+    
+    // 2. Tarih kolonu ara - partition_column, reference_column veya Date/DateTime tipi
+    let dateColumn: string | null = null;
+    
+    // Dataset'ten partition_column veya reference_column al
+    if (dataset.partition_column) {
+      const partCol = columnMapping.find((c: any) => 
+        c.source === dataset.partition_column || c.target === dataset.partition_column
+      );
+      if (partCol) dateColumn = partCol.target || partCol.source;
+    }
+    
+    if (!dateColumn && dataset.reference_column) {
+      const refCol = columnMapping.find((c: any) => 
+        c.source === dataset.reference_column || c.target === dataset.reference_column
+      );
+      if (refCol) dateColumn = refCol.target || refCol.source;
+    }
+    
+    // Date/DateTime tipi kolon ara
+    if (!dateColumn) {
+      const dateCol = columnMapping.find((c: any) => 
+        c.clickhouseType === 'Date' || c.clickhouseType === 'DateTime'
+      );
+      if (dateCol) dateColumn = dateCol.target || dateCol.source;
+    }
+    
+    // 3. ORDER BY oluştur
+    let orderByColumn: string;
+    
+    if (uniqueCol) {
+      // Unique kolon varsa - sadece onu kullan
+      orderByColumn = uniqueCol.target || uniqueCol.source;
+    } else if (dateColumn) {
+      // Unique kolon yok ama tarih var - tarih + ilk 4 kolon
+      const otherColumns = columnMapping
+        .filter((c: any) => (c.target || c.source) !== dateColumn)
+        .slice(0, 4)
+        .map((c: any) => c.target || c.source);
+      
+      orderByColumn = [dateColumn, ...otherColumns].join(', ');
+      logger.warn('No unique column found - using DATE + composite ORDER BY', { 
+        dateColumn,
+        orderByColumn,
+        note: 'Date column added to prevent merge across dates'
+      });
+    } else {
+      // Ne unique ne tarih var - ilk 5 kolon
+      const allColumns = columnMapping.slice(0, 5).map((c: any) => c.target || c.source);
+      orderByColumn = allColumns.length > 0 ? allColumns.join(', ') : '_synced_at';
+      logger.warn('No unique or date column found - using composite ORDER BY', { 
+        orderByColumn,
+        note: 'Risk of data merge!'
+      });
+    }
+    
+    // Engine: ReplacingMergeTree kullan (duplicate önleme!)
     const createSql = `
       CREATE TABLE IF NOT EXISTS clixer_analytics.${tableName} (
         ${columns.join(',\n        ')},
         _synced_at DateTime DEFAULT now()
       )
-      ENGINE = MergeTree()
+      ENGINE = ReplacingMergeTree(_synced_at)
       ORDER BY (${orderByColumn})
     `;
     

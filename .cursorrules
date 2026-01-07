@@ -6491,3 +6491,147 @@ Vite, production build sırasında `.env.production` dosyasındaki `VITE_API_URL
 
 - **Backup**: Müşteri sunucusunda production çalışıyor
 - **GitHub**: Güncellenmeli (`v4.1` tag)
+
+---
+
+## 🔴🔴🔴 ETL ORDER BY TARİH KOLONU SORUNU (v4.2 - 7 Ocak 2026)
+
+### MUTLAK KURAL: ReplacingMergeTree ORDER BY'da tarih kolonu ZORUNLU!
+
+**Sorun:** Dataset oluşturulduğunda unique kolon (id, code vb.) bulunamadığında, ilk 5 kolon ORDER BY olarak kullanılıyor. Bu kolonlarda tarih (partition_column, reference_column) yoksa, **ReplacingMergeTree farklı tarihleri aynı key gibi görüp merge ediyor!**
+
+**Belirti:**
+```
+1M satır ClickHouse'a yazıldı → Sonuç: 3500 satır!
+365 günlük veri → Her unique key kombinasyonu için 1 satır (son tarih kalıyor)
+```
+
+**Örnek:**
+```
+Kaynak Veri (1M satır):
+Country=Turkey, BranchType=Store, BranchID=1, SalesYear=2024, ReportDay=2024-01-01, Sales=1000
+Country=Turkey, BranchType=Store, BranchID=1, SalesYear=2024, ReportDay=2024-01-02, Sales=2000
+... (365 gün)
+
+Yanlış ORDER BY: (Country, BranchType, BranchID, BranchName, SalesYear)
+Sonuç: TÜM günler merge → 1 satır kalır!
+
+Doğru ORDER BY: (ReportDay, Country, BranchType, BranchID, SalesYear)
+Sonuç: Her gün ayrı satır → 365 satır kalır ✅
+```
+
+### KÖK NEDEN
+
+1. `data-service` ve `etl-worker`'da ORDER BY oluştururken:
+   - Unique kolon (id, code) aranıyor
+   - Bulunamazsa ilk 5 kolon kullanılıyor
+   - **Tarih kolonu (partition_column, reference_column) dikkate ALINMIYORDU!**
+
+2. ReplacingMergeTree aynı ORDER BY key'e sahip satırlardan sadece en yeniyi tutar (_synced_at'e göre)
+
+### ✅ ÇÖZÜM (v4.2)
+
+**data-service/src/index.ts - Satır 1972-2027:**
+- Unique kolon yoksa, **önce tarih kolonu ara** (partition_column, reference_column, Date/DateTime tipi)
+- Tarih kolonunu ORDER BY'ın **EN BAŞINA** ekle
+- Sonra diğer kolonları ekle
+
+**etl-worker/src/index.ts - ensureTableExists fonksiyonu:**
+- Aynı mantık: dataset.partition_column, dataset.reference_column dikkate al
+- Tarih kolonu ORDER BY'ın başında olsun
+- Engine: MergeTree → **ReplacingMergeTree(_synced_at)** olarak değiştirildi
+
+### Kod Değişiklikleri
+
+```javascript
+// ESKİ (YANLIŞ)
+if (!orderByColumn) {
+  const allColumns = normalizedMapping.slice(0, 5).map(col => col.target);
+  orderByColumn = allColumns.join(', ');
+}
+
+// YENİ (DOĞRU)
+if (!orderByColumn) {
+  // 1. Tarih kolonu ara (partition_column, reference_column, Date tipi)
+  let dateColumn = findDateColumn();
+  
+  // 2. Tarih kolonunu EN BAŞA koy
+  if (dateColumn) {
+    const otherColumns = allColumns.filter(c => c !== dateColumn).slice(0, 4);
+    orderByColumn = [dateColumn, ...otherColumns].join(', ');
+  }
+}
+```
+
+### Müşteri Sunucusunda Düzeltme
+
+```bash
+# 1. Tabloyu sil
+ssh root@20.10.10.30
+curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025" \
+  --data "DROP TABLE IF EXISTS clixer_analytics.ds_2bf9c867_1501_4de2_8f32_e7829cc4cb16"
+
+# 2. Kodu güncelle
+cd /opt/clixer
+sudo git pull origin main
+
+# 3. Servisleri yeniden başlat
+sudo bash scripts/stop-all.sh
+sudo bash scripts/start-all.sh
+
+# 4. Dataset'i yeniden sync et (UI'dan veya API ile)
+# Tablo otomatik doğru ORDER BY ile oluşturulacak
+```
+
+### Test Kontrolü
+
+```bash
+# ORDER BY'ı kontrol et
+curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025" \
+  --data "SELECT name, sorting_key FROM system.tables WHERE database='clixer_analytics' FORMAT Vertical"
+
+# ReportDay (tarih kolonu) ORDER BY'da BAŞTA olmalı:
+# sorting_key: ReportDay, Country, BranchType, BranchID, SalesYear
+```
+
+### Etkilenen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `services/data-service/src/index.ts` | ORDER BY mantığı güncellendi, tarih kolonu öncelikli |
+| `services/etl-worker/src/index.ts` | ensureTableExists fonksiyonu güncellendi, ReplacingMergeTree eklendi |
+
+### Önleme Kuralı
+
+**Yeni dataset oluştururken MUTLAKA:**
+1. Unique kolon (id, code) seç - en güvenli
+2. Unique kolon yoksa (View, Aggregate) → Tarih kolonunu **Partition Kolonu** olarak seç
+3. Tarih kolonu ORDER BY'da otomatik olarak başa eklenir
+
+---
+
+## 📅 v4.2 - 7 Ocak 2026
+
+**ETL ORDER BY Tarih Kolonu Düzeltmesi**
+
+### Çözülen Sorunlar
+
+1. ✅ **1M satır → 3500 satır sorunu** - Tarih kolonu ORDER BY'a eklendi
+2. ✅ **data-service ORDER BY mantığı** - partition_column, reference_column, Date tipi kolon dikkate alınıyor
+3. ✅ **etl-worker ensureTableExists** - Aynı mantık eklendi, ReplacingMergeTree varsayılan
+4. ✅ **Composite ORDER BY** - Tarih kolonu EN BAŞA ekleniyor
+
+### Kök Neden
+
+ReplacingMergeTree, ORDER BY key'e göre duplicate'ları merge ediyor. Tarih kolonu ORDER BY'da olmadığında, farklı tarihlerdeki satırlar aynı key'e düşüp merge ediliyor.
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `services/data-service/src/index.ts` | Satır 1972-2100: ORDER BY mantığı, tarih kolonu öncelikli |
+| `services/etl-worker/src/index.ts` | Satır 422-480: ensureTableExists, ReplacingMergeTree, tarih kolonu |
+
+### Yedekleme
+
+- **GitHub**: `v4.2` tag olarak oluşturulmalı

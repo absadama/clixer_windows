@@ -1970,15 +1970,58 @@ app.post('/datasets', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), async
     }
     
     // 3. Unique kolon bulunamadı - VIEW'lar için composite ORDER BY kullan
+    // KRİTİK: Tarih kolonu (partitionColumn, referenceColumn) MUTLAKA dahil edilmeli!
+    // Aksi halde ReplacingMergeTree farklı tarihleri merge eder (1M satır → 3500 satır!)
     if (!orderByColumn) {
       // View veya aggregate sorgularda unique kolon olmayabilir
-      // Bu durumda tüm kolonları ORDER BY olarak kullan (ilk 3-5 kolon yeterli)
-      const allColumns = normalizedMapping.slice(0, 5).map((col: any) => col.target);
-      orderByColumn = allColumns.length > 0 ? allColumns.join(', ') : '_synced_at';
-      logger.warn('No unique column found - using composite ORDER BY for VIEW', { 
-        columns: orderByColumn,
-        note: 'ID-Based sync will not work, use Full Refresh or Timestamp-Based'
-      });
+      // Önce tarih/partition kolonu ara - bu ZORUNLU!
+      let dateColumn: string | null = null;
+      
+      // partitionColumn varsa onu kullan
+      if (partitionColumn) {
+        const partCol = normalizedMapping.find((col: any) => 
+          col.source === partitionColumn || col.target === partitionColumn
+        );
+        if (partCol) dateColumn = partCol.target;
+      }
+      
+      // referenceColumn varsa onu kullan
+      if (!dateColumn && referenceColumn) {
+        const refCol = normalizedMapping.find((col: any) => 
+          col.source === referenceColumn || col.target === referenceColumn
+        );
+        if (refCol) dateColumn = refCol.target;
+      }
+      
+      // Date/DateTime tipi kolon ara
+      if (!dateColumn) {
+        const dateCol = normalizedMapping.find((col: any) => 
+          col.clickhouseType === 'Date' || col.clickhouseType === 'DateTime'
+        );
+        if (dateCol) dateColumn = dateCol.target;
+      }
+      
+      // Tüm kolonları al (tarih kolonu hariç, onu en başa koyacağız)
+      const allColumns = normalizedMapping
+        .filter((col: any) => col.target !== dateColumn)
+        .slice(0, 4)
+        .map((col: any) => col.target);
+      
+      // Tarih kolonu varsa EN BAŞA ekle - bu kritik!
+      if (dateColumn) {
+        orderByColumn = [dateColumn, ...allColumns].join(', ');
+        logger.warn('No unique column found - using DATE + composite ORDER BY for VIEW', { 
+          dateColumn,
+          columns: orderByColumn,
+          note: 'Date column added to ORDER BY to prevent merge across dates'
+        });
+      } else {
+        orderByColumn = allColumns.length > 0 ? allColumns.join(', ') : '_synced_at';
+        logger.warn('No unique or date column found - using composite ORDER BY for VIEW', { 
+          columns: orderByColumn,
+          note: 'ID-Based sync will not work, use Full Refresh or Timestamp-Based'
+        });
+      }
     }
     
     // Engine seçimi - VARSAYILAN: ReplacingMergeTree (duplicate önleme!)
@@ -2017,13 +2060,21 @@ app.post('/datasets', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), async
       }
     }
     
-    // ORDER BY - Kritik: Unique key ZORUNLU!
-    // Öncelik: partition + unique > unique only
+    // ORDER BY - Kritik: Unique key veya Date + composite ZORUNLU!
+    // KRİTİK: partitionColumn VEYA referenceColumn varsa MUTLAKA ORDER BY'da olmalı!
+    // Aksi halde ReplacingMergeTree farklı tarihleri merge eder!
     let orderByColumns: string;
-    if (partitionColumn && orderByColumn) {
+    
+    // orderByColumn zaten tarih içeriyorsa (composite durumunda) direkt kullan
+    const orderByParts = orderByColumn!.split(',').map(s => s.trim());
+    const hasDateInOrderBy = partitionColumn && orderByParts.includes(partitionColumn);
+    
+    if (partitionColumn && !hasDateInOrderBy) {
+      // Partition kolonu ORDER BY'da yok, ekle!
       orderByColumns = `${partitionColumn}, ${orderByColumn}`;
+      logger.info('Adding partition column to ORDER BY', { partitionColumn, orderByColumns });
     } else {
-      orderByColumns = orderByColumn!;  // Unique kolon yukarıda zorunlu kılındı
+      orderByColumns = orderByColumn!;
     }
     
     logger.info('ORDER BY columns', { orderByColumns });
