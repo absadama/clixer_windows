@@ -7436,9 +7436,40 @@ WHERE m.chart_config->>'comparisonColumn' IS NULL
 | `frontend/src/pages/MetricsPage.tsx` | Tarih kolonu uyarısı ve önerilen kolonlar UI |
 | `.cursorrules` | Metrik Tarih Kolonu Kuralı dokümantasyonu |
 
+---
+
+## 📅 v4.7 - 7 Ocak 2026
+
+**JWT Token Süresi & Güncelleme Paketi**
+
+### Çözülen Sorunlar
+
+1. ✅ **JWT Access Token süresi artırıldı** - 15 dakika → 1 saat
+2. ✅ **Sık "Token süresi dolmuş" hatası** - Kullanıcılar daha uzun süre oturum açık kalabilir
+3. ✅ **Mağaza seçici UX iyileştirmesi** - Arama, renk kodlama, seçili mağazalar üstte
+4. ✅ **ETL Schedule saat seçimi** - Günlük sync için saat belirlenebilir (örn: 02:00)
+5. ✅ **DataGrid son veri görünümü** - ORDER BY tarih kolonu ile güncel veri
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `shared/src/auth.ts` | JWT_ACCESS_EXPIRES: '15m' → '1h' |
+| `frontend/src/components/FilterBar.tsx` | Mağaza seçici: arama, renk kodlama, UX |
+| `frontend/src/pages/DataPage.tsx` | ETL schedule saat seçimi |
+| `services/data-service/src/index.ts` | DataGrid ORDER BY tarih kolonu |
+| `services/etl-worker/src/index.ts` | Cron expression saat desteği |
+
+### JWT Token Süreleri
+
+| Token | Eski | Yeni |
+|-------|------|------|
+| Access Token | 15 dakika | **1 saat** |
+| Refresh Token | 7 gün | 7 gün (değişmedi) |
+
 ### Yedekleme
 
-- **GitHub Tag:** `v4.6`
+- **GitHub Tag:** `v4.7`
 
 ---
 
@@ -7446,7 +7477,8 @@ WHERE m.chart_config->>'comparisonColumn' IS NULL
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-07 | **v4.6** | **Metrik Tarih Kolonu Fallback & UI Uyarısı** |
+| 2026-01-07 | **v4.7** | **JWT Token Süresi 1 Saat & Güncelleme Paketi** |
+| 2026-01-07 | v4.6 | Metrik Tarih Kolonu Fallback & UI Uyarısı |
 | 2026-01-07 | v4.5 | Mağaza Filtresi Cache Collision Düzeltmesi - MD5 Hash |
 | 2026-01-07 | v4.4 | Mağaza Filtresi LFL Entegrasyonu |
 | 2026-01-07 | v4.3 | Cache Key Tarih Parametresi Düzeltmesi |
