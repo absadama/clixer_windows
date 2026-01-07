@@ -143,9 +143,10 @@ export default function DashboardPage() {
   // Filtreler değiştiğinde verileri yeniden yükle (tarih, bölge, mağaza, tip)
   useEffect(() => {
     if (currentDesign && accessToken) {
+      console.log('[DashboardPage] Filters changed, refetching...', { startDate, endDate })
       fetchDashboardData(currentDesign.id)
     }
-  }, [startDate, endDate, selectedRegionId, selectedStoreIds.length, selectedStoreType, currentDesign?.id])
+  }, [startDate, endDate, selectedRegionId, selectedStoreIds.length, selectedStoreType, currentDesign?.id, fetchDashboardData, accessToken])
 
   useEffect(() => {
     // URL'den designId parametresini oku
