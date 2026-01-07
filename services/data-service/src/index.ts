@@ -577,6 +577,162 @@ app.get('/admin/services', authenticate, async (req: Request, res: Response, nex
   }
 });
 
+/**
+ * 📋 Aktif oturumları listele (Sistem Monitörü için)
+ * GET /admin/sessions
+ */
+app.get('/admin/sessions', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Aktif oturumları audit_logs'tan çek (son 24 saatte login yapan unique kullanıcılar)
+    const sessions = await db.queryAll(`
+      SELECT DISTINCT ON (u.id)
+        u.id as user_id,
+        u.email,
+        u.name,
+        u.position_code,
+        u.last_login_at,
+        al.ip_address,
+        al.user_agent,
+        al.created_at as session_start
+      FROM users u
+      LEFT JOIN audit_logs al ON al.user_id = u.id AND al.action = 'user_login'
+      WHERE u.last_login_at > NOW() - INTERVAL '24 hours'
+      ORDER BY u.id, al.created_at DESC
+    `);
+    
+    res.json({ 
+      success: true, 
+      data: sessions.map((s: any) => ({
+        ...s,
+        isActive: true,
+        duration: s.session_start ? Math.floor((Date.now() - new Date(s.session_start).getTime()) / 60000) : 0
+      }))
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+/**
+ * 🔌 Oturum sonlandır (Sistem Monitörü için)
+ * DELETE /admin/sessions/:userId
+ */
+app.delete('/admin/sessions/:userId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { userId } = req.params;
+    
+    // Kullanıcının last_login_at'ını null yap (oturumu geçersiz kıl)
+    await db.query(
+      'UPDATE users SET last_login_at = NULL WHERE id = $1',
+      [userId]
+    );
+    
+    // Redis'teki token'ları da temizle (varsa)
+    try {
+      const Redis = require('ioredis');
+      const redis = new Redis({
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379')
+      });
+      await redis.del(`user:${userId}:tokens`);
+      await redis.quit();
+    } catch {}
+    
+    logger.info('Session terminated', { userId, by: req.user?.id });
+    res.json({ success: true, message: 'Oturum sonlandırıldı' });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+/**
+ * 📦 Yedek listesi (Sistem Monitörü için)
+ * GET /admin/backup/list
+ */
+app.get('/admin/backup/list', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const backupDir = path.join(process.cwd(), '..', '..', 'backups');
+    
+    let backups: any[] = [];
+    
+    if (fs.existsSync(backupDir)) {
+      const dirs = fs.readdirSync(backupDir).filter((f: string) => {
+        const fullPath = path.join(backupDir, f);
+        return fs.statSync(fullPath).isDirectory();
+      });
+      
+      backups = dirs.map((dir: string) => {
+        const fullPath = path.join(backupDir, dir);
+        const stats = fs.statSync(fullPath);
+        
+        // Klasör boyutunu hesapla (basit)
+        let size = 0;
+        try {
+          const files = fs.readdirSync(fullPath);
+          files.forEach((file: string) => {
+            const filePath = path.join(fullPath, file);
+            const fileStats = fs.statSync(filePath);
+            if (fileStats.isFile()) size += fileStats.size;
+          });
+        } catch {}
+        
+        return {
+          name: dir,
+          createdAt: stats.mtime,
+          size: size,
+          sizeFormatted: size > 1024*1024 ? `${(size/1024/1024).toFixed(1)} MB` : `${(size/1024).toFixed(1)} KB`
+        };
+      }).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    
+    res.json({ success: true, data: backups });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+/**
+ * 📦 Yedek oluştur (Sistem Monitörü için)
+ * POST /admin/backup/create
+ */
+app.post('/admin/backup/create', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { exec } = require('child_process');
+    const path = require('path');
+    const fs = require('fs');
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupName = `backup_${timestamp}`;
+    const backupDir = path.join(process.cwd(), '..', '..', 'backups', backupName);
+    
+    // Backup klasörü oluştur
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+    
+    // PostgreSQL dump
+    const pgDumpCmd = `docker exec clixer_postgres pg_dump -U clixer -d clixer --no-owner > "${path.join(backupDir, 'postgresql_full.sql')}"`;
+    
+    exec(pgDumpCmd, (error: any) => {
+      if (error) {
+        logger.error('Backup failed', { error: error.message });
+      } else {
+        logger.info('Backup created', { backupName, by: req.user?.id });
+      }
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Yedekleme başlatıldı', 
+      data: { backupName } 
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
 // ============================================
 // DATA CONNECTIONS
 // ============================================
