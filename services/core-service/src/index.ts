@@ -2522,28 +2522,18 @@ app.post('/ldap/sync', authenticate, authorize(ROLES.ADMIN), async (req: Request
           );
           
           if (existingUser) {
-            // Güncelle
+            // ⚠️ MEVCUT KULLANICI - SADECE LDAP BİLGİLERİNİ GÜNCELLE!
+            // position_code, filter_value, role DEĞİŞTİRİLMEZ - Admin'in manuel atadığı yetkiler korunur
             await db.query(
               `UPDATE users SET 
-                 name = $1, position_code = $2, ldap_dn = $3, ldap_synced = TRUE,
-                 ldap_last_sync_at = NOW(), ldap_groups = $4, is_active = TRUE, updated_at = NOW()
-               WHERE id = $5`,
-              [name, positionCode, dn, JSON.stringify(memberOf), existingUser.id]
+                 name = $1, ldap_dn = $2, ldap_synced = TRUE,
+                 ldap_last_sync_at = NOW(), ldap_groups = $3, is_active = TRUE, updated_at = NOW()
+               WHERE id = $4`,
+              [name, dn, JSON.stringify(memberOf), existingUser.id]
             );
             
-            // Mağaza atamalarını güncelle
-            await db.query('DELETE FROM user_stores WHERE user_id = $1', [existingUser.id]);
-            for (const storeId of storeIds) {
-              if (storeId === '*') {
-                // Tüm mağazalar için can_see_all_stores pozisyon özelliğinden yönetilir
-                continue;
-              }
-              const storeMapping = storeMappings.find((m: any) => m.store_id === storeId);
-              await db.query(
-                'INSERT INTO user_stores (user_id, store_id, store_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-                [existingUser.id, storeId, storeMapping?.store_name || storeId]
-              );
-            }
+            // ⚠️ MAĞAZA ATAMALARI DA DEĞİŞTİRİLMEZ - Admin'in atadığı mağazalar korunur
+            // Sadece yeni kullanıcılar için LDAP grup eşlemesinden mağaza atanır
             
             stats.updated++;
           } else {
@@ -3263,6 +3253,142 @@ app.delete('/labels/:id', authenticate, authorize(ROLES.ADMIN), tenantIsolation,
 });
 
 // ============================================
+// LDAP SCHEDULED SYNC HELPER
+// ============================================
+
+async function performScheduledLDAPSync(tenantId: string, configId: string): Promise<void> {
+  logger.info('Starting scheduled LDAP sync', { tenantId, configId });
+  
+  try {
+    // Config'i al
+    const config = await db.queryOne(
+      'SELECT * FROM ldap_config WHERE id = $1 AND tenant_id = $2',
+      [configId, tenantId]
+    );
+    
+    if (!config) {
+      logger.error('LDAP config not found for scheduled sync', { configId, tenantId });
+      return;
+    }
+
+    if (!config.is_active) {
+      logger.info('LDAP config is not active, skipping sync', { configId });
+      return;
+    }
+
+    // LDAP bağlantısı için gerekli bilgiler
+    const serverUrl = config.server_url;
+    const bindDn = config.bind_dn;
+    const bindPassword = config.bind_password;
+    const baseDn = config.base_dn;
+    const userFilter = config.sync_filter || '(&(objectClass=user)(objectCategory=person))';
+
+    if (!serverUrl || !bindDn || !baseDn) {
+      logger.error('LDAP config incomplete for scheduled sync', { configId });
+      return;
+    }
+
+    logger.info('LDAP scheduled sync starting', { 
+      tenantId, 
+      serverUrl: serverUrl.replace(/ldap:\/\/[^:]+:\d+/, 'ldap://***:***') // Gizle 
+    });
+
+    // LDAP bağlantısı
+    const ldap = require('ldapjs');
+    const client = ldap.createClient({
+      url: serverUrl,
+      tlsOptions: { rejectUnauthorized: false }
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      client.bind(bindDn, bindPassword, (err: any) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+
+    // Kullanıcıları ara
+    const ldapUsers: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      client.search(baseDn, {
+        filter: userFilter,
+        scope: 'sub',
+        attributes: ['sAMAccountName', 'mail', 'displayName', 'cn', 'memberOf', 'distinguishedName']
+      }, (err: any, searchRes: any) => {
+        if (err) return reject(err);
+        
+        searchRes.on('searchEntry', (entry: any) => {
+          ldapUsers.push(entry.ppiParsed || entry.object);
+        });
+        searchRes.on('end', () => resolve());
+        searchRes.on('error', reject);
+      });
+    });
+
+    client.unbind();
+
+    logger.info('LDAP users found for scheduled sync', { count: ldapUsers.length, tenantId });
+
+    // Kullanıcıları senkronize et
+    let created = 0, updated = 0, skipped = 0;
+
+    for (const ldapUser of ldapUsers) {
+      try {
+        const email = ldapUser.mail;
+        if (!email) {
+          skipped++;
+          continue;
+        }
+
+        const name = ldapUser.displayName || ldapUser.cn || email.split('@')[0];
+        const dn = ldapUser.distinguishedName;
+        const memberOf = ldapUser.memberOf || [];
+
+        // Mevcut kullanıcı var mı?
+        const existingUser = await db.queryOne(
+          'SELECT id FROM users WHERE email = $1 AND tenant_id = $2',
+          [email.toLowerCase(), tenantId]
+        );
+
+        if (existingUser) {
+          // ⚠️ SADECE LDAP BİLGİLERİNİ GÜNCELLE - Pozisyon/Rol KORUNUR!
+          await db.query(
+            `UPDATE users SET 
+               name = $1, ldap_dn = $2, ldap_synced = TRUE,
+               ldap_last_sync_at = NOW(), ldap_groups = $3, is_active = TRUE, updated_at = NOW()
+             WHERE id = $4`,
+            [name, dn, JSON.stringify(memberOf), existingUser.id]
+          );
+          updated++;
+        } else {
+          // Yeni kullanıcı oluştur
+          await db.query(
+            `INSERT INTO users (tenant_id, email, name, password_hash, role, ldap_dn, ldap_synced, ldap_last_sync_at, ldap_groups, is_active)
+             VALUES ($1, $2, $3, '', 'USER', $4, TRUE, NOW(), $5, TRUE)`,
+            [tenantId, email.toLowerCase(), name, dn, JSON.stringify(memberOf)]
+          );
+          created++;
+        }
+      } catch (userError: any) {
+        logger.error('Scheduled LDAP sync user error', { error: userError.message });
+        skipped++;
+      }
+    }
+
+    logger.info('LDAP scheduled sync completed', { 
+      tenantId, 
+      found: ldapUsers.length, 
+      created, 
+      updated, 
+      skipped 
+    });
+
+  } catch (error: any) {
+    logger.error('LDAP scheduled sync failed', { tenantId, error: error.message });
+  }
+}
+
+// ============================================
 // START SERVER
 // ============================================
 
@@ -3276,6 +3402,20 @@ async function start() {
     cache.createRedisClient();
     await cache.checkHealth();
     logger.info('Redis connected');
+    
+    // LDAP Sync event listener - ETL Worker'dan gelen schedule tetiklemelerini dinle
+    cache.subscribe('ldap:sync', async (message: any) => {
+      try {
+        const data = typeof message === 'string' ? JSON.parse(message) : message;
+        logger.info('LDAP sync event received from scheduler', { tenantId: data.tenantId });
+        
+        // LDAP sync işlemini çalıştır
+        await performScheduledLDAPSync(data.tenantId, data.configId);
+      } catch (error: any) {
+        logger.error('LDAP sync event handler failed', { error: error.message });
+      }
+    });
+    logger.info('LDAP sync event listener registered');
     
     // Stuck job cleanup - her 2 dakikada bir
     setInterval(cleanupStuckJobs, 2 * 60 * 1000);

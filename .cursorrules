@@ -7703,11 +7703,59 @@ LIMIT 10;
 
 ---
 
+## 🔐 LDAP SYNC GÜVENLİ GÜNCELLEME KURALI (v4.11 - 7 Ocak 2026)
+
+### MUTLAK KURAL: LDAP sync mevcut kullanıcıların yetkilerini DEĞİŞTİRMEZ!
+
+**Sorun:** LDAP sync çalıştığında, Admin'in manuel atadığı pozisyon ve rol değerleri **eziliyordu**.
+
+**Çözüm (v4.11):**
+
+| Durum | Sync Davranışı |
+|-------|----------------|
+| **Yeni kullanıcı** | LDAP'tan tam bilgi al (pozisyon, mağaza eşlemeleri) |
+| **Mevcut kullanıcı** | Sadece `name`, `ldap_dn`, `ldap_groups`, `is_active` güncelle |
+
+**KORUNAN ALANLAR (Mevcut kullanıcılarda):**
+- ❌ `position_code` → DEĞİŞTİRİLMEZ
+- ❌ `role` → DEĞİŞTİRİLMEZ
+- ❌ `filter_value` → DEĞİŞTİRİLMEZ
+- ❌ `user_stores` → DEĞİŞTİRİLMEZ (mağaza atamaları)
+
+### LDAP Schedule Desteği
+
+ETL Worker artık LDAP schedule'larını da kontrol ediyor:
+
+| Schedule | Açıklama |
+|----------|----------|
+| `manual` | Sadece UI'dan tetiklenir |
+| `hourly` | Her saat başı |
+| `6h` | Her 6 saatte bir |
+| `daily` | Günlük |
+
+### Kod Değişiklikleri
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `core-service/src/index.ts` | Mevcut kullanıcı güncelleme: Sadece LDAP bilgileri |
+| `core-service/src/index.ts` | `performScheduledLDAPSync()` helper fonksiyonu |
+| `etl-worker/src/index.ts` | `checkLDAPSchedules()` fonksiyonu |
+
+### Test Senaryosu
+
+1. ✅ Admin kullanıcıyı "Direktör" pozisyonuna ata
+2. ✅ LDAP sync çalıştır (manuel veya otomatik)
+3. ✅ Kullanıcı pozisyonu "Direktör" olarak KALIR
+4. ✅ Sadece `name`, `ldap_groups` güncellenir
+
+---
+
 ## 📋 VERSİYON GEÇMİŞİ (Özet - Güncel)
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-07 | **v4.10** | **ETL Worker Çoklu Process Düzeltmesi** |
+| 2026-01-07 | **v4.11** | **LDAP Sync: Mevcut Kullanıcı Yetkileri Korunuyor + Otomatik Schedule** |
+| 2026-01-07 | v4.10 | ETL Worker Çoklu Process Düzeltmesi |
 | 2026-01-07 | v4.9 | Ranking List Multi-Value Columns + Trend Hesaplama |
 | 2026-01-07 | v4.8 | Sıralama Listesi dbColumn Düzeltmesi |
 | 2026-01-07 | v4.7 | JWT Token Süresi 1 Saat & Güncelleme Paketi |
