@@ -6848,3 +6848,431 @@ Admin Panel → Master Veriler → Mağazalar → "Dataset'ten Import" butonu il
 |------|-------|------------|-------|
 | Visitor | 308 | 263 | +17.1% |
 | Revenue | 138.337 | 85.383 | +62.0% |
+
+---
+
+## 📅 v4.5 - 7 Ocak 2026
+
+**Mağaza Filtresi Cache Collision Düzeltmesi**
+
+### Çözülen Sorunlar
+
+1. ✅ **Çoklu mağaza seçiminde yanlış veri dönüyordu** - Cache key collision düzeltildi
+2. ✅ **Base64 substring collision** - MD5 hash ile değiştirildi
+3. ✅ **Frontend useEffect dependency** - useMemo ile storeIdsKey oluşturuldu
+
+### Kök Neden
+
+Cache key oluşturulurken `storeIds` için `Base64.substring(0, 32)` kullanılıyordu:
+
+```javascript
+// ❌ ESKİ KOD - HATALI
+const storeHash = storeIdsParam 
+  ? Buffer.from(storeIdsParam).toString('base64').substring(0, 32) 
+  : 'all';
+```
+
+**Problem:** Farklı storeIds kombinasyonları aynı ilk 32 Base64 karakterine sahip olabiliyordu:
+- 1 mağaza: `MWI0NzEzOGEtNmMwNC00ZDU5LTg4ZDQ...` → ilk 32 karakter
+- 2 mağaza: `MWI0NzEzOGEtNmMwNC00ZDU5LTg4ZDQ...` → AYNI ilk 32 karakter!
+
+### Çözüm
+
+```javascript
+// ✅ YENİ KOD - DOĞRU
+const crypto = require('crypto');
+const storeHash = storeIdsParam 
+  ? crypto.createHash('md5').update(storeIdsParam).digest('hex').substring(0, 16) 
+  : 'all';
+```
+
+MD5 hash benzersiz olduğu için farklı storeIds kombinasyonları farklı cache key üretiyor.
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `services/analytics-service/src/index.ts` | storeHash için MD5 kullanıldı |
+| `frontend/src/pages/DashboardPage.tsx` | useMemo ile storeIdsKey |
+| `frontend/src/stores/dashboardStore.ts` | storeIds gönderme mantığı |
+
+---
+
+## 🔴🔴🔴 CACHE KEY HASH KURALI (KRİTİK!)
+
+### MUTLAK KURAL: Cache key'de string hash için MD5/SHA kullan, Base64 substring KULLANMA!
+
+**Problem:** `Base64.substring(0, N)` ile oluşturulan hash'ler çarpışabilir (collision).
+
+**Örnek Senaryo:**
+```
+storeIds: "uuid1" → Base64: "dXVpZDE=" → ilk 8: "dXVpZDE="
+storeIds: "uuid1,uuid2" → Base64: "dXVpZDEsdXVpZDI=" → ilk 8: "dXVpZDE=" (AYNI!)
+```
+
+### Doğru Yaklaşım
+
+```javascript
+// ✅ DOĞRU - MD5 hash kullan
+const crypto = require('crypto');
+const hash = crypto.createHash('md5').update(value).digest('hex').substring(0, 16);
+
+// ❌ YANLIŞ - Base64 substring kullanma
+const hash = Buffer.from(value).toString('base64').substring(0, 32);
+```
+
+### Cache Key Best Practices
+
+1. **Tarih parametreleri açıkça ekle:** `${startDate}_${endDate}`
+2. **storeIds için MD5 hash:** `crypto.createHash('md5').update(storeIds).digest('hex').substring(0, 16)`
+3. **Kullanıcı/Tenant ID açıkça ekle:** `${userId}:${tenantId}`
+4. **RLS bilgisi ekle:** `${filterLevel}:${filterValue}`
+
+### Örnek Cache Key Formatı
+
+```
+metric:{metricId}:{tenantId}:{filterLevel}:{filterValue}:{startDate}_{endDate}:{storeHash}:{otherParamsHash}
+```
+
+---
+
+## 🔴 MAĞAZA FİLTRESİ MİMARİSİ (KRİTİK!)
+
+### Frontend → Backend → ClickHouse Akışı
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ FRONTEND                                                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│ 1. Kullanıcı mağaza seçer (Multiselect dropdown)                        │
+│ 2. selectedStoreIds: ['uuid1', 'uuid2', 'uuid3']                        │
+│ 3. Tüm mağazalar seçiliyse → storeIds GÖNDERİLMEZ (performans için)     │
+│ 4. Bazı mağazalar seçiliyse → storeIds: "uuid1,uuid2,uuid3" gönderilir  │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ BACKEND (analytics-service)                                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│ 1. storeIds parametresi alınır                                          │
+│ 2. UUID'ler split edilir: ['uuid1', 'uuid2', 'uuid3']                   │
+│ 3. PostgreSQL'den stores.code değerleri çekilir:                        │
+│    SELECT code FROM stores WHERE id = ANY($1::uuid[])                   │
+│    → ['293', '225', '171']                                              │
+│ 4. WHERE koşulu oluşturulur: BranchID IN (293, 225, 171)               │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ CLICKHOUSE                                                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│ SELECT SUM(Revenue), SUM(Visitor) FROM dataset                          │
+│ WHERE toDate(ReportDay) BETWEEN '2026-01-01' AND '2026-01-07'          │
+│ AND BranchID IN (293, 225, 171)                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Frontend Kuralları
+
+```typescript
+// dashboardStore.ts veya AnalysisPage.tsx
+
+// 1. Tüm mağazalar seçiliyse storeIds gönderme (performans için)
+const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length;
+
+if (selectedStoreIds.length > 0 && !allStoresSelected) {
+  requestBody.storeIds = selectedStoreIds.join(',');
+}
+
+// 2. useEffect dependency için useMemo kullan
+const storeIdsKey = useMemo(() => 
+  [...selectedStoreIds].sort().join(','), 
+  [selectedStoreIds]
+);
+
+// 3. useEffect'te storeIdsKey kullan
+useEffect(() => {
+  fetchDashboardData(designId);
+}, [startDate, endDate, storeIdsKey, ...]);
+```
+
+### Backend Kuralları
+
+```typescript
+// analytics-service/src/index.ts - executeMetric fonksiyonu
+
+// 1. storeIds varsa işle
+const storeIds = parameters.storeIds as string;
+if (storeIds && metric.dataset_id) {
+  // 2. Dataset'in store_column'unu al
+  const datasetResult = await db.query(
+    'SELECT store_column FROM datasets WHERE id = $1',
+    [metric.dataset_id]
+  );
+  
+  if (datasetResult.rows[0]?.store_column) {
+    const storeColumn = datasetResult.rows[0].store_column;
+    
+    // 3. UUID'leri split et
+    const storeUUIDs = storeIds.split(',').map(s => s.trim());
+    
+    // 4. PostgreSQL'den code'ları al
+    const storeCodesResult = await db.query(
+      `SELECT code FROM stores WHERE id = ANY($1::uuid[])`,
+      [storeUUIDs]
+    );
+    
+    // 5. WHERE koşulu oluştur
+    if (storeCodesResult.rows.length > 0) {
+      const storeCodes = storeCodesResult.rows.map(r => r.code);
+      const storeCodeList = storeCodes.join(',');
+      whereConditions.push(`${storeColumn} IN (${storeCodeList})`);
+    }
+  }
+}
+```
+
+---
+
+## 🔴 LFL (Like-for-Like) MİMARİSİ (KRİTİK!)
+
+### LFL Nedir?
+
+LFL (Like-for-Like veya Karşılaştırılabilir Mağaza Satışları): Sadece her iki dönemde de satış yapan mağazaları karşılaştırır. Yeni açılan veya kapanan mağazalar hariç tutulur.
+
+### LFL Hesaplama Akışı
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 1. LFL TAKVİM DATASETI GEREKLİ                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Tablo: lfl_calendar (ClickHouse)                                        │
+│ Kolonlar:                                                                │
+│   - this_year: Date (Bu yıl tarihi, örn: 2026-01-06)                   │
+│   - last_year: Date (Geçen yıl karşılığı, örn: 2025-01-06)             │
+│                                                                          │
+│ Eşleşme mantığı:                                                        │
+│   - Aynı haftanın aynı günü (Pazartesi-Pazartesi, vb.)                 │
+│   - VEYA müşteri özel takvimi                                           │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 2. LFL MAĞAZA LİSTESİ HESAPLANIR                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│ -- Her iki dönemde de satış yapan mağazalar                             │
+│ SELECT DISTINCT s.BranchID                                               │
+│ FROM sales s                                                             │
+│ JOIN lfl_calendar c ON toDate(s.ReportDay) = c.this_year               │
+│ WHERE c.this_year BETWEEN startDate AND endDate                         │
+│   AND s.BranchID IN (                                                    │
+│     SELECT BranchID FROM sales                                           │
+│     WHERE toDate(ReportDay) BETWEEN lastYearStart AND lastYearEnd      │
+│   )                                                                      │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 3. KARŞILAŞTIRMA YAPILIR                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Bu Yıl:                                                                  │
+│   SUM(Revenue) WHERE BranchID IN (lfl_stores) AND date IN (this_year)  │
+│                                                                          │
+│ Geçen Yıl:                                                              │
+│   SUM(Revenue) WHERE BranchID IN (lfl_stores) AND date IN (last_year)  │
+│                                                                          │
+│ Trend: ((Bu Yıl - Geçen Yıl) / Geçen Yıl) * 100                        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Metrik Ayarları (UI)
+
+```
+Metrik Oluştur:
+├─ Karşılaştırma: ✅ Aktif
+├─ Karşılaştırma Tipi: LFL
+├─ Tarih Kolonu: ReportDay
+├─ LFL Takvim Dataset: lfl_calendar
+├─ Bu Yıl Kolonu: this_year
+└─ Geçen Yıl Kolonu: last_year
+```
+
+### LFL + Mağaza Filtresi
+
+Mağaza filtresi seçildiğinde LFL hesaplaması da filtrelenir:
+
+```sql
+-- Örn: 2 mağaza seçildiğinde (BranchID: 293, 225)
+-- LFL sadece bu 2 mağaza için hesaplanır
+
+-- Bu yıl
+SUM(Revenue) WHERE BranchID IN (293, 225) AND date IN (this_year)
+
+-- Geçen yıl  
+SUM(Revenue) WHERE BranchID IN (293, 225) AND date IN (last_year)
+```
+
+---
+
+## 🔴 DASHBOARD AÇILIŞ VERİ GÖRÜNÜMÜ (KRİTİK!)
+
+### Kullanıcı Rolüne Göre Veri Görünümü
+
+| Pozisyon | filter_level | Açılışta Görünen Veri |
+|----------|--------------|------------------------|
+| GENERAL_MANAGER | none | TÜM mağazaların verisi |
+| DIRECTOR | group | Sahiplik grubundaki mağazalar (MERKEZ/FRANCHISE) |
+| REGIONAL_MANAGER | region | Bölgedeki mağazalar |
+| STORE_MANAGER | store | Sadece kendi mağazası |
+| ANALYST | none | TÜM mağazaların verisi |
+| VIEWER | varies | Atanan filtreye göre |
+
+### RLS (Row-Level Security) Akışı
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 1. KULLANICI GİRİŞ YAPAR                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│ JWT Token içeriği:                                                       │
+│ {                                                                        │
+│   userId: "uuid",                                                        │
+│   tenantId: "uuid",                                                      │
+│   role: "ADMIN",                                                         │
+│   filterLevel: "none",    // positions.filter_level                     │
+│   filterValue: null       // users.filter_value                         │
+│ }                                                                        │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 2. DASHBOARD AÇILIR                                                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│ filterLevel = 'none' → Filtre uygulanmaz, TÜM veri görünür             │
+│ filterLevel = 'store' → WHERE store_column = filterValue               │
+│ filterLevel = 'region' → WHERE region_column = filterValue             │
+│ filterLevel = 'group' → WHERE group_column = filterValue               │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Pozisyon Ayarları (Admin Panel)
+
+```
+Admin Panel → Pozisyonlar → Düzenle:
+├─ Pozisyon Adı: Mağaza Müdürü
+├─ filter_level: store
+└─ Açıklama: Sadece atandığı mağazayı görür
+
+Admin Panel → Kullanıcılar → Düzenle:
+├─ Pozisyon: Mağaza Müdürü (filter_level: store)
+└─ RLS Filtre Değeri: 293 (stores.code = BranchID)
+```
+
+### ⚠️ KRİTİK: filterLevel Varsayılanı
+
+```javascript
+// analytics-service'de
+filterLevel: (req.user as any).filterLevel || 'none'  // ✅ DOĞRU
+
+// ASLA 'store' varsayılan yapma!
+filterLevel: (req.user as any).filterLevel || 'store'  // ❌ YANLIŞ
+// Bu durumda admin bile veri göremez!
+```
+
+---
+
+## 🔴 MAĞAZA ATAMA YAPISI (KRİTİK!)
+
+### Tablolar
+
+```sql
+-- 1. stores: Mağaza listesi
+CREATE TABLE stores (
+  id UUID PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  code VARCHAR(50) NOT NULL,        -- ClickHouse BranchID ile eşleşmeli!
+  name VARCHAR(200) NOT NULL,
+  store_type VARCHAR(50),           -- MAGAZA, DEPO, FABRIKA
+  ownership_group VARCHAR(50),      -- MERKEZ, FRANCHISE
+  region_id UUID,                   -- Bölge referansı
+  city VARCHAR(100),
+  ...
+);
+
+-- 2. regions: Bölge listesi
+CREATE TABLE regions (
+  id UUID PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  code VARCHAR(50) NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  ...
+);
+
+-- 3. positions: Pozisyon tanımları
+CREATE TABLE positions (
+  id UUID PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  filter_level VARCHAR(20) DEFAULT 'none',  -- none, group, region, store
+  ...
+);
+
+-- 4. users: Kullanıcılar
+CREATE TABLE users (
+  id UUID PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  position_id UUID REFERENCES positions(id),
+  filter_value VARCHAR(100),  -- stores.code veya regions.code
+  ...
+);
+```
+
+### Veri Eşleşme Kuralları
+
+| Clixer | Müşteri DB | Örnek |
+|--------|------------|-------|
+| stores.code | BranchID | '293' = 293 |
+| regions.code | Region | 'MARMARA' |
+| ownership_group | BranchType | 'MERKEZ' / 'FRANCHISE' |
+
+### Müşteri Kurulumunda Yapılacaklar
+
+1. **Mağaza Import:**
+   - Müşteri DB'den mağaza listesi çekilir
+   - stores.code = Müşteri BranchID (ZORUNLU!)
+   - Admin Panel → Master Veriler → Mağazalar → Dataset'ten Import
+
+2. **Bölge Import:**
+   - Müşteri DB'den bölge listesi çekilir
+   - regions.code = Müşteri Region kodu
+
+3. **Pozisyon Ayarları:**
+   - Her pozisyon için filter_level belirlenir
+   - GENERAL_MANAGER → none
+   - REGIONAL_MANAGER → region
+   - STORE_MANAGER → store
+
+4. **Kullanıcı Atamaları:**
+   - Her kullanıcıya pozisyon atanır
+   - filter_value ile mağaza/bölge atanır
+
+### Test Kontrol Listesi
+
+- [ ] stores.code değerleri ClickHouse BranchID ile eşleşiyor mu?
+- [ ] Pozisyonlarda filter_level doğru ayarlı mı?
+- [ ] Mağaza müdürü sadece kendi mağazasını görüyor mu?
+- [ ] Genel müdür tüm mağazaları görüyor mu?
+- [ ] LFL hesaplaması mağaza filtresine tepki veriyor mu?
+
+---
+
+## 📋 VERSİYON GEÇMİŞİ (Özet - Güncel)
+
+| Tarih | Versiyon | Açıklama |
+|-------|----------|----------|
+| 2026-01-07 | **v4.5** | **Mağaza Filtresi Cache Collision Düzeltmesi - MD5 Hash** |
+| 2026-01-07 | v4.4 | Mağaza Filtresi LFL Entegrasyonu |
+| 2026-01-07 | v4.3 | Cache Key Tarih Parametresi Düzeltmesi |
+| 2026-01-07 | v4.2 | ETL ORDER BY Tarih Kolonu Düzeltmesi |
+| 2026-01-07 | v4.1 | HTTPS/SSL Production Kurulumu |
+| 2026-01-06 | v4.0 | Müşteri Kurulum Düzeltmeleri |
