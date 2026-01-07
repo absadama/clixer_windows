@@ -203,6 +203,146 @@ const formatDate = (date: Date) => {
 
 ---
 
+## 📅 7 Ocak 2026 - LFL (Like-for-Like) Karşılaştırma Sistemi Düzeltmesi
+
+### Belirti
+- Dashboard'da kartlardaki LFL trend değerleri tarih seçimine göre değişmiyor
+- Ana değer (Visitor, Revenue) değişiyor ama alttaki "LFL %" sabit kalıyor
+- Kullanıcı: "LFL değerleri doğru hesaplanıyor mu? Kartta değer değişiyor ama LFL sabit."
+
+### Teşhis Süreci
+
+1. **İlk kontrol:** LFL hesaplama fonksiyonu (`calculateLFL`) incelendi
+2. **Tespit 1:** Fonksiyon her zaman YTD (Year-to-Date) tarihleri kullanıyordu, FilterBar'dan gelen tarihleri KULLANMIYORDU
+3. **Tespit 2:** LFL Takvim dataset'i (UI'dan ayarlanan) backend'e ulaşıyordu ama kullanılmıyordu
+4. **Tespit 3:** Mağaza bazlı LFL hesaplaması yapılmıyordu - sadece gün bazlı
+
+### Kök Neden
+
+**3 ayrı sorun vardı:**
+
+1. **YTD Tarihleri:** `calculateLFL` fonksiyonu sabit YTD tarihleri oluşturuyordu:
+   ```javascript
+   const thisYearStart = `${currentYear}-01-01`;
+   const lastYearStart = `${currentYear - 1}-01-01`;
+   ```
+   FilterBar'dan gelen `startDate` ve `endDate` parametreleri **yok sayılıyordu**.
+
+2. **LFL Takvim Kullanılmıyordu:** `lflCalendarConfig` parametresi fonksiyona geçmiyordu.
+
+3. **Mağaza Bazlı Değildi:** Her mağazanın o gün açık olup olmadığına bakılmıyordu. Eğer 1 mağaza bile o gün açıksa, tüm mağazaların verisi dahil ediliyordu.
+
+### Çözüm
+
+**1. `calculateLFL` Fonksiyon İmzası Güncellendi:**
+```typescript
+async function calculateLFL(
+  tableName: string,
+  dateColumn: string,
+  valueColumn: string,
+  aggFunc: string,
+  rlsCondition: string,
+  filterCondition: string,
+  startDate?: string,        // YENİ: FilterBar başlangıç
+  endDate?: string,          // YENİ: FilterBar bitiş
+  lflCalendarConfig?: {      // YENİ: LFL Takvim ayarları
+    datasetId: string;
+    thisYearColumn: string;
+    lastYearColumn: string;
+    clickhouseTable: string;
+  },
+  storeColumn?: string       // YENİ: Mağaza kolonu
+)
+```
+
+**2. LFL Takvim Entegrasyonu:**
+```sql
+-- LFL Takvim varsa, oradan tarih eşleşmeleri al
+WITH lfl_dates AS (
+  SELECT 
+    toDate(this_year) as this_year_date,
+    toDate(last_year) as last_year_date
+  FROM clixer_analytics.excel_lfl_takvim
+  WHERE this_year_date >= '2025-11-01' AND this_year_date <= '2025-11-07'
+)
+```
+
+**3. Mağaza Bazlı LFL (Store-Based):**
+```sql
+-- Her mağaza için ayrı ayrı ortak günleri bul
+common_store_days AS (
+  SELECT 
+    ty.store_id,
+    ty.sale_date as this_year_date,
+    lfl.last_year_date
+  FROM (
+    -- Bu yıl hangi mağaza hangi günlerde satış yaptı?
+    SELECT DISTINCT store_id, toDate(ReportDay) as sale_date
+    FROM sales_table
+    WHERE toDate(ReportDay) >= '2025-11-01' AND toDate(ReportDay) <= '2025-11-07'
+  ) ty
+  INNER JOIN lfl_dates lfl ON ty.sale_date = lfl.this_year_date
+  INNER JOIN (
+    -- Geçen yıl hangi mağaza hangi günlerde satış yaptı?
+    SELECT DISTINCT store_id, toDate(ReportDay) as sale_date
+    FROM sales_table
+    WHERE toDate(ReportDay) IN (SELECT last_year_date FROM lfl_dates)
+  ) ly ON ty.store_id = ly.store_id AND lfl.last_year_date = ly.sale_date
+)
+```
+
+### Beklenen Davranış
+
+| Mağaza | Bu Yıl (1-7 Kasım) | Geçen Yıl (LFL) | Karşılaştırma |
+|--------|---------------------|-----------------|---------------|
+| Mağaza A | 1,2,3,4,5 gün açık | 1,2,3 gün açık | 3 mağaza-gün |
+| Mağaza B | 1,2,3 gün açık | 1,2,3,4,5 gün açık | 3 mağaza-gün |
+| Mağaza C | 1,2 gün açık | 6,7 gün açık | 0 (karşılaştırılamaz) |
+| **TOPLAM** | | | **6 mağaza-gün** |
+
+Sonuç: Sadece her iki dönemde de o mağazanın açık olduğu günler karşılaştırılır.
+
+### Uygulanan Değişiklikler
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `services/analytics-service/src/index.ts` | `calculateLFL` fonksiyonu tamamen yeniden yazıldı |
+| `services/analytics-service/src/index.ts` | Çağrı noktasında `lflStartDate`, `lflEndDate`, `lflCalendarConfig`, `storeColumn` parametreleri eklendi |
+| `frontend/src/pages/MetricsPage.tsx` | LFL Takvim UI alanları eklendi (önceki commit'te) |
+
+### Deployment Adımları
+
+```bash
+# 1. Kod çek
+cd /opt/clixer
+sudo git pull origin master
+
+# 2. Analytics service yeniden başlat
+sudo pkill -f "analytics-service"
+cd /opt/clixer/services/analytics-service
+sudo nohup npm run dev > /opt/clixer/logs/analytics-out.log 2>&1 &
+
+# 3. Redis cache temizle (çok önemli!)
+sudo docker exec clixer_redis redis-cli FLUSHALL
+
+# 4. Test - farklı tarihlerle LFL değerlerinin değiştiğini kontrol et
+```
+
+### Test Kontrol Listesi
+
+- [ ] Tarih değiştiğinde ana değer (Visitor, Revenue) değişiyor mu?
+- [ ] Tarih değiştiğinde LFL trend (%) değişiyor mu?
+- [ ] LFL label'da "X mağaza-gün" yazıyor mu? (store_column varsa)
+- [ ] LFL Takvim seçili değilse dayOfYear ile fallback çalışıyor mu?
+
+### Öğrenilen Dersler
+
+1. **LFL hesaplaması mağaza bazlı olmalı** - Her mağazanın açık olduğu günler ayrı değerlendirilmeli
+2. **FilterBar tarihleri backend'e kadar ulaşmalı** - Fonksiyon parametrelerine açıkça ekle
+3. **LFL Takvim dataset'i kritik** - Farklı yılların hangi günlerinin karşılaştırılacağını belirler
+
+---
+
 ## 🔧 Genel Sorun Giderme Komutları
 
 ### Servis Durumu
