@@ -141,10 +141,15 @@ export default function DashboardPage() {
   }, [fetchDesigns, accessToken])
 
   // Filtreler değiştiğinde verileri yeniden yükle (tarih, bölge, mağaza, tip)
+  // Debounce ile çoklu mağaza seçiminde gereksiz istekleri önle
   useEffect(() => {
     if (currentDesign && accessToken) {
-      console.log('[DashboardPage] Filters changed, refetching...', { startDate, endDate })
-      fetchDashboardData(currentDesign.id)
+      const timeoutId = setTimeout(() => {
+        console.log('[DashboardPage] Filters changed, refetching...', { startDate, endDate, storeCount: selectedStoreIds.length })
+        fetchDashboardData(currentDesign.id)
+      }, 300) // 300ms debounce - kullanıcı mağaza seçmeyi bitirene kadar bekle
+      
+      return () => clearTimeout(timeoutId)
     }
   // selectedStoreIds.join(',') kullanarak içerik değişikliklerini yakala
   }, [startDate, endDate, selectedRegionId, selectedStoreIds.join(','), selectedStoreType, currentDesign?.id, fetchDashboardData, accessToken])
