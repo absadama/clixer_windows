@@ -192,7 +192,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
           sparklineData: w.sparklineData
         }))
         console.log('[STORE_DEBUG] Setting widgets:', widgetsWithData.length, 'widgets, first widget value:', widgetsWithData[0]?.data?.value)
-        set({ widgets: widgetsWithData })
         
         // Also extract metricsData by widget id
         const metricsData: Record<string, MetricData> = {}
@@ -204,13 +203,20 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
             metricsData[w.id] = w.data
           }
         })
-        set({ metricsData })
+        
+        // TÜM state güncellemelerini TEK set() ile yap - React re-render için kritik!
+        set({ 
+          widgets: widgetsWithData,
+          metricsData,
+          isLoading: false,
+          lastUpdated: new Date()
+        })
+      } else {
+        set({
+          isLoading: false,
+          lastUpdated: new Date(),
+        })
       }
-      
-      set({
-        isLoading: false,
-        lastUpdated: new Date(),
-      })
     } catch (error: any) {
       console.warn('Dashboard veri yükleme hatası:', error.message)
       // Don't fail completely, just log and continue
