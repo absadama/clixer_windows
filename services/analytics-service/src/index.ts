@@ -99,6 +99,8 @@ async function calculateLFL(
   previousValue: number;
   trend: number;
   commonDays: number;
+  uniqueStores?: number;  // Benzersiz mağaza sayısı (mağaza bazlı LFL için)
+  isStoreBased: boolean;  // Mağaza bazlı mı gün bazlı mı?
 } | null> {
   
   // Tarih aralığını belirle
@@ -160,7 +162,8 @@ async function calculateLFL(
         SELECT 
           sum(this_year_value) as current_value,
           sum(last_year_value) as previous_value,
-          count() as common_days_count
+          count() as common_days_count,
+          uniq(store_id) as unique_stores
         FROM (
           SELECT 
             ty.store_id,
@@ -264,6 +267,7 @@ async function calculateLFL(
         current_value: number;
         previous_value: number;
         common_days_count: number;
+        unique_stores?: number;
       }>(lflSql);
       
       if (result.length === 0 || result[0].common_days_count === 0) {
@@ -271,7 +275,7 @@ async function calculateLFL(
         return null;
       }
       
-      const { current_value, previous_value, common_days_count } = result[0];
+      const { current_value, previous_value, common_days_count, unique_stores } = result[0];
       const currentVal = Number(current_value) || 0;
       const previousVal = Number(previous_value) || 0;
       
@@ -286,6 +290,7 @@ async function calculateLFL(
         currentVal, previousVal, 
         trend: trend.toFixed(2), 
         commonDays: common_days_count,
+        uniqueStores: unique_stores || 0,
         storeBasedLFL: !!storeCol
       });
       
@@ -293,7 +298,9 @@ async function calculateLFL(
         currentValue: currentVal,
         previousValue: previousVal,
         trend,
-        commonDays: Number(common_days_count)
+        commonDays: Number(common_days_count),
+        uniqueStores: storeCol ? (Number(unique_stores) || 0) : undefined,
+        isStoreBased: !!storeCol
       };
     } catch (error) {
       logger.error('LFL calendar query failed', { error, lflSql: lflSql.substring(0, 500) });
@@ -450,7 +457,9 @@ async function calculateLFL(
     currentValue: currentVal,
     previousValue: previousVal,
     trend,
-    commonDays: Number(common_days_count)
+    commonDays: Number(common_days_count),
+    uniqueStores: undefined,  // Fallback'te mağaza sayısı hesaplanmıyor
+    isStoreBased: !!storeColumn
   };
 }
 
@@ -1758,15 +1767,23 @@ async function executeMetric(
             current: lflResult.commonDays,
             previous: lflResult.commonDays
           };
-          comparisonLabel = lflStoreColumn 
-            ? `LFL (${lflResult.commonDays} mağaza-gün)` 
-            : `LFL (${lflResult.commonDays} gün)`;
+          
+          // Label oluştur: Mağaza bazlı ise "X mağaza · Y gün", değilse "Y gün"
+          if (lflResult.isStoreBased && lflResult.uniqueStores) {
+            comparisonLabel = `LFL (${lflResult.uniqueStores} mağaza · ${lflResult.commonDays} mağaza-gün)`;
+          } else if (lflResult.isStoreBased) {
+            comparisonLabel = `LFL (${lflResult.commonDays} mağaza-gün)`;
+          } else {
+            comparisonLabel = `LFL (${lflResult.commonDays} gün)`;
+          }
           
           logger.debug('LFL comparison calculated', {
             metricId,
             currentLFL: lflResult.currentValue,
             previousLFL: lflResult.previousValue,
             commonDays: lflResult.commonDays,
+            uniqueStores: lflResult.uniqueStores,
+            isStoreBased: lflResult.isStoreBased,
             trend: trend?.toFixed(2),
             usedCalendar: !!lflCalendarConfig,
             storeBasedLFL: !!lflStoreColumn,
