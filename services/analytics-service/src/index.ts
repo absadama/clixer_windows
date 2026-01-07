@@ -1570,10 +1570,18 @@ async function executeMetric(
         // Frontend'den gelen UUID listesini stores.code değerlerine çevir
         // Çünkü ClickHouse'daki BranchID Integer, frontend UUID gönderiyor
         const storeUUIDs = storeIds.split(',').map(s => s.trim());
+        
+        // DEBUG: storeIds parse kontrolu
+        console.log('[DEBUG] storeIds raw:', storeIds);
+        console.log('[DEBUG] storeUUIDs parsed:', storeUUIDs, 'count:', storeUUIDs.length);
+        
         const storeCodesResult = await db.query(
           `SELECT code FROM stores WHERE id = ANY($1::uuid[])`,
           [storeUUIDs]
         );
+        
+        // DEBUG: PostgreSQL sorgu sonucu
+        console.log('[DEBUG] storeCodesResult rows:', storeCodesResult.rows);
         
         if (storeCodesResult.rows.length > 0) {
           // stores.code değerlerini kullan (BranchID'ler)
@@ -1581,6 +1589,11 @@ async function executeMetric(
           // Integer kolon için tırnak olmadan, String kolon için tırnaklı
           // ClickHouse'da BranchID Int32 olduğu için tırnaksız gönder
           const storeCodeList = storeCodes.join(',');
+          
+          // DEBUG: Final WHERE condition
+          console.log('[DEBUG] storeCodes:', storeCodes, 'count:', storeCodes.length);
+          console.log('[DEBUG] WHERE condition:', `${storeColumn} IN (${storeCodeList})`);
+          
           whereConditions.push(`${storeColumn} IN (${storeCodeList})`);
           logger.debug('Store filter applied (UUID to code)', { 
             originalUUIDs: storeUUIDs.length, 
