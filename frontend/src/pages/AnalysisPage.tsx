@@ -301,34 +301,41 @@ export default function AnalysisPage() {
     setLoadingDesign(true)
     try {
       // Tüm filtreleri al (tarih, bölge, mağaza, tip, cross-filter)
-      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType, crossFilters } = useFilterStore.getState()
+      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType, crossFilters, stores } = useFilterStore.getState()
       
-      // Query parametreleri oluştur
-      const params = new URLSearchParams()
+      // Request body oluştur (POST kullanacağız - URL uzunluğu limiti nedeniyle)
+      // storeIds dizisi 400+ eleman içerebilir, URL'de göndermek 8KB limitini aşar
+      const requestBody: Record<string, any> = {}
       
       // "Tüm Zamanlar" seçiliyse allTime=true gönder
       if (datePreset === 'all') {
-        params.append('allTime', 'true')
+        requestBody.allTime = 'true'
       } else {
-        if (startDate) params.append('startDate', startDate)
-        if (endDate) params.append('endDate', endDate)
+        if (startDate) requestBody.startDate = startDate
+        if (endDate) requestBody.endDate = endDate
       }
       
-      if (selectedRegionId) params.append('regionId', selectedRegionId)
-      if (selectedStoreIds.length > 0 && selectedStoreIds.length < 100) {
-        params.append('storeIds', selectedStoreIds.join(','))
+      if (selectedRegionId) requestBody.regionId = selectedRegionId
+      // Mağaza filtresi: Tüm mağazalar seçiliyse filtre GÖNDERİLMEZ ("tüm mağazalar" demektir)
+      const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+      if (selectedStoreIds.length > 0 && !allStoresSelected) {
+        requestBody.storeIds = selectedStoreIds.join(',')
       }
-      if (selectedStoreType !== 'ALL') params.append('storeType', selectedStoreType)
+      if (selectedStoreType !== 'ALL') requestBody.storeType = selectedStoreType
       
       // Cross-Filter parametreleri
       if (crossFilters.length > 0) {
-        params.append('crossFilters', JSON.stringify(crossFilters))
+        requestBody.crossFilters = JSON.stringify(crossFilters)
       }
       
-      const queryString = params.toString() ? `?${params.toString()}` : ''
-      
-      const res = await fetch(`${API_BASE}/analytics/dashboard/${designId}/full${queryString}`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
+      // POST kullan (URL limit aşımını önlemek için)
+      const res = await fetch(`${API_BASE}/analytics/dashboard/${designId}/full`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
       })
       if (res.ok) {
         const data = await res.json()

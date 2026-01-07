@@ -637,6 +637,197 @@ feat: Dataset'ten magaza import ozelliği eklendi - Kolon mapping ile ClickHouse
 
 ---
 
+---
+
+## 📅 7 Ocak 2026 - Çok Sayıda Mağaza Seçildiğinde URL Çok Uzun Hatası
+
+### Belirti
+- 428 mağaza seçildiğinde dashboard yüklenmiyor
+- Console'da `ERR_CONNECTION_CLOSED` hatası
+- Nginx/Gateway bağlantı koparıyor
+- Tek veya birkaç mağaza seçildiğinde sorun yok
+
+### Teşhis Süreci
+
+1. **İlk kontrol:** Console'da network hatası görüldü
+2. **URL uzunluğu kontrolü:** 428 UUID (~15KB) URL'e ekleniyor
+3. **URL limiti:** Nginx ve tarayıcılar ~8KB URL limitine sahip
+4. **Sonuç:** GET isteği URL'de parametre taşıyamayacak kadar uzun
+
+### Kök Neden
+
+`dashboardStore.ts` ve `AnalysisPage.tsx` dosyalarında:
+
+```javascript
+// HATALI KOD
+const params = new URLSearchParams()
+if (selectedStoreIds.length > 0) {
+  params.append('storeIds', selectedStoreIds.join(','))  // 428 UUID = ~15KB
+}
+const queryString = params.toString()
+const response = await api.get(`/analytics/dashboard/${designId}/full?${queryString}`)
+```
+
+**URL örneği:**
+```
+/analytics/dashboard/xxx/full?storeIds=uuid1,uuid2,uuid3,...,uuid428
+```
+
+Bu URL ~15KB uzunluğunda ve HTTP GET limiti aşılıyor.
+
+### Çözüm
+
+**GET yerine POST kullan:**
+
+1. **Backend'de hem GET hem POST desteği ekle:**
+   ```typescript
+   // services/analytics-service/src/index.ts
+   
+   // Ortak handler fonksiyonu
+   async function handleDashboardFull(req: Request, res: Response, next: NextFunction) {
+     const parameters = req.method === 'POST' 
+       ? { ...req.query, ...req.body }  // POST body + query params
+       : req.query as Record<string, any>;  // GET query params
+     // ... aynı mantık
+   }
+   
+   // Her iki metodu da destekle
+   app.get('/dashboard/:designId/full', authenticate, tenantIsolation, handleDashboardFull);
+   app.post('/dashboard/:designId/full', authenticate, tenantIsolation, handleDashboardFull);
+   ```
+
+2. **Frontend'de POST kullan:**
+   ```typescript
+   // frontend/src/stores/dashboardStore.ts
+   const requestBody: Record<string, any> = {}
+   if (selectedStoreIds.length > 0) {
+     requestBody.storeIds = selectedStoreIds.join(',')
+   }
+   const response = await api.post(`/analytics/dashboard/${designId}/full`, requestBody)
+   
+   // frontend/src/pages/AnalysisPage.tsx
+   const res = await fetch(`${API_BASE}/analytics/dashboard/${designId}/full`, {
+     method: 'POST',
+     headers: { 
+       'Authorization': `Bearer ${accessToken}`,
+       'Content-Type': 'application/json'
+     },
+     body: JSON.stringify(requestBody)
+   })
+   ```
+
+### Uygulanan Değişiklikler
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `services/analytics-service/src/index.ts` | `handleDashboardFull` ortak handler oluşturuldu, GET + POST desteği |
+| `frontend/src/stores/dashboardStore.ts` | `api.get` → `api.post` + requestBody |
+| `frontend/src/pages/AnalysisPage.tsx` | `fetch GET` → `fetch POST` + requestBody |
+
+### Deployment Adımları
+
+```bash
+# 1. Kod çek
+cd /opt/clixer
+sudo git pull origin master
+
+# 2. Analytics service yeniden başlat
+sudo pkill -f "analytics-service"
+cd /opt/clixer/services/analytics-service
+sudo nohup npm run dev > /opt/clixer/logs/analytics-out.log 2>&1 &
+
+# 3. Frontend yeniden build (production için)
+cd /opt/clixer/frontend
+sudo npm run build
+
+# 4. Test - 428 mağaza seçili durumda dashboard yüklenmeli
+```
+
+### Öğrenilen Dersler
+
+1. **Çok sayıda parametre = POST kullan** - URL limitleri GET için ~8KB
+2. **Backend geriye uyumlu kalmalı** - Hem GET hem POST destekle
+3. **Body'de gönder, URL'de değil** - storeIds, crossFilters gibi büyük veriler
+
+### Test Kontrol Listesi
+
+- [ ] 1 mağaza seçildiğinde çalışıyor mu?
+- [ ] 10 mağaza seçildiğinde çalışıyor mu?
+- [ ] 100 mağaza seçildiğinde çalışıyor mu?
+- [ ] 428 mağaza seçildiğinde çalışıyor mu? ← KRİTİK
+- [ ] Filtresiz (tüm mağazalar) çalışıyor mu?
+
+---
+
+## 📅 7 Ocak 2026 - Tüm Mağazalar Seçili Durumda Filtre Gönderilmemeli
+
+### Belirti
+- Sayfa açılışında tüm mağazalar seçili geliyor
+- Tarih değiştirildiğinde cirolar değişmiyor
+- Tek mağaza seçildiğinde düzgün çalışıyor
+- Mağaza eklendiğinde (2+ mağaza) tekrar bozuluyor
+
+### Kök Neden
+
+`filterStore.ts` satır 198-199:
+```javascript
+// Varsayılan: tüm mağazalar seçili
+selectedStoreIds: stores.map((s: Store) => s.id)
+```
+
+Sayfa açıldığında 428 mağaza ID'si `selectedStoreIds` array'inde. Sonra bu 428 UUID backend'e gönderiliyor ve cache key çok uzun oluyor, cache çalışmıyor.
+
+### Çözüm
+
+**"Tüm mağazalar seçiliyse storeIds gönderme"** kuralı eklendi:
+
+```javascript
+// dashboardStore.ts ve AnalysisPage.tsx
+const { stores, selectedStoreIds } = useFilterStore.getState()
+
+// Tüm mağazalar seçiliyse = filtre yok
+const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+
+if (selectedStoreIds.length > 0 && !allStoresSelected) {
+  requestBody.storeIds = selectedStoreIds.join(',')
+}
+```
+
+### Mantık
+
+| Durum | storeIds Gönderilir mi? | Backend Davranışı |
+|-------|------------------------|-------------------|
+| Hiçbir mağaza seçili değil | ❌ | Tüm mağazalar (RLS'e göre) |
+| Tüm mağazalar seçili (428/428) | ❌ | Tüm mağazalar (RLS'e göre) |
+| Kısmi seçim (10/428) | ✅ | Sadece seçili mağazalar |
+
+### Uygulanan Değişiklikler
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `frontend/src/stores/dashboardStore.ts` | `allStoresSelected` kontrolü eklendi |
+| `frontend/src/pages/AnalysisPage.tsx` | `allStoresSelected` kontrolü eklendi |
+
+### Deployment Adımları
+
+```bash
+# 1. Kod çek
+cd /opt/clixer
+sudo git pull origin master
+
+# 2. Frontend build
+cd /opt/clixer/frontend
+sudo npm run build
+
+# 3. Test
+# - Sayfa aç (tüm mağazalar seçili)
+# - Tarih değiştir → cirolar değişmeli
+# - 1 mağaza seç → o mağazanın verisi
+# - 2. mağaza ekle → 2 mağazanın toplamı
+```
+
+---
+
 ## 📞 İletişim
 
 Sorun devam ederse:

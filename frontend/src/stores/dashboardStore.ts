@@ -121,30 +121,31 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     set({ isLoading: true })
     try {
       // Tüm filtreleri al (tarih, bölge, mağaza, tip)
-      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType } = useFilterStore.getState()
+      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType, stores } = useFilterStore.getState()
       
-      // Query parametreleri oluştur
-      const params = new URLSearchParams()
+      // Request body oluştur (POST kullanacağız - URL uzunluğu limiti nedeniyle)
+      // storeIds dizisi 400+ eleman içerebilir, URL'de göndermek 8KB limitini aşar
+      const requestBody: Record<string, any> = {}
       
       // "Tüm Zamanlar" seçiliyse allTime=true gönder
       if (datePreset === 'all') {
-        params.append('allTime', 'true')
+        requestBody.allTime = 'true'
       } else {
-        if (startDate) params.append('startDate', startDate)
-        if (endDate) params.append('endDate', endDate)
+        if (startDate) requestBody.startDate = startDate
+        if (endDate) requestBody.endDate = endDate
       }
       
-      if (selectedRegionId) params.append('regionId', selectedRegionId)
-      // Mağaza filtresi: Tüm mağazalar seçili değilse (stores.length ile karşılaştır)
-      // veya belirli mağazalar seçiliyse gönder
-      if (selectedStoreIds.length > 0) {
-        params.append('storeIds', selectedStoreIds.join(','))
+      if (selectedRegionId) requestBody.regionId = selectedRegionId
+      // Mağaza filtresi: Tüm mağazalar seçiliyse (stores.length === selectedStoreIds.length) filtre GÖNDERİLMEZ
+      // Bu "tüm mağazalar" demektir ve backend'de RLS dışında ek filtre uygulanmaz
+      const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+      if (selectedStoreIds.length > 0 && !allStoresSelected) {
+        requestBody.storeIds = selectedStoreIds.join(',')
       }
-      if (selectedStoreType !== 'ALL') params.append('storeType', selectedStoreType)
+      if (selectedStoreType !== 'ALL') requestBody.storeType = selectedStoreType
       
-      const queryString = params.toString() ? `?${params.toString()}` : ''
-      
-      const response = await api.get(`/analytics/dashboard/${designId}/full${queryString}`)
+      // POST kullan (URL limit aşımını önlemek için)
+      const response = await api.post(`/analytics/dashboard/${designId}/full`, requestBody)
       const data = response.data.data || {}
       
       // Update widgets if provided - transform backend format

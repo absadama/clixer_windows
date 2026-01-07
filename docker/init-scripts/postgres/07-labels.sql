@@ -39,3 +39,4 @@ INSERT INTO labels (tenant_id, label_type, label_key, label_value) VALUES
 ('00000000-0000-0000-0000-000000000001', 'position', 'VIEWER', 'Izleyici')
 ON CONFLICT (tenant_id, label_type, label_key) DO NOTHING;
 
+

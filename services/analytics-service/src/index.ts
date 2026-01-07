@@ -2787,16 +2787,23 @@ app.put('/designs/:designId/permissions', authenticate, tenantIsolation, async (
 
 // ============================================
 // DASHBOARD FULL ENDPOINT (Tek İstek)
+// GET veya POST desteklenir - POST body'de filtre parametreleri gönderilebilir
 // ============================================
 
 /**
- * Dashboard için tüm veriyi tek seferde döndür
- * Widget + Metric değerleri
+ * Dashboard verisini işleyen ortak handler fonksiyonu
+ * GET ve POST endpoint'leri tarafından çağrılır
+ * 
+ * ÖNEMLİ: storeIds gibi uzun parametre listeleri URL'de gönderilemez (URL limit ~8KB)
+ * Bu nedenle POST body kullanmak tercih edilmeli
  */
-app.get('/dashboard/:designId/full', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
+async function handleDashboardFull(req: Request, res: Response, next: NextFunction) {
   try {
     const { designId } = req.params;
-    const parameters = req.query as Record<string, any>;
+    // POST body veya GET query params'dan parametreleri al
+    const parameters = req.method === 'POST' 
+      ? { ...req.query, ...req.body } 
+      : req.query as Record<string, any>;
     
     // Cross-Filter parse
     let crossFilters: Array<{ field: string; value: any }> = [];
@@ -3068,7 +3075,20 @@ app.get('/dashboard/:designId/full', authenticate, tenantIsolation, async (req: 
   } catch (error) {
     next(error);
   }
-});
+}
+
+/**
+ * Dashboard için tüm veriyi tek seferde döndür - GET endpoint
+ * Kısa parametre listeleri için (uyumluluk nedeniyle korunuyor)
+ */
+app.get('/dashboard/:designId/full', authenticate, tenantIsolation, handleDashboardFull);
+
+/**
+ * Dashboard için tüm veriyi tek seferde döndür - POST endpoint
+ * Uzun parametre listeleri için (storeIds gibi 400+ mağaza UUID'si)
+ * URL limiti aşılmasını önler
+ */
+app.post('/dashboard/:designId/full', authenticate, tenantIsolation, handleDashboardFull);
 
 // ============================================
 // CLICKHOUSE TABLE INFO
