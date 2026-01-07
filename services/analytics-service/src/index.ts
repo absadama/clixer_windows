@@ -1542,16 +1542,37 @@ async function executeMetric(
       }
     }
     
-    // Mağaza filtresi (FilterBar'dan gelen storeIds)
+    // Mağaza filtresi (FilterBar'dan gelen storeIds - UUID formatında)
     const storeIds = parameters.storeIds as string;
     if (storeIds && metric.dataset_id) {
       // Dataset'ten store_column'u al
       const datasetResult = await db.query('SELECT store_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.store_column) {
         const storeColumn = datasetResult.rows[0].store_column;
-        const storeIdList = storeIds.split(',').map(s => `'${s.trim()}'`).join(',');
-        whereConditions.push(`${storeColumn} IN (${storeIdList})`);
-        logger.debug('Store filter applied', { storeIds, storeColumn });
+        
+        // Frontend'den gelen UUID listesini stores.code değerlerine çevir
+        // Çünkü ClickHouse'daki BranchID Integer, frontend UUID gönderiyor
+        const storeUUIDs = storeIds.split(',').map(s => s.trim());
+        const storeCodesResult = await db.query(
+          `SELECT code FROM stores WHERE id = ANY($1::uuid[])`,
+          [storeUUIDs]
+        );
+        
+        if (storeCodesResult.rows.length > 0) {
+          // stores.code değerlerini kullan (BranchID'ler)
+          const storeCodes = storeCodesResult.rows.map((r: any) => r.code);
+          // Integer kolon için tırnak olmadan, String kolon için tırnaklı
+          // ClickHouse'da BranchID Int32 olduğu için tırnaksız gönder
+          const storeCodeList = storeCodes.join(',');
+          whereConditions.push(`${storeColumn} IN (${storeCodeList})`);
+          logger.debug('Store filter applied (UUID to code)', { 
+            originalUUIDs: storeUUIDs.length, 
+            resolvedCodes: storeCodes.length,
+            storeColumn 
+          });
+        } else {
+          logger.warn('No store codes found for UUIDs', { storeUUIDs });
+        }
       }
     }
     
