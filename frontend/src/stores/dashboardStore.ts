@@ -191,6 +191,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
           // Sparkline data
           sparklineData: w.sparklineData
         }))
+        console.log('[STORE_DEBUG] Setting widgets:', widgetsWithData.length, 'widgets, first widget value:', widgetsWithData[0]?.data?.value)
         set({ widgets: widgetsWithData })
         
         // Also extract metricsData by widget id
