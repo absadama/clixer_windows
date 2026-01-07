@@ -402,12 +402,6 @@ export default function DataGridDemoPage() {
                 ? { ...col, ...newConfig } 
                 : col
             ))
-            // Demo veri için de güncelle
-            setDemoColumns(prev => prev.map(col => 
-              col.id === columnId 
-                ? { ...col, ...newConfig } 
-                : col
-            ))
           }}
           onRowClick={(row) => {
             // Row clicked
