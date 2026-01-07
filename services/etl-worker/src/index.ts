@@ -2522,18 +2522,30 @@ async function syncByDateDeleteInsert(dataset: any, connection: any, jobId?: str
 
     if (connection.type === 'mssql') {
       // MSSQL için tarih filtreli sorgu
-      const columns = (dataset.column_mapping || []).map((c: any) => c.source).join(', ') || '*';
+      // ⚠️ MSSQL reserved keywords için köşeli parantez ZORUNLU (Check, Order, Group, vb.)
+      const columns = (dataset.column_mapping || []).map((c: any) => {
+        const col = c.source;
+        // Zaten köşeli parantez varsa dokunma
+        if (col.startsWith('[') && col.endsWith(']')) {
+          return col;
+        }
+        // MSSQL reserved keywords - köşeli paranteze al
+        return `[${col}]`;
+      }).join(', ') || '*';
+      
       let dateFilter = '';
       
-      // MSSQL tarih formatı
+      // MSSQL tarih formatı - reference_column da köşeli paranteze al
+      const safeRefColumn = reference_column.startsWith('[') ? reference_column : `[${reference_column}]`;
+      
       if (delete_days === 0) {
-        dateFilter = `WHERE CAST(${reference_column} AS DATE) = CAST(GETDATE() AS DATE)`;
+        dateFilter = `WHERE CAST(${safeRefColumn} AS DATE) = CAST(GETDATE() AS DATE)`;
       } else {
-        dateFilter = `WHERE ${reference_column} >= DATEADD(day, -${delete_days}, CAST(GETDATE() AS DATE))`;
+        dateFilter = `WHERE ${safeRefColumn} >= DATEADD(day, -${delete_days}, CAST(GETDATE() AS DATE))`;
       }
       
       const limit = row_limit || 10000000;
-      const query = `SELECT TOP ${limit} ${columns} FROM ${sourceTableName} ${dateFilter} ORDER BY ${reference_column}`;
+      const query = `SELECT TOP ${limit} ${columns} FROM ${sourceTableName} ${dateFilter} ORDER BY ${safeRefColumn}`;
       
       logger.info('Executing MSSQL date-filtered query', { 
         query: query.substring(0, 300),
