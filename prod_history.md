@@ -470,6 +470,173 @@ sudo docker exec clixer_redis redis-cli ping
 
 ---
 
+## 📅 7 Ocak 2026 - Dataset'ten Mağaza Import Özelliği
+
+### İhtiyaç
+- RLS ve LFL hesaplamaları için `stores.code` değerinin ClickHouse'daki `BranchID` ile eşleşmesi gerekiyor
+- Manuel mağaza girişi yerine, mevcut dataset'ten (ClickHouse) otomatik import gerekli
+- Kullanıcı hangi kolonun ne olduğunu (code, name, store_type vb.) seçebilmeli
+
+### Yapılan Değişiklikler
+
+#### Backend: `services/core-service/src/index.ts`
+
+1. **`/stores/import-from-dataset/preview` endpoint'i eklendi:**
+   - Dataset ID alır, ClickHouse'dan kolonları ve ilk 10 satırı döndürür
+   - Toplam satır sayısını gösterir
+
+2. **`/stores/import-from-dataset` endpoint'i eklendi:**
+   - Dataset ID ve kolon mapping alır
+   - ClickHouse'dan DISTINCT değerleri çeker
+   - PostgreSQL `stores` tablosuna UPSERT yapar (varsa günceller, yoksa ekler)
+   - Region code ile region_id eşleştirmesi yapar
+
+#### Frontend: `frontend/src/pages/AdminPage.tsx`
+
+1. **"Dataset'ten Import" butonu eklendi** (mavi, CSV Import yanında)
+
+2. **Yeni state'ler eklendi:**
+   - `showDatasetImportModal`
+   - `availableDatasets`
+   - `selectedDatasetId`
+   - `datasetColumns`
+   - `datasetPreview`
+   - `datasetImportMapping`
+   - `datasetImportResult`
+
+3. **Modal UI eklendi:**
+   - Adım 1: Dataset seçimi (dropdown)
+   - Adım 2: Kolon eşleştirmesi (6 alan: code, name, store_type, ownership_group, region_code, city)
+   - Adım 3: Önizleme tablosu (ilk 10 satır)
+   - Import sonucu gösterimi
+
+### Kullanım
+
+1. **Yönetim Paneli → Master Veriler → Mağazalar**
+2. **"Dataset'ten Import"** butonuna tıkla
+3. Dataset seç (ör: rprSalesGroupDaily)
+4. Kolon eşleştirmesi yap:
+   | Clixer Alanı | Dataset Kolonu |
+   |--------------|----------------|
+   | Kod (Zorunlu) | BranchID |
+   | Mağaza Adı | BranchName |
+   | Sahiplik Grubu | BranchType |
+   | Şehir | (varsa) |
+5. "Import Et" tıkla
+
+### Sonuç
+
+```
+Dataset (ClickHouse)                  stores (PostgreSQL)
+─────────────────────                 ────────────────────
+BranchID: 1           →               code: "1"
+BranchName: "Kadıköy" →               name: "Kadıköy"
+BranchType: "TDUN"    →               ownership_group: "TDUN"
+```
+
+### Artık Mümkün Olanlar
+
+1. **RLS Çalışır:** `stores.code = BranchID` olduğu için tip uyumsuzluğu YOK
+2. **LFL Mağaza Bazlı Çalışır:** `store_column = 'BranchID'` ayarlandığında mağaza-gün eşleştirmesi yapılabilir
+3. **Yetki Sistemi Çalışır:** Genel Müdür = tüm mağazalar, Bölge Müdürü = kendi bölgesi, Mağaza Müdürü = kendi mağazası
+
+### Commit
+```
+feat: Dataset'ten magaza import ozelliği eklendi - Kolon mapping ile ClickHouse'dan stores tablosuna veri aktarimi
+```
+
+---
+
+## 📅 7 Ocak 2026 - LFL Mağaza Bazlı Hesaplama (uniqueStores)
+
+### İhtiyaç
+- LFL kartlarında "LFL (5 gün)" yerine "LFL (302 mağaza · 1564 mağaza-gün)" gösterilmeli
+- Böylece kaç benzersiz mağazanın karşılaştırıldığı görülebilir
+
+### Yapılan Değişiklikler
+
+#### `services/analytics-service/src/index.ts`
+
+1. **`calculateLFL` return tipine `uniqueStores` eklendi:**
+   ```typescript
+   Promise<{
+     currentValue: number;
+     previousValue: number;
+     trend: number;
+     commonDays: number;
+     uniqueStores?: number; // YENİ
+   } | null>
+   ```
+
+2. **Store-based LFL sorgusuna `uniq(store_id)` eklendi:**
+   ```sql
+   SELECT
+     sum(this_year_value) as current_value,
+     sum(last_year_value) as previous_value,
+     count() as common_days_count,
+     uniq(store_id) as unique_stores  -- YENİ
+   FROM (...)
+   ```
+
+3. **`comparisonLabel` güncellendi:**
+   ```typescript
+   comparisonLabel = lflStoreColumn
+     ? `LFL (${lflResult.uniqueStores} mağaza · ${lflResult.commonDays} mağaza-gün)`
+     : `LFL (${lflResult.commonDays} gün)`;
+   ```
+
+### LFL Akış Özeti
+
+```
+1. store_column = NULL → Gün bazlı LFL → "LFL (5 gün)"
+2. store_column = 'BranchID' → Mağaza-gün bazlı LFL → "LFL (302 mağaza · 1564 mağaza-gün)"
+```
+
+### Gereksinim
+- `stores` tablosunda gerçek mağaza kodları olmalı (BranchID ile eşleşen)
+- Dataset'te `store_column` ayarlanmalı
+
+---
+
+## 🔴 RLS + LFL Entegrasyonu Kontrol Listesi
+
+### Doğru Kurulum Sırası
+
+1. **Dataset'ten Mağaza Import Et:**
+   ```
+   Yönetim Paneli → Master Veriler → Mağazalar → Dataset'ten Import
+   - Kod: BranchID
+   - İsim: BranchName
+   - Grup: BranchType
+   ```
+
+2. **Dataset'te store_column Ayarla:**
+   ```sql
+   UPDATE datasets 
+   SET store_column = 'BranchID' 
+   WHERE clickhouse_table = 'ds_xxx';
+   ```
+
+3. **Pozisyonlara filter_level Ata:**
+   ```sql
+   UPDATE positions SET filter_level = 'none' WHERE code = 'GENERAL_MANAGER';
+   UPDATE positions SET filter_level = 'region' WHERE code = 'REGIONAL_MANAGER';
+   UPDATE positions SET filter_level = 'store' WHERE code = 'STORE_MANAGER';
+   ```
+
+4. **Kullanıcılara filter_value Ata:**
+   ```sql
+   -- Mağaza müdürüne kendi mağazasını ata
+   UPDATE users SET filter_value = '158' WHERE email = 'magaza158@sirket.com';
+   ```
+
+5. **Test Et:**
+   - Admin girişi: Tüm veri görünmeli
+   - Mağaza müdürü girişi: Sadece kendi mağazası görünmeli
+   - LFL kartları: "LFL (X mağaza · Y mağaza-gün)" görünmeli
+
+---
+
 ## 📞 İletişim
 
 Sorun devam ederse:
