@@ -1513,8 +1513,30 @@ async function executeMetric(
 
     // GROUP BY varsa
     if (metric.group_by_column && aggType !== 'LIST') {
-      // Sıralama listesi ve grafikler için group_by_column'u "label" olarak döndür
-      sql = `SELECT toString(${metric.group_by_column}) as label, ${aggFunc} as value FROM ${tableName}`;
+      // chart_config'den gridColumns var mı kontrol et (çoklu değer kolonu için)
+      const chartConfig = typeof metric.chart_config === 'string' 
+        ? JSON.parse(metric.chart_config) 
+        : (metric.chart_config || {});
+      const gridColumns = chartConfig.gridColumns || [];
+      
+      // gridColumns'ta value kolonları varsa (Revenue, Visitor gibi) hepsini ekle
+      const valueColumns = gridColumns
+        .filter((c: any) => {
+          const colName = c.column || c;
+          // Label kolonu (group_by_column) hariç
+          return colName !== metric.group_by_column;
+        })
+        .map((c: any) => c.column || c);
+      
+      if (valueColumns.length > 1) {
+        // Çoklu değer kolonu - her biri için SUM
+        const valueSelects = valueColumns.map((col: string) => `sum(${col}) as ${col}`).join(', ');
+        sql = `SELECT toString(${metric.group_by_column}) as label, ${valueSelects} FROM ${tableName}`;
+        logger.debug('Multi-value ranking list SQL', { valueColumns, sql: sql.substring(0, 200) });
+      } else {
+        // Tek değer kolonu - mevcut davranış
+        sql = `SELECT toString(${metric.group_by_column}) as label, ${aggFunc} as value FROM ${tableName}`;
+      }
     } else if (aggType === 'LIST') {
       // LIST tipi için chart_config.gridColumns kullan
       const chartConfig = typeof metric.chart_config === 'string' 
