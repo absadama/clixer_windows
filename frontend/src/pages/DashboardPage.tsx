@@ -146,7 +146,8 @@ export default function DashboardPage() {
       console.log('[DashboardPage] Filters changed, refetching...', { startDate, endDate })
       fetchDashboardData(currentDesign.id)
     }
-  }, [startDate, endDate, selectedRegionId, selectedStoreIds.length, selectedStoreType, currentDesign?.id, fetchDashboardData, accessToken])
+  // selectedStoreIds.join(',') kullanarak içerik değişikliklerini yakala
+  }, [startDate, endDate, selectedRegionId, selectedStoreIds.join(','), selectedStoreType, currentDesign?.id, fetchDashboardData, accessToken])
 
   useEffect(() => {
     // URL'den designId parametresini oku

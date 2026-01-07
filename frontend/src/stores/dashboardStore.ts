@@ -135,7 +135,9 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       }
       
       if (selectedRegionId) params.append('regionId', selectedRegionId)
-      if (selectedStoreIds.length > 0 && selectedStoreIds.length < 100) {
+      // Mağaza filtresi: Tüm mağazalar seçili değilse (stores.length ile karşılaştır)
+      // veya belirli mağazalar seçiliyse gönder
+      if (selectedStoreIds.length > 0) {
         params.append('storeIds', selectedStoreIds.join(','))
       }
       if (selectedStoreType !== 'ALL') params.append('storeType', selectedStoreType)
