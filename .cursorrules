@@ -72,6 +72,80 @@ git status
 
 ---
 
+## 🔴🔴🔴 MÜŞTERİ DEPLOY STANDART KOMUTU 🔴🔴🔴
+
+> **"DEPLOY ET", "MÜŞTERİYE GÖNDERİLDİ", "PRODUCTION'A ÇIK" DENDİĞİNDE BU KOMUTLAR VERİLECEK!**
+
+### ⚠️ KRİTİK: Frontend DEV SERVER DEĞİL, STATIC BUILD!
+
+Müşteri sunucusunda:
+- Frontend: Nginx → `/opt/clixer/frontend/dist/` (static dosyalar)
+- Backend: Node.js process'leri (npm run dev)
+- Veritabanları: Docker container'lar
+
+**UI değişikliği için MUTLAKA `npm run build` gerekli!**
+
+### Tam Deploy Komutu (Müşteri SSH'ta çalıştırılacak):
+
+```bash
+# 🚀 CLİXER MÜŞTERİ DEPLOY KOMUTU
+# SSH ile müşteri sunucusuna bağlandıktan sonra çalıştır
+
+cd /opt/clixer
+
+# 1. En son kodu çek
+sudo git fetch origin
+sudo git reset --hard origin/master
+
+# 2. Servisleri durdur
+sudo bash scripts/stop-all.sh
+
+# 3. Frontend build (UI değişikliği varsa ZORUNLU!)
+cd /opt/clixer/frontend
+sudo rm -rf dist
+sudo npm run build
+
+# Build doğrulama (0 dönmeli!)
+HARDCODED=$(grep -o "http://[^\"']*:4000" dist/assets/*.js 2>/dev/null | wc -l)
+echo "Hardcoded URL sayısı: $HARDCODED (0 olmalı!)"
+
+# İzinleri ayarla
+sudo chown -R www-data:www-data dist
+sudo chmod -R 755 dist
+
+# 4. Nginx'i restart et
+sudo systemctl restart nginx
+
+# 5. Backend servisleri başlat
+cd /opt/clixer
+sudo bash scripts/start-all.sh
+
+# 6. Doğrulama
+echo "✅ Deploy tamamlandı!"
+echo "🌐 Tarayıcıda Ctrl+Shift+R ile hard refresh yap"
+```
+
+### Tek Satırda (Copy-Paste için):
+
+```bash
+cd /opt/clixer && sudo git fetch origin && sudo git reset --hard origin/master && sudo bash scripts/stop-all.sh && cd frontend && sudo rm -rf dist && sudo npm run build && sudo chown -R www-data:www-data dist && sudo systemctl restart nginx && cd /opt/clixer && sudo bash scripts/start-all.sh && echo "✅ Deploy tamamlandı!"
+```
+
+### ASLA YAPMA:
+
+1. ❌ Sadece `git pull` yapıp frontend build almamak
+2. ❌ `start-all.sh` çalıştırıp UI değişikliğini beklememek
+3. ❌ Nginx restart etmemek
+
+### Neden Frontend Build Gerekli?
+
+| Ortam | Frontend Nasıl Çalışır | UI Değişikliği Nasıl Görünür |
+|-------|------------------------|------------------------------|
+| **Lokal (Windows)** | Vite dev server (hot reload) | Otomatik, anlık |
+| **Müşteri (Ubuntu)** | Nginx → static `dist/` | `npm run build` + Nginx restart |
+
+---
+
 ## 📋 PROJE KİMLİĞİ
 
 **Clixer**, büyük ölçekli kurumsal analitik platformudur. Perakende, F&B, üniversite, holding gibi farklı sektörlerde kullanılabilir. Temel farkımız: **real-time veri akışı** ve **olağanüstü performans**.
