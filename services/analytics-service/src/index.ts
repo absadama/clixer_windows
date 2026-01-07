@@ -1777,6 +1777,10 @@ async function executeMetric(
         );
         
         if (lflResult) {
+          // ⚠️ KRİTİK: LFL ana değeri = sadece ortak mağaza-günlerin toplamı!
+          // TÜM veri değil, LFL eşleşen günlerin toplamı gösterilmeli
+          value = lflResult.currentValue;
+          
           previousValue = lflResult.previousValue;
           trend = lflResult.trend;
           comparisonDays = {
@@ -1794,7 +1798,9 @@ async function executeMetric(
             commonDays: lflResult.commonDays,
             trend: trend?.toFixed(2),
             usedCalendar: !!lflCalendarConfig,
-            storeBasedLFL: !!lflStoreColumn
+            storeBasedLFL: !!lflStoreColumn,
+            originalValue: value,
+            lflValue: lflResult.currentValue
           });
         }
       } else {
@@ -2110,9 +2116,12 @@ async function executeMetric(
     }
   }
 
+  // Değer değişmişse (LFL, ranking vs.) formatted değerini yeniden hesapla
+  const finalFormatted = formatMetricValue(value, metric);
+  
   const result: MetricResult = {
     value,
-    formatted,
+    formatted: finalFormatted,
     metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     executionTime,
     cached: false
