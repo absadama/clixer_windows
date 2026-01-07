@@ -143,6 +143,7 @@ async function calculateLFL(
       // ============================================
       // Her mağaza için, hem bu yıl hem geçen yıl satış olan günleri bul
       // Sonra bu ortak günlerin toplamlarını karşılaştır
+      // NOT: ClickHouse'da EXISTS + CTE sorunu olduğu için JOIN kullanıyoruz
       lflSql = `
         WITH 
         -- LFL Takvimden seçilen tarih aralığındaki günler
@@ -178,7 +179,6 @@ async function calculateLFL(
         ),
         
         -- Her mağaza için, hem bu yıl hem geçen yıl satış olan günler (LFL Takvim eşleşmeli)
-        -- Mağaza + LFL günü kombinasyonu olarak ortak olanlar
         common_store_days AS (
           SELECT 
             ty.store_id,
@@ -189,36 +189,31 @@ async function calculateLFL(
           INNER JOIN last_year_store_days ly 
             ON ty.store_id = ly.store_id 
             AND lfl.last_year_date = ly.sale_date
+        ),
+        
+        -- Bu yıl verileri (ortak mağaza-günler için)
+        this_year_data AS (
+          SELECT ${aggFunc} as total
+          FROM ${tableName} s
+          INNER JOIN common_store_days csd 
+            ON s.${storeCol} = csd.store_id 
+            AND toDate(s.${dateColumn}) = csd.this_year_date
+          WHERE 1=1 ${rlsCondition} ${filterCondition}
+        ),
+        
+        -- Geçen yıl verileri (ortak mağaza-günler için)
+        last_year_data AS (
+          SELECT ${aggFunc} as total
+          FROM ${tableName} s
+          INNER JOIN common_store_days csd 
+            ON s.${storeCol} = csd.store_id 
+            AND toDate(s.${dateColumn}) = csd.last_year_date
+          WHERE 1=1 ${rlsCondition} ${filterCondition}
         )
         
         SELECT 
-          -- Bu yıl: Sadece ortak mağaza-gün kombinasyonlarının toplamı
-          (
-            SELECT ${aggFunc}
-            FROM ${tableName} s
-            WHERE EXISTS (
-              SELECT 1 FROM common_store_days csd 
-              WHERE s.${storeCol} = csd.store_id 
-                AND toDate(s.${dateColumn}) = csd.this_year_date
-            )
-            ${rlsCondition}
-            ${filterCondition}
-          ) as current_value,
-          
-          -- Geçen yıl: Sadece ortak mağaza-gün kombinasyonlarının toplamı
-          (
-            SELECT ${aggFunc}
-            FROM ${tableName} s
-            WHERE EXISTS (
-              SELECT 1 FROM common_store_days csd 
-              WHERE s.${storeCol} = csd.store_id 
-                AND toDate(s.${dateColumn}) = csd.last_year_date
-            )
-            ${rlsCondition}
-            ${filterCondition}
-          ) as previous_value,
-          
-          -- Ortak mağaza-gün sayısı
+          (SELECT total FROM this_year_data) as current_value,
+          (SELECT total FROM last_year_data) as previous_value,
           (SELECT count() FROM common_store_days) as common_days_count
       `;
     } else {
