@@ -215,6 +215,20 @@ export default function AdminPage() {
   const [importData, setImportData] = useState<any[]>([])
   const [importing, setImporting] = useState(false)
   
+  // Dataset'ten Import States
+  const [showDatasetImportModal, setShowDatasetImportModal] = useState(false)
+  const [availableDatasets, setAvailableDatasets] = useState<any[]>([])
+  const [selectedDatasetId, setSelectedDatasetId] = useState('')
+  const [datasetColumns, setDatasetColumns] = useState<{ name: string; type: string }[]>([])
+  const [datasetPreview, setDatasetPreview] = useState<any[]>([])
+  const [datasetTotalRows, setDatasetTotalRows] = useState(0)
+  const [datasetImportMapping, setDatasetImportMapping] = useState<Record<string, string>>({
+    code: '', name: '', store_type: '', ownership_group: '', region_code: '', 
+    city: '', district: '', address: '', phone: '', email: '', manager_name: ''
+  })
+  const [datasetImporting, setDatasetImporting] = useState(false)
+  const [datasetImportResult, setDatasetImportResult] = useState<{ imported: number; updated: number; errors: string[] } | null>(null)
+  
   // Etiketler States
   const [labels, setLabels] = useState<any[]>([])
   const [labelsLoading, setLabelsLoading] = useState(false)
@@ -644,6 +658,93 @@ export default function AdminPage() {
       console.error('Mağazalar/bölgeler yüklenemedi:', err)
     }
   }, [accessToken, apiCall])
+
+  // Dataset listesini yükle (Import için)
+  const loadDatasetsForImport = useCallback(async () => {
+    if (!accessToken) return
+    try {
+      const result = await apiCall('/data/datasets')
+      setAvailableDatasets(result.data || [])
+    } catch (err) {
+      console.error('Dataset listesi yüklenemedi:', err)
+    }
+  }, [accessToken, apiCall])
+
+  // Seçilen dataset'in önizlemesini al
+  const loadDatasetPreview = useCallback(async (datasetId: string) => {
+    if (!datasetId) {
+      setDatasetColumns([])
+      setDatasetPreview([])
+      setDatasetTotalRows(0)
+      return
+    }
+    try {
+      const result = await apiCall('/core/stores/import-from-dataset/preview', {
+        method: 'POST',
+        body: JSON.stringify({ datasetId })
+      })
+      if (result.success) {
+        setDatasetColumns(result.data.columns || [])
+        setDatasetPreview(result.data.preview || [])
+        setDatasetTotalRows(result.data.totalRows || 0)
+      }
+    } catch (err) {
+      console.error('Dataset önizleme yüklenemedi:', err)
+    }
+  }, [apiCall])
+
+  // Dataset'ten mağaza import et
+  const importFromDataset = async () => {
+    if (!selectedDatasetId || !datasetImportMapping.code) {
+      alert('Lütfen dataset ve en az "Kod" alanını eşleştirin')
+      return
+    }
+    
+    setDatasetImporting(true)
+    setDatasetImportResult(null)
+    try {
+      // Boş mapping'leri filtrele
+      const cleanMapping: Record<string, string> = {}
+      for (const [key, value] of Object.entries(datasetImportMapping)) {
+        if (value) cleanMapping[key] = value
+      }
+      
+      const result = await apiCall('/core/stores/import-from-dataset', {
+        method: 'POST',
+        body: JSON.stringify({
+          datasetId: selectedDatasetId,
+          mapping: cleanMapping
+        })
+      })
+      
+      setDatasetImportResult({
+        imported: result.imported || 0,
+        updated: result.updated || 0,
+        errors: result.errors || []
+      })
+      
+      // Mağazaları yenile
+      loadStoresAndRegions()
+    } catch (err: any) {
+      alert(err.message || 'Import başarısız')
+    } finally {
+      setDatasetImporting(false)
+    }
+  }
+
+  // Dataset import modalı açılınca dataset listesini yükle
+  useEffect(() => {
+    if (showDatasetImportModal) {
+      loadDatasetsForImport()
+    }
+  }, [showDatasetImportModal, loadDatasetsForImport])
+
+  // Seçilen dataset değişince önizleme yükle
+  useEffect(() => {
+    if (selectedDatasetId) {
+      loadDatasetPreview(selectedDatasetId)
+    }
+  }, [selectedDatasetId, loadDatasetPreview])
 
   // Mağaza kaydet
   const saveStore = async () => {
@@ -1730,6 +1831,18 @@ export default function AdminPage() {
                     >
                       <Upload size={16} />
                       CSV Import
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowDatasetImportModal(true)
+                        setSelectedDatasetId('')
+                        setDatasetImportMapping({ code: '', name: '', store_type: '', ownership_group: '', region_code: '', city: '', district: '', address: '', phone: '', email: '', manager_name: '' })
+                        setDatasetImportResult(null)
+                      }}
+                      className={clsx('flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-white bg-blue-500 hover:bg-blue-600')}
+                    >
+                      <Database size={16} />
+                      Dataset'ten Import
                     </button>
                     <button
                       onClick={() => {
@@ -3396,6 +3509,261 @@ export default function AdminPage() {
       {/* ========================= */}
       {/* GLOBAL MODAL'LAR (Her sekmeden erişilebilir) */}
       {/* ========================= */}
+
+      {/* Dataset'ten Mağaza Import Modal */}
+      {showDatasetImportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className={clsx('w-full max-w-4xl rounded-2xl p-6 max-h-[90vh] overflow-y-auto', theme.cardBg)}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className={clsx('text-xl font-bold', theme.contentText)}>
+                <Database className="inline-block mr-2" size={24} />
+                Dataset'ten Mağaza Import
+              </h2>
+              <button
+                onClick={() => setShowDatasetImportModal(false)}
+                className={clsx('p-2 rounded-lg', theme.contentTextMuted, 'hover:bg-gray-100 dark:hover:bg-gray-800')}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Adım 1: Dataset Seçimi */}
+            <div className="mb-6">
+              <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>
+                1. Kaynak Dataset Seçin
+              </label>
+              <select
+                value={selectedDatasetId}
+                onChange={(e) => setSelectedDatasetId(e.target.value)}
+                className={clsx('w-full px-4 py-3 rounded-xl text-sm border', theme.inputBg, theme.inputText, theme.border)}
+              >
+                <option value="">-- Dataset Seçin --</option>
+                {availableDatasets.map((ds: any) => (
+                  <option key={ds.id} value={ds.id}>
+                    {ds.name} ({ds.total_rows?.toLocaleString('tr-TR') || '?'} satır)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Dataset seçildiyse kolon mapping göster */}
+            {selectedDatasetId && datasetColumns.length > 0 && (
+              <>
+                {/* Bilgi */}
+                <div className={clsx('mb-4 p-3 rounded-xl text-sm', 'bg-blue-500/10 border border-blue-500/30')}>
+                  <span className="text-blue-400">ℹ️ {datasetTotalRows.toLocaleString('tr-TR')} mağaza kaydı bulundu. Aşağıdan kolon eşleştirmesini yapın.</span>
+                </div>
+
+                {/* Adım 2: Kolon Mapping */}
+                <div className="mb-6">
+                  <label className={clsx('block text-sm font-medium mb-3', theme.contentText)}>
+                    2. Kolon Eşleştirmesi
+                  </label>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Zorunlu Alan: Kod */}
+                    <div className={clsx('p-3 rounded-xl border', theme.border, 'bg-amber-500/5')}>
+                      <label className={clsx('block text-xs font-medium mb-1 text-amber-400')}>
+                        Kod (Zorunlu) *
+                      </label>
+                      <select
+                        value={datasetImportMapping.code}
+                        onChange={(e) => setDatasetImportMapping({ ...datasetImportMapping, code: e.target.value })}
+                        className={clsx('w-full px-3 py-2 rounded-lg text-sm border', theme.inputBg, theme.inputText, theme.border)}
+                      >
+                        <option value="">-- Kolon Seçin --</option>
+                        {datasetColumns.map((col) => (
+                          <option key={col.name} value={col.name}>
+                            {col.name} ({col.type})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Mağaza Adı */}
+                    <div className={clsx('p-3 rounded-xl border', theme.border)}>
+                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>
+                        Mağaza Adı
+                      </label>
+                      <select
+                        value={datasetImportMapping.name}
+                        onChange={(e) => setDatasetImportMapping({ ...datasetImportMapping, name: e.target.value })}
+                        className={clsx('w-full px-3 py-2 rounded-lg text-sm border', theme.inputBg, theme.inputText, theme.border)}
+                      >
+                        <option value="">-- Kolon Seçin --</option>
+                        {datasetColumns.map((col) => (
+                          <option key={col.name} value={col.name}>
+                            {col.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Tip (Location - AVM/CADDE) */}
+                    <div className={clsx('p-3 rounded-xl border', theme.border)}>
+                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>
+                        Tip (AVM/CADDE)
+                      </label>
+                      <select
+                        value={datasetImportMapping.store_type}
+                        onChange={(e) => setDatasetImportMapping({ ...datasetImportMapping, store_type: e.target.value })}
+                        className={clsx('w-full px-3 py-2 rounded-lg text-sm border', theme.inputBg, theme.inputText, theme.border)}
+                      >
+                        <option value="">-- Kolon Seçin --</option>
+                        {datasetColumns.map((col) => (
+                          <option key={col.name} value={col.name}>
+                            {col.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Sahiplik Grubu (BranchType - FR/TDUN) */}
+                    <div className={clsx('p-3 rounded-xl border', theme.border)}>
+                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>
+                        Sahiplik Grubu (FR/MERKEZ)
+                      </label>
+                      <select
+                        value={datasetImportMapping.ownership_group}
+                        onChange={(e) => setDatasetImportMapping({ ...datasetImportMapping, ownership_group: e.target.value })}
+                        className={clsx('w-full px-3 py-2 rounded-lg text-sm border', theme.inputBg, theme.inputText, theme.border)}
+                      >
+                        <option value="">-- Kolon Seçin --</option>
+                        {datasetColumns.map((col) => (
+                          <option key={col.name} value={col.name}>
+                            {col.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Bölge */}
+                    <div className={clsx('p-3 rounded-xl border', theme.border)}>
+                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>
+                        Bölge Kodu
+                      </label>
+                      <select
+                        value={datasetImportMapping.region_code}
+                        onChange={(e) => setDatasetImportMapping({ ...datasetImportMapping, region_code: e.target.value })}
+                        className={clsx('w-full px-3 py-2 rounded-lg text-sm border', theme.inputBg, theme.inputText, theme.border)}
+                      >
+                        <option value="">-- Kolon Seçin --</option>
+                        {datasetColumns.map((col) => (
+                          <option key={col.name} value={col.name}>
+                            {col.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Şehir */}
+                    <div className={clsx('p-3 rounded-xl border', theme.border)}>
+                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>
+                        Şehir
+                      </label>
+                      <select
+                        value={datasetImportMapping.city}
+                        onChange={(e) => setDatasetImportMapping({ ...datasetImportMapping, city: e.target.value })}
+                        className={clsx('w-full px-3 py-2 rounded-lg text-sm border', theme.inputBg, theme.inputText, theme.border)}
+                      >
+                        <option value="">-- Kolon Seçin --</option>
+                        {datasetColumns.map((col) => (
+                          <option key={col.name} value={col.name}>
+                            {col.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Önizleme Tablosu */}
+                {datasetPreview.length > 0 && (
+                  <div className="mb-6">
+                    <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>
+                      3. Önizleme (İlk 10 satır)
+                    </label>
+                    <div className="overflow-x-auto rounded-xl border" style={{ maxHeight: '200px' }}>
+                      <table className="w-full text-xs">
+                        <thead className={clsx('sticky top-0', theme.sidebarBg)}>
+                          <tr>
+                            {datasetColumns.slice(0, 6).map((col) => (
+                              <th key={col.name} className={clsx('px-3 py-2 text-left font-medium', theme.contentTextMuted)}>
+                                {col.name}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {datasetPreview.map((row, idx) => (
+                            <tr key={idx} className={clsx('border-t', theme.border)}>
+                              {datasetColumns.slice(0, 6).map((col) => (
+                                <td key={col.name} className={clsx('px-3 py-2', theme.contentText)}>
+                                  {String(row[col.name] ?? '-').substring(0, 30)}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Import Sonucu */}
+                {datasetImportResult && (
+                  <div className={clsx('mb-4 p-4 rounded-xl', 'bg-emerald-500/10 border border-emerald-500/30')}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Check size={20} className="text-emerald-400" />
+                      <span className={clsx('font-medium', theme.contentText)}>Import Tamamlandı!</span>
+                    </div>
+                    <div className="text-sm text-emerald-400">
+                      {datasetImportResult.imported} yeni mağaza eklendi, {datasetImportResult.updated} mağaza güncellendi
+                    </div>
+                    {datasetImportResult.errors.length > 0 && (
+                      <div className="mt-2 text-xs text-amber-400">
+                        {datasetImportResult.errors.length} hata: {datasetImportResult.errors.slice(0, 3).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Butonlar */}
+            <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
+              <button
+                onClick={() => setShowDatasetImportModal(false)}
+                className={clsx('px-4 py-2 rounded-xl text-sm', theme.contentTextMuted)}
+              >
+                İptal
+              </button>
+              <button
+                onClick={importFromDataset}
+                disabled={!selectedDatasetId || !datasetImportMapping.code || datasetImporting}
+                className={clsx(
+                  'flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-medium text-white',
+                  (!selectedDatasetId || !datasetImportMapping.code || datasetImporting)
+                    ? 'bg-gray-500 cursor-not-allowed'
+                    : 'bg-blue-500 hover:bg-blue-600'
+                )}
+              >
+                {datasetImporting ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Import Ediliyor...
+                  </>
+                ) : (
+                  <>
+                    <Upload size={16} />
+                    {datasetTotalRows.toLocaleString('tr-TR')} Mağaza Import Et
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mağaza Ekleme/Düzenleme Modal */}
       {showStoreModal && (

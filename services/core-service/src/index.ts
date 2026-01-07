@@ -15,6 +15,7 @@ import {
   createLogger,
   requestLogger,
   db,
+  clickhouse,
   cache,
   authenticate,
   authorize,
@@ -785,6 +786,237 @@ app.post('/stores/import', authenticate, authorize(ROLES.ADMIN), async (req: Req
     
     logger.info('Stores imported', { imported, errors: errors.length, user: req.user!.email });
     res.json({ success: true, imported, errors });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// STORES - DATASET'TEN IMPORT
+// ============================================
+
+/**
+ * Dataset'ten mağaza verisi önizleme
+ * Seçilen dataset'ten ilk 10 satırı ve kolonları döndürür
+ */
+app.post('/stores/import-from-dataset/preview', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { datasetId } = req.body;
+    
+    if (!datasetId) {
+      throw new ValidationError('Dataset ID gerekli');
+    }
+    
+    // Dataset bilgilerini al
+    const dataset = await db.queryOne(
+      'SELECT id, name, clickhouse_table FROM datasets WHERE id = $1 AND tenant_id = $2',
+      [datasetId, req.user!.tenantId]
+    );
+    
+    if (!dataset) {
+      throw new NotFoundError('Dataset bulunamadı');
+    }
+    
+    // ClickHouse'dan kolon bilgilerini al
+    const columnsResult = await clickhouse.query<{ name: string; type: string }>(
+      `DESCRIBE clixer_analytics.${dataset.clickhouse_table}`
+    );
+    
+    const columns = columnsResult
+      .filter((c: any) => !c.name.startsWith('_'))  // _synced_at gibi sistem kolonlarını hariç tut
+      .map((c: any) => ({ name: c.name, type: c.type }));
+    
+    // İlk 10 satırı al (önizleme için)
+    const previewData = await clickhouse.query(
+      `SELECT * FROM clixer_analytics.${dataset.clickhouse_table} LIMIT 10`
+    );
+    
+    // Toplam satır sayısı
+    const countResult = await clickhouse.query<{ count: number }>(
+      `SELECT count() as count FROM clixer_analytics.${dataset.clickhouse_table}`
+    );
+    const totalRows = countResult[0]?.count || 0;
+    
+    res.json({
+      success: true,
+      data: {
+        dataset: {
+          id: dataset.id,
+          name: dataset.name,
+          tableName: dataset.clickhouse_table
+        },
+        columns,
+        preview: previewData,
+        totalRows
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Dataset'ten mağaza verisi import et
+ * Kolon mapping'e göre stores tablosuna yazar
+ */
+app.post('/stores/import-from-dataset', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { 
+      datasetId, 
+      mapping,  // { code: 'BranchID', name: 'BranchName', store_type: 'Location', ... }
+      limit     // Opsiyonel: Kaç satır import edilecek
+    } = req.body;
+    
+    if (!datasetId || !mapping || !mapping.code) {
+      throw new ValidationError('Dataset ID ve en az code mapping gerekli');
+    }
+    
+    // Dataset bilgilerini al
+    const dataset = await db.queryOne(
+      'SELECT id, name, clickhouse_table FROM datasets WHERE id = $1 AND tenant_id = $2',
+      [datasetId, req.user!.tenantId]
+    );
+    
+    if (!dataset) {
+      throw new NotFoundError('Dataset bulunamadı');
+    }
+    
+    // ClickHouse'dan veri çek
+    const selectColumns: string[] = [];
+    const columnAliases: string[] = [];
+    
+    // Mapping'deki her alan için SELECT oluştur
+    const mappingFields = ['code', 'name', 'store_type', 'ownership_group', 'region_code', 'city', 'district', 'address', 'phone', 'email', 'manager_name'];
+    
+    for (const field of mappingFields) {
+      if (mapping[field]) {
+        selectColumns.push(`${mapping[field]} as ${field}`);
+        columnAliases.push(field);
+      }
+    }
+    
+    if (selectColumns.length === 0) {
+      throw new ValidationError('En az bir kolon mapping gerekli');
+    }
+    
+    const limitClause = limit ? `LIMIT ${parseInt(limit)}` : '';
+    const sql = `SELECT DISTINCT ${selectColumns.join(', ')} FROM clixer_analytics.${dataset.clickhouse_table} ${limitClause}`;
+    
+    logger.debug('Import SQL', { sql });
+    
+    const rows = await clickhouse.query<Record<string, any>>(sql);
+    
+    if (rows.length === 0) {
+      throw new ValidationError('Dataset boş veya veri bulunamadı');
+    }
+    
+    // Mevcut bölgeleri al (region_code eşleştirmesi için)
+    const regions = await db.queryAll(
+      'SELECT id, code FROM regions WHERE tenant_id = $1',
+      [req.user!.tenantId]
+    );
+    const regionMap = new Map(regions.map((r: any) => [r.code, r.id]));
+    
+    let imported = 0;
+    let updated = 0;
+    let errors: string[] = [];
+    
+    for (const row of rows) {
+      try {
+        const code = String(row.code || '').trim();
+        if (!code) {
+          errors.push('Boş kod değeri atlandı');
+          continue;
+        }
+        
+        // Region ID bul
+        let regionId = null;
+        if (row.region_code) {
+          regionId = regionMap.get(String(row.region_code).trim()) || null;
+        }
+        
+        // Mevcut kaydı kontrol et
+        const existing = await db.queryOne(
+          'SELECT id FROM stores WHERE tenant_id = $1 AND code = $2',
+          [req.user!.tenantId, code]
+        );
+        
+        if (existing) {
+          // Güncelle
+          await db.query(
+            `UPDATE stores SET
+              name = COALESCE($3, name),
+              store_type = COALESCE($4, store_type),
+              ownership_group = COALESCE($5, ownership_group),
+              region_id = COALESCE($6, region_id),
+              city = COALESCE($7, city),
+              district = COALESCE($8, district),
+              address = COALESCE($9, address),
+              phone = COALESCE($10, phone),
+              email = COALESCE($11, email),
+              manager_name = COALESCE($12, manager_name),
+              updated_at = NOW()
+            WHERE tenant_id = $1 AND code = $2`,
+            [
+              req.user!.tenantId,
+              code,
+              row.name || null,
+              row.store_type || null,
+              row.ownership_group || null,
+              regionId,
+              row.city || null,
+              row.district || null,
+              row.address || null,
+              row.phone || null,
+              row.email || null,
+              row.manager_name || null
+            ]
+          );
+          updated++;
+        } else {
+          // Yeni ekle
+          await db.query(
+            `INSERT INTO stores (tenant_id, code, name, store_type, ownership_group, region_id, city, district, address, phone, email, manager_name, is_active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true)`,
+            [
+              req.user!.tenantId,
+              code,
+              row.name || code,  // İsim yoksa kodu kullan
+              row.store_type || 'MAGAZA',
+              row.ownership_group || 'MERKEZ',
+              regionId,
+              row.city || null,
+              row.district || null,
+              row.address || null,
+              row.phone || null,
+              row.email || null,
+              row.manager_name || null
+            ]
+          );
+          imported++;
+        }
+      } catch (err: any) {
+        errors.push(`${row.code}: ${err.message}`);
+      }
+    }
+    
+    logger.info('Stores imported from dataset', { 
+      datasetId, 
+      datasetName: dataset.name,
+      imported, 
+      updated,
+      errors: errors.length, 
+      user: req.user!.email 
+    });
+    
+    res.json({ 
+      success: true, 
+      message: `${imported} mağaza eklendi, ${updated} mağaza güncellendi`,
+      imported, 
+      updated,
+      total: imported + updated,
+      errors: errors.slice(0, 10)  // İlk 10 hatayı göster
+    });
   } catch (error) {
     next(error);
   }
