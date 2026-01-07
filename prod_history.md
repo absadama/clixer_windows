@@ -828,6 +828,147 @@ sudo npm run build
 
 ---
 
+## 📅 7 Ocak 2026 - Mağaza Filtresi useEffect Dependency Sorunu (DEVAM EDİYOR)
+
+### Belirti
+- Sayfa açılışında 428 mağaza seçili (Tüm Mağazalar) - tarih değişikliği ÇALIŞIYOR ✅
+- "Temizle" sonrası tek mağaza seçildiğinde ÇALIŞIYOR ✅
+- 2. mağaza eklendiğinde veya çıkarıldığında değerler DEĞİŞMİYOR ❌
+
+### Teşhis Süreci
+
+#### 1. Frontend useEffect Analizi
+**Sorun:** `selectedStoreIds.join(',')` useEffect dependency olarak kullanılıyordu.
+
+```javascript
+// ESKİ KOD (SORUNLU)
+useEffect(() => {
+  fetchDashboardData(currentDesign.id)
+}, [selectedStoreIds.join(','), ...])
+```
+
+**Düzeltme:** `useMemo` ile stabil string oluşturuldu:
+
+```javascript
+// YENİ KOD
+const storeIdsKey = useMemo(() => [...selectedStoreIds].sort().join(','), [selectedStoreIds])
+
+useEffect(() => {
+  fetchDashboardData(currentDesign.id)
+}, [storeIdsKey, ...])
+```
+
+#### 2. Debug Logları Eklendi
+
+**dashboardStore.ts:**
+```javascript
+console.log('[STORE_DEBUG] fetchDashboardData', {
+  storesCount: stores.length,
+  selectedCount: selectedStoreIds.length,
+  allStoresSelected,
+  willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
+  storeIdsToSend: ...
+})
+```
+
+**DashboardPage.tsx:**
+```javascript
+console.log('[DashboardPage] Filters changed, refetching...', { 
+  startDate, endDate, storeCount: selectedStoreIds.length, storeIdsKey 
+})
+```
+
+#### 3. Git Branch Uyumsuzluğu Keşfedildi
+
+**Sorun:** Sunucu `origin/main`'den çekiyordu ama değişiklikler `origin/master`'a push edilmişti!
+
+```bash
+# Sunucudaki durum:
+$ git log --oneline -3
+23b54cb (HEAD -> main, origin/master) fix: Tum magazalar seciliyken...
+93cb864 (origin/main, origin/HEAD) fix: Add 300ms debounce...
+```
+
+**Çözüm:**
+```bash
+sudo git fetch --all
+sudo git reset --hard origin/master
+```
+
+#### 4. Test Sonuçları
+
+**Frontend (Console logları):**
+```
+[DashboardPage] Filters changed, refetching... {storeCount: 2, storeIdsKey: '...'}
+[STORE_DEBUG] fetchDashboardData {selectedCount: 2, willSendStoreIds: true, storeIdsToSend: '...'}
+```
+✅ useEffect tetikleniyor
+✅ storeIds gönderiliyor
+
+**Network (Request Payload):**
+```json
+{
+  "startDate": "2026-01-06",
+  "endDate": "2026-01-06",
+  "storeIds": "1b47138a-...,238ac059-..."
+}
+```
+✅ POST body'de storeIds var
+
+**Network (Response):**
+```json
+{
+  "success": true,
+  "cached": false,
+  "data": {
+    "widgets": [
+      { "data": { "value": 353, "formatted": "353" } },  // 2 mağaza
+      { "data": { "value": 162376.5 } }
+    ]
+  }
+}
+```
+✅ Backend doğru değer döndürüyor (78.848 yerine 353)
+✅ `cached: false` - taze veri
+
+#### 5. Mevcut Durum
+
+**Çalışan:**
+- useEffect mağaza değişikliğini algılıyor ✅
+- API'ye storeIds gönderiliyor ✅
+- Backend doğru filtrelenmiş veri döndürüyor ✅
+
+**Çalışmayan:**
+- Ekrandaki değerler güncellenmiyor ❌
+- Backend 353 döndürüyor ama ekranda hala 78.848 görünüyor
+
+**Şüphe:** Zustand store state güncellemesi React component'e yansımıyor.
+
+### Sonraki Adım
+
+Widget state güncelleme logu eklendi:
+```javascript
+console.log('[STORE_DEBUG] Setting widgets:', widgetsWithData.length, 
+  'widgets, first widget value:', widgetsWithData[0]?.data?.value)
+```
+
+Bu log ile `set({ widgets: ... })` çağrılıp çağrılmadığını ve doğru değerlerin set edilip edilmediğini göreceğiz.
+
+### Uygulanan Değişiklikler
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `frontend/src/stores/dashboardStore.ts` | Debug logları eklendi |
+| `frontend/src/pages/DashboardPage.tsx` | useMemo storeIdsKey, useEffect dependency düzeltildi |
+| `frontend/src/pages/AnalysisPage.tsx` | useMemo storeIdsKey, useEffect dependency düzeltildi |
+
+### Git Commits
+
+1. `88b1a40` - fix: Magaza filtresi useEffect dependency duzeltmesi
+2. `2ac0d55` - debug: Add widget state update log
+
+---
+
 ## 📞 İletişim
 
 Sorun devam ederse:
