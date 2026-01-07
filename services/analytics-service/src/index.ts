@@ -1371,12 +1371,11 @@ async function executeMetric(
   const dateHash = cacheDateStart && cacheDateEnd ? `${cacheDateStart}_${cacheDateEnd}` : 'nodate';
   // StoreIds parametresini özel olarak cache key'e ekle (hash collision önlemek için)
   const storeIdsParam = parameters.storeIds as string || '';
-  // StoreIds için crypto hash kullan - base64 substring collision sorunu var!
+  // StoreIds için MD5 hash kullan - base64 substring collision sorunu çözüldü
   const crypto = require('crypto');
   const storeHash = storeIdsParam 
     ? crypto.createHash('md5').update(storeIdsParam).digest('hex').substring(0, 16) 
     : 'all';
-  console.log('[DEBUG] executeMetric storeHash:', storeHash, 'from storeIds:', storeIdsParam ? storeIdsParam.substring(0, 50) + '...' : 'NONE');
   const otherParams = { ...parameters };
   delete otherParams.startDate;
   delete otherParams.endDate;
@@ -1574,17 +1573,10 @@ async function executeMetric(
         // Çünkü ClickHouse'daki BranchID Integer, frontend UUID gönderiyor
         const storeUUIDs = storeIds.split(',').map(s => s.trim());
         
-        // DEBUG: storeIds parse kontrolu
-        console.log('[DEBUG] storeIds raw:', storeIds);
-        console.log('[DEBUG] storeUUIDs parsed:', storeUUIDs, 'count:', storeUUIDs.length);
-        
         const storeCodesResult = await db.query(
           `SELECT code FROM stores WHERE id = ANY($1::uuid[])`,
           [storeUUIDs]
         );
-        
-        // DEBUG: PostgreSQL sorgu sonucu
-        console.log('[DEBUG] storeCodesResult rows:', storeCodesResult.rows);
         
         if (storeCodesResult.rows.length > 0) {
           // stores.code değerlerini kullan (BranchID'ler)
@@ -1592,10 +1584,6 @@ async function executeMetric(
           // Integer kolon için tırnak olmadan, String kolon için tırnaklı
           // ClickHouse'da BranchID Int32 olduğu için tırnaksız gönder
           const storeCodeList = storeCodes.join(',');
-          
-          // DEBUG: Final WHERE condition
-          console.log('[DEBUG] storeCodes:', storeCodes, 'count:', storeCodes.length);
-          console.log('[DEBUG] WHERE condition:', `${storeColumn} IN (${storeCodeList})`);
           
           whereConditions.push(`${storeColumn} IN (${storeCodeList})`);
           logger.debug('Store filter applied (UUID to code)', { 
@@ -2827,11 +2815,6 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
       ? { ...req.query, ...req.body } 
       : req.query as Record<string, any>;
     
-    // DEBUG: Request body ve parameters kontrol
-    console.log('[DEBUG] handleDashboardFull - method:', req.method);
-    console.log('[DEBUG] handleDashboardFull - req.body:', JSON.stringify(req.body));
-    console.log('[DEBUG] handleDashboardFull - parameters.storeIds:', parameters.storeIds);
-    
     // Cross-Filter parse
     let crossFilters: Array<{ field: string; value: any }> = [];
     if (parameters.crossFilters) {
@@ -2851,15 +2834,11 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
     const cacheKey = `dashboard:full:${designId}:${req.user!.tenantId}:${userFilterLevel}:${userFilterValue}:${JSON.stringify(parameters)}`;
 
     // DEBUG: Cache key kontrolü
-    console.log('[DEBUG] Dashboard cacheKey (first 100 chars):', cacheKey.substring(0, 100));
-    
     // Cache check
     const cachedData = await cache.get(cacheKey);
     if (cachedData) {
-      console.log('[DEBUG] Dashboard CACHE HIT - returning cached data');
       return res.json({ success: true, data: cachedData, cached: true });
     }
-    console.log('[DEBUG] Dashboard CACHE MISS - will execute metrics');
 
     // Design bilgisini al
     const design = await db.queryOne(
