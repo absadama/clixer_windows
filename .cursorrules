@@ -7473,11 +7473,80 @@ WHERE m.chart_config->>'comparisonColumn' IS NULL
 
 ---
 
+## 📅 v4.8 - 7 Ocak 2026
+
+**Sıralama Listesi (Ranking List) dbColumn Düzeltmesi**
+
+### Çözülen Sorunlar
+
+1. ✅ **ranking_list için dbColumn null olarak kaydediliyordu**
+   - **Belirti:** Sıralama listesi widget'ı ekranda veri göstermiyordu
+   - **Log Hatası:** `Aggregate function sum requires single argument. sql: sum(*)`
+   - **Kök Neden:** Frontend'de `isGridOrList` kontrolü `ranking_list`'i de kapsıyordu ve `dbColumn: null` gönderiyordu
+   - **Çözüm:** `ranking_list` için `dbColumn` değeri korunuyor, sadece `data_grid` ve `LIST` için null
+
+2. ✅ **Validation eklendi**
+   - `ranking_list` seçildiğinde değer kolonu (Revenue vb.) seçilmezse uyarı veriyor
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `frontend/src/pages/MetricsPage.tsx` | `dbColumn` gönderme mantığı düzeltildi, validation eklendi |
+
+### Kod Değişikliği
+
+```javascript
+// ESKİ (YANLIŞ)
+dbColumn: isGridOrList ? null : (formData.dbColumn || null),
+
+// YENİ (DOĞRU)
+dbColumn: (formData.visualizationType === 'ranking_list' || !isGridOrList) 
+  ? (formData.dbColumn || null) 
+  : null,
+```
+
+### Yedekleme
+
+- **GitHub Tag:** `v4.8`
+
+---
+
+## 🔴 SIRALAMA LİSTESİ (RANKING_LIST) KURALLARI
+
+### MUTLAK KURAL: ranking_list için hem groupByColumn hem dbColumn ZORUNLU!
+
+**Sıralama Listesi Gereksinimleri:**
+
+| Alan | Zorunlu | Açıklama | Örnek |
+|------|---------|----------|-------|
+| `groupByColumn` | ✅ | Neye göre grupla (label) | BranchName |
+| `dbColumn` | ✅ | Neyi topla (value) | Revenue |
+| `aggregationType` | ✅ | Nasıl hesapla | SUM |
+| `orderDirection` | ✅ | Sıralama yönü | DESC |
+| `limit` | Opsiyonel | Kaç kayıt | 10 |
+
+**Backend SQL Üretimi:**
+```sql
+SELECT toString(BranchName) as label, SUM(Revenue) as value 
+FROM dataset 
+GROUP BY BranchName 
+ORDER BY value DESC 
+LIMIT 10
+```
+
+**Frontend Kontrolü:**
+- `ranking_list` seçildiğinde hem kolon seçimi hem değer kolonu gerekli
+- Değer kolonu seçilmezse "Sıralama listesi için değer kolonu seçmelisiniz" uyarısı
+
+---
+
 ## 📋 VERSİYON GEÇMİŞİ (Özet - Güncel)
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-07 | **v4.7** | **JWT Token Süresi 1 Saat & Güncelleme Paketi** |
+| 2026-01-07 | **v4.8** | **Sıralama Listesi dbColumn Düzeltmesi** |
+| 2026-01-07 | v4.7 | JWT Token Süresi 1 Saat & Güncelleme Paketi |
 | 2026-01-07 | v4.6 | Metrik Tarih Kolonu Fallback & UI Uyarısı |
 | 2026-01-07 | v4.5 | Mağaza Filtresi Cache Collision Düzeltmesi - MD5 Hash |
 | 2026-01-07 | v4.4 | Mağaza Filtresi LFL Entegrasyonu |
