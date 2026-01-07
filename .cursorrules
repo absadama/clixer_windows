@@ -6769,3 +6769,82 @@ metric:abc123:all:2025-11-01_2025-11-07:default
 
 - **GitHub**: `v4.3` tag olarak oluşturulmalı
 - **Commit**: `fix: Include full date range in cache key to prevent stale cache hits`
+
+---
+
+## 🔴 MAĞAZA KOD EŞLEŞMESİ KURALI (KRİTİK!)
+
+### MUTLAK KURAL: stores.code = ClickHouse dataset.store_column
+
+Clixer'da mağaza filtreleme akışı:
+
+```
+Frontend (storeIds UUID) → Backend (stores.code) → ClickHouse (dataset.store_column)
+```
+
+### Akış Detayı:
+
+1. **Frontend**: `stores.id` (UUID) gönderir - örn: `af75ce75-7e8c-4ab9-88c7-700377dbfabe`
+2. **Backend**: PostgreSQL'den `stores.code` değerini çeker - örn: `1`
+3. **ClickHouse**: `dataset.store_column` (örn: BranchID) ile filtrelenir - `WHERE BranchID = 1`
+
+### Eşleşme ZORUNLU:
+
+| PostgreSQL stores | ClickHouse Dataset |
+|-------------------|-------------------|
+| `stores.code = '1'` | `BranchID = 1` |
+| `stores.code = '171'` | `BranchID = 171` |
+| `stores.code = 'STR001'` | `store_code = 'STR001'` |
+
+### Müşteri Kurulumunda ZORUNLU Adımlar:
+
+1. **Müşteri DB'den mağaza listesi çekilir** (ETL veya Dataset'ten Import)
+2. **Her mağaza için:**
+   - `stores.code` = Kaynak DB'deki mağaza ID'si (BranchID, store_id, vb.)
+   - `stores.name` = Mağaza adı
+   - Opsiyonel: region_id, ownership_group, vb.
+3. **Bu eşleşme OLMADAN:**
+   - ❌ RLS (Row-Level Security) ÇALIŞMAZ
+   - ❌ Mağaza filtresi ÇALIŞMAZ
+   - ❌ LFL mağaza bazlı hesaplama ÇALIŞMAZ
+
+### Kod Referansları:
+
+| Dosya | Satır | Açıklama |
+|-------|-------|----------|
+| `services/analytics-service/src/index.ts` | ~1560-1576 | UUID → code dönüşümü |
+| `services/analytics-service/src/index.ts` | ~1780-1805 | LFL mağaza filtresi |
+| `services/core-service/src/index.ts` | `/stores/import-from-dataset` | Dataset'ten import |
+
+### Dataset'ten Import Özelliği:
+
+Admin Panel → Master Veriler → Mağazalar → "Dataset'ten Import" butonu ile:
+1. ClickHouse dataset seçilir
+2. Kolon eşleştirmesi yapılır (code ↔ BranchID, name ↔ BranchName)
+3. Mağazalar otomatik import edilir
+
+---
+
+## 📅 v4.4 - 7 Ocak 2026
+
+**Mağaza Filtresi LFL Entegrasyonu**
+
+### Çözülen Sorunlar
+
+1. ✅ **LFL kartları mağaza filtresine tepki vermiyordu** - `storeFilterCondition` parametresi eklendi
+2. ✅ **UUID → BranchID dönüşümü** - LFL hesaplamasında da çalışıyor
+3. ✅ **Mağaza bazlı LFL + Mağaza filtresi** - Birlikte çalışıyor
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `services/analytics-service/src/index.ts` | `calculateLFL` fonksiyonuna `storeFilterCondition` parametresi eklendi |
+| `.cursorrules` | Mağaza kod eşleşmesi kuralı eklendi |
+
+### Test Sonuçları (BranchID=1, 6 Ocak 2026)
+
+| Kart | Değer | LFL Önceki | Trend |
+|------|-------|------------|-------|
+| Visitor | 308 | 263 | +17.1% |
+| Revenue | 138.337 | 85.383 | +62.0% |
