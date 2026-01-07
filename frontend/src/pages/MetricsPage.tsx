@@ -126,6 +126,10 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
     formatSuffix: '',
     comparisonEnabled: false,
     comparisonType: 'yoy', // Varsayılan: Geçen Yıl Aynı Gün
+    // LFL Takvim Ayarları
+    lflCalendarDatasetId: '',
+    lflThisYearColumn: 'this_year',
+    lflLastYearColumn: 'last_year',
     comparisonColumn: '', // Karşılaştırma için tarih kolonu
     comparisonLabel: '', // Karşılaştırma etiketi (opsiyonel)
     targetValue: '',
@@ -282,6 +286,10 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
         // Sıralama Listesi - Trend Hesaplama
         autoCalculateTrend: metric.chartConfig?.autoCalculateTrend || false,
         trendComparisonType: (metric.chartConfig?.trendComparisonType || 'mom') as 'mom' | 'yoy' | 'wow',
+        // LFL Takvim Ayarları
+        lflCalendarDatasetId: metric.chartConfig?.lflCalendarDatasetId || '',
+        lflThisYearColumn: metric.chartConfig?.lflThisYearColumn || 'this_year',
+        lflLastYearColumn: metric.chartConfig?.lflLastYearColumn || 'last_year',
       });
       if (metric.datasetId) {
         loadColumns(metric.datasetId);
@@ -309,6 +317,10 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
         formatSuffix: '',
         comparisonEnabled: false,
         comparisonType: 'previous_period',
+        // LFL Takvim Ayarları
+        lflCalendarDatasetId: '',
+        lflThisYearColumn: 'this_year',
+        lflLastYearColumn: 'last_year',
         comparisonColumn: '',
         targetValue: '',
         targetColumn: '',
@@ -402,6 +414,10 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
           // Sıralama Listesi - Trend Otomatik Hesaplama
           autoCalculateTrend: formData.visualizationType === 'ranking_list' ? formData.autoCalculateTrend : undefined,
           trendComparisonType: formData.visualizationType === 'ranking_list' && formData.autoCalculateTrend ? formData.trendComparisonType : undefined,
+          // LFL Takvim Ayarları
+          lflCalendarDatasetId: formData.comparisonType === 'lfl' ? formData.lflCalendarDatasetId : undefined,
+          lflThisYearColumn: formData.comparisonType === 'lfl' ? formData.lflThisYearColumn : undefined,
+          lflLastYearColumn: formData.comparisonType === 'lfl' ? formData.lflLastYearColumn : undefined,
         },
         comparisonEnabled: formData.comparisonEnabled,
         comparisonType: formData.comparisonEnabled ? formData.comparisonType : null,
@@ -1468,6 +1484,55 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
                             </p>
                           )}
                         </div>
+                        
+                        {/* LFL Takvim Ayarları */}
+                        {formData.comparisonType === 'lfl' && (
+                          <div className="p-3 bg-slate-800/50 border border-amber-500/30 rounded-lg space-y-3">
+                            <h4 className="text-sm font-medium text-amber-400 flex items-center gap-2">
+                              📅 LFL Takvim Ayarları
+                            </h4>
+                            
+                            {/* LFL Takvim Dataset */}
+                            <div>
+                              <label className="block text-xs text-slate-400 mb-1.5">LFL Takvim Dataset</label>
+                              <select
+                                value={formData.lflCalendarDatasetId}
+                                onChange={e => setFormData({ ...formData, lflCalendarDatasetId: e.target.value })}
+                                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm"
+                              >
+                                <option value="">LFL takvim dataset seçin...</option>
+                                {datasets.map(ds => (
+                                  <option key={ds.id} value={ds.id}>{ds.name}</option>
+                                ))}
+                              </select>
+                              <p className="text-xs text-slate-500 mt-1">Karşılaştırılabilir günleri içeren takvim tablosu</p>
+                            </div>
+                            
+                            {/* Bu Yıl ve Geçen Yıl Kolonları */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs text-slate-400 mb-1.5">Bu Yıl Kolonu</label>
+                                <input
+                                  type="text"
+                                  value={formData.lflThisYearColumn}
+                                  onChange={e => setFormData({ ...formData, lflThisYearColumn: e.target.value })}
+                                  placeholder="this_year"
+                                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-400 mb-1.5">Geçen Yıl Kolonu</label>
+                                <input
+                                  type="text"
+                                  value={formData.lflLastYearColumn}
+                                  onChange={e => setFormData({ ...formData, lflLastYearColumn: e.target.value })}
+                                  placeholder="last_year"
+                                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         
                         {/* Tarih Kolonu */}
                         <div>

@@ -530,7 +530,9 @@ export default function AdminPage() {
     setServicesLoading(true)
     try {
       const result = await apiCall('/data/admin/services')
-      setServices(result.data || [])
+      // Backend { services: [...], summary: {...} } döndürüyor
+      const data = result.data
+      setServices(Array.isArray(data) ? data : (data?.services || []))
     } catch (err) {
       console.error('Servisler yüklenemedi:', err)
       setServices([])
