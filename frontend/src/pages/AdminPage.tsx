@@ -3685,7 +3685,7 @@ export default function AdminPage() {
                     </label>
                     <div className="overflow-x-auto rounded-xl border" style={{ maxHeight: '200px' }}>
                       <table className="w-full text-xs">
-                        <thead className={clsx('sticky top-0', theme.sidebarBg)}>
+                        <thead className={clsx('sticky top-0', theme.headerBg)}>
                           <tr>
                             {datasetColumns.slice(0, 6).map((col) => (
                               <th key={col.name} className={clsx('px-3 py-2 text-left font-medium', theme.contentTextMuted)}>
