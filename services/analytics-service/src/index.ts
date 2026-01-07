@@ -1056,13 +1056,21 @@ async function executeMetric(
   }
 
   // Cache key oluştur (RLS bilgisi dahil - kullanıcı bazlı cache)
+  // NOT: startDate ve endDate parametreleri cache key'e dahil edilmeli (kırpılmamalı)!
   const rlsHash = rlsColumn && rlsValue 
     ? Buffer.from(`${rlsColumn}:${rlsValue}`).toString('base64').substring(0, 16)
     : 'all';
-  const paramHash = Object.keys(parameters).length > 0 
-    ? Buffer.from(JSON.stringify(parameters)).toString('base64').substring(0, 32)
+  // Tarih parametrelerini özel olarak cache key'e ekle
+  const cacheDateStart = parameters.startDate as string || '';
+  const cacheDateEnd = parameters.endDate as string || '';
+  const dateHash = cacheDateStart && cacheDateEnd ? `${cacheDateStart}_${cacheDateEnd}` : 'nodate';
+  const otherParams = { ...parameters };
+  delete otherParams.startDate;
+  delete otherParams.endDate;
+  const paramHash = Object.keys(otherParams).length > 0 
+    ? Buffer.from(JSON.stringify(otherParams)).toString('base64').substring(0, 32)
     : 'default';
-  const cacheKey = `metric:${metricId}:${rlsHash}:${paramHash}`;
+  const cacheKey = `metric:${metricId}:${rlsHash}:${dateHash}:${paramHash}`;
 
     // Cache'ten dene
   const cachedResult = await cache.get<MetricResult>(cacheKey);
