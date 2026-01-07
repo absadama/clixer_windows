@@ -6678,3 +6678,94 @@ ReplacingMergeTree, ORDER BY key'e göre duplicate'ları merge ediyor. Tarih kol
 ### Yedekleme
 
 - **GitHub**: `v4.2` tag olarak oluşturulmalı
+
+---
+
+## 🔴 CACHE KEY TARİH PARAMETRESİ KURALI (KRİTİK!)
+
+### MUTLAK KURAL: Cache key'de tarih parametreleri AÇIKÇA yer almalı!
+
+**Sorun (v4.2 öncesi):**
+```javascript
+// ESKİ KOD (HATALI)
+const paramHash = Buffer.from(JSON.stringify(parameters)).toString('base64').substring(0, 32);
+const cacheKey = `metric:${metricId}:${rlsHash}:${paramHash}`;
+```
+
+**Problem:** `parameters` objesi `{"startDate":"2025-11-01","endDate":"2025-11-07",...}` şeklinde. Base64'e çevrilip **ilk 32 karaktere kırpılınca**, farklı `endDate` değerleri **aynı hash'e** dönüşüyordu!
+
+Örnek:
+- `endDate: 2025-11-07` → `eyJzdGFydERhdGUiOiIyMDI1LTExLTAx...` → ilk 32 karakter
+- `endDate: 2025-11-08` → `eyJzdGFydERhdGUiOiIyMDI1LTExLTAx...` → **AYNI ilk 32 karakter!**
+
+**Sonuç:** Farklı tarih aralıkları için aynı cache key → Yanlış veri dönüyor!
+
+### ✅ ÇÖZÜM (v4.3)
+
+Tarih parametrelerini cache key'e **AÇIKÇA** ekle:
+
+```javascript
+// YENİ KOD (DOĞRU)
+const cacheDateStart = parameters.startDate || '';
+const cacheDateEnd = parameters.endDate || '';
+const dateHash = cacheDateStart && cacheDateEnd ? `${cacheDateStart}_${cacheDateEnd}` : 'nodate';
+const otherParams = { ...parameters };
+delete otherParams.startDate;
+delete otherParams.endDate;
+const paramHash = Object.keys(otherParams).length > 0 
+  ? Buffer.from(JSON.stringify(otherParams)).toString('base64').substring(0, 32)
+  : 'default';
+const cacheKey = `metric:${metricId}:${rlsHash}:${dateHash}:${paramHash}`;
+```
+
+**Yeni Cache Key Formatı:**
+```
+metric:{metricId}:{rlsHash}:{startDate}_{endDate}:{paramHash}
+metric:abc123:all:2025-11-01_2025-11-07:default
+```
+
+### ÖNLEME KURALLARI
+
+1. **Cache key'de kritik parametreler ASLA kırpılmamalı**
+2. **Tarih, kullanıcı ID, tenant ID gibi değerler AÇIKÇA eklenmeli**
+3. **Hash kırpılacaksa, kırpılmayacak değerler ayrı tutulmalı**
+
+### Etkilenen Dosya
+
+- `services/analytics-service/src/index.ts` - Satır 1058-1071: Cache key oluşturma
+
+---
+
+## 📅 v4.3 - 7 Ocak 2026
+
+**Cache Key Tarih Parametresi Düzeltmesi**
+
+### Çözülen Sorunlar
+
+1. ✅ **Farklı tarih aralıkları aynı değer döndürüyordu** - Cache key'de tarih açıkça eklendi
+2. ✅ **Base64 hash kırpılması sorunu** - Tarih parametreleri hash dışına alındı
+3. ✅ **Redis cache hit/miss sorunu** - Her tarih aralığı benzersiz key'e sahip
+
+### Kök Neden
+
+`Buffer.from(JSON.stringify(parameters)).toString('base64').substring(0, 32)` ile oluşturulan hash, farklı `endDate` değerleri için aynı sonucu üretiyordu. Çünkü Base64 string'inin başlangıcı (`startDate` içerdiği için) aynı kalıyordu.
+
+### Test Sonuçları
+
+| Tarih Aralığı | ClickHouse | API (Düzeltme Sonrası) | Durum |
+|---------------|------------|------------------------|-------|
+| 01.11 - 07.11 | 650.916 / 269M | 650.916 / 269M | ✅ |
+| 01.11 - 08.11 | 771.239 / 319M | 771.239 / 319M | ✅ |
+| 01.11 - 09.11 | 894.074 / 369M | 894.074 / 369M | ✅ |
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `services/analytics-service/src/index.ts` | Cache key'de tarih açıkça eklendi |
+| `frontend/src/pages/DashboardPage.tsx` | useEffect dependency düzeltildi, debug log eklendi |
+
+### Yedekleme
+
+- **GitHub**: `v4.3` tag olarak oluşturulmalı
+- **Commit**: `fix: Include full date range in cache key to prevent stale cache hits`
