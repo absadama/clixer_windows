@@ -477,9 +477,8 @@ app.get('/admin/system/stats', authenticate, async (req: Request, res: Response,
         u.id,
         u.email,
         u.name,
-        u.position as position_name,
-        u.last_login_at,
-        u.last_login_ip
+        u.position_code as position_name,
+        u.last_login_at
       FROM users u
       WHERE u.last_login_at IS NOT NULL
       ORDER BY u.last_login_at DESC
