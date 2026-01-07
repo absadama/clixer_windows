@@ -143,78 +143,54 @@ async function calculateLFL(
       // ============================================
       // Her mağaza için, hem bu yıl hem geçen yıl satış olan günleri bul
       // Sonra bu ortak günlerin toplamlarını karşılaştır
-      // NOT: ClickHouse'da EXISTS + CTE sorunu olduğu için JOIN kullanıyoruz
+      // NOT: ClickHouse'da CTE + nested subquery çalışmıyor, inline subquery kullanıyoruz
+      
+      // Geçen yıl tarih aralığını hesapla (LFL takvimden)
+      const lastYearStartDate = new Date(thisYearStart);
+      lastYearStartDate.setFullYear(lastYearStartDate.getFullYear() - 1);
+      const lastYearEndDate = new Date(thisYearEnd);
+      lastYearEndDate.setFullYear(lastYearEndDate.getFullYear() - 1);
+      // Biraz geniş aralık al (LFL takvim kayması için)
+      lastYearStartDate.setDate(lastYearStartDate.getDate() - 10);
+      lastYearEndDate.setDate(lastYearEndDate.getDate() + 10);
+      const lyStart = lastYearStartDate.toISOString().split('T')[0];
+      const lyEnd = lastYearEndDate.toISOString().split('T')[0];
+      
       lflSql = `
-        WITH 
-        -- LFL Takvimden seçilen tarih aralığındaki günler
-        lfl_dates AS (
-          SELECT 
-            toDate(${thisYearCol}) as this_year_date,
-            toDate(${lastYearCol}) as last_year_date
-          FROM ${lflTable}
-          WHERE toDate(${thisYearCol}) >= '${thisYearStart}' 
-            AND toDate(${thisYearCol}) <= '${thisYearEnd}'
-        ),
-        
-        -- Bu yıl mağaza bazında satış olan günler
-        this_year_store_days AS (
-          SELECT DISTINCT 
-            ${storeCol} as store_id,
-            toDate(${dateColumn}) as sale_date
-          FROM ${tableName}
-          WHERE toDate(${dateColumn}) IN (SELECT this_year_date FROM lfl_dates)
-            ${rlsCondition}
-            ${filterCondition}
-        ),
-        
-        -- Geçen yıl mağaza bazında satış olan günler
-        last_year_store_days AS (
-          SELECT DISTINCT 
-            ${storeCol} as store_id,
-            toDate(${dateColumn}) as sale_date
-          FROM ${tableName}
-          WHERE toDate(${dateColumn}) IN (SELECT last_year_date FROM lfl_dates)
-            ${rlsCondition}
-            ${filterCondition}
-        ),
-        
-        -- Her mağaza için, hem bu yıl hem geçen yıl satış olan günler (LFL Takvim eşleşmeli)
-        common_store_days AS (
+        SELECT 
+          sum(this_year_value) as current_value,
+          sum(last_year_value) as previous_value,
+          count() as common_days_count
+        FROM (
           SELECT 
             ty.store_id,
             ty.sale_date as this_year_date,
-            lfl.last_year_date
-          FROM this_year_store_days ty
-          INNER JOIN lfl_dates lfl ON ty.sale_date = lfl.this_year_date
-          INNER JOIN last_year_store_days ly 
-            ON ty.store_id = ly.store_id 
-            AND lfl.last_year_date = ly.sale_date
-        ),
-        
-        -- Bu yıl verileri (ortak mağaza-günler için)
-        this_year_data AS (
-          SELECT ${aggFunc} as total
-          FROM ${tableName} s
-          INNER JOIN common_store_days csd 
-            ON s.${storeCol} = csd.store_id 
-            AND toDate(s.${dateColumn}) = csd.this_year_date
-          WHERE 1=1 ${rlsCondition} ${filterCondition}
-        ),
-        
-        -- Geçen yıl verileri (ortak mağaza-günler için)
-        last_year_data AS (
-          SELECT ${aggFunc} as total
-          FROM ${tableName} s
-          INNER JOIN common_store_days csd 
-            ON s.${storeCol} = csd.store_id 
-            AND toDate(s.${dateColumn}) = csd.last_year_date
-          WHERE 1=1 ${rlsCondition} ${filterCondition}
+            lfl.ly_date as last_year_date,
+            ty.agg_value as this_year_value,
+            ly.agg_value as last_year_value
+          FROM (
+            -- Bu yıl mağaza-gün bazında aggregated değerler
+            SELECT ${storeCol} as store_id, toDate(${dateColumn}) as sale_date, ${aggFunc} as agg_value
+            FROM ${tableName}
+            WHERE toDate(${dateColumn}) >= '${thisYearStart}' AND toDate(${dateColumn}) <= '${thisYearEnd}'
+              ${rlsCondition} ${filterCondition}
+            GROUP BY ${storeCol}, toDate(${dateColumn})
+          ) ty
+          INNER JOIN (
+            -- LFL Takvim eşleşmeleri
+            SELECT toDate(${thisYearCol}) as ty_date, toDate(${lastYearCol}) as ly_date
+            FROM ${lflTable}
+            WHERE toDate(${thisYearCol}) >= '${thisYearStart}' AND toDate(${thisYearCol}) <= '${thisYearEnd}'
+          ) lfl ON ty.sale_date = lfl.ty_date
+          INNER JOIN (
+            -- Geçen yıl mağaza-gün bazında aggregated değerler
+            SELECT ${storeCol} as store_id, toDate(${dateColumn}) as sale_date, ${aggFunc} as agg_value
+            FROM ${tableName}
+            WHERE toDate(${dateColumn}) >= '${lyStart}' AND toDate(${dateColumn}) <= '${lyEnd}'
+              ${rlsCondition} ${filterCondition}
+            GROUP BY ${storeCol}, toDate(${dateColumn})
+          ) ly ON ty.store_id = ly.store_id AND lfl.ly_date = ly.sale_date
         )
-        
-        SELECT 
-          (SELECT total FROM this_year_data) as current_value,
-          (SELECT total FROM last_year_data) as previous_value,
-          (SELECT count() FROM common_store_days) as common_days_count
       `;
     } else {
       // ============================================
