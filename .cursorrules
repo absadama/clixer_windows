@@ -29,6 +29,49 @@ Kod değişikliği yap → Kullanıcıya söyle → BEKLE
 
 ---
 
+## 🔴🔴🔴 GIT PUSH ZORUNLU KURALI 🔴🔴🔴
+
+> **"YEDEK AL", "GITHUB'A GÖNDER", "COMMIT ET" DENDİĞİNDE MUTLAKA 3 KOMUT ÇALIŞTIRILACAK VE SONUÇ GÖSTERİLECEK!**
+
+### Zorunlu Akış:
+```bash
+# 1. Tüm değişiklikleri stage et
+git add .
+
+# 2. Commit et (açıklayıcı mesaj ile)
+git commit -m "feat/fix: Yapılan değişikliğin açıklaması"
+
+# 3. MUTLAKA PUSH ET!
+git push origin master
+```
+
+### Kullanıcıya Gösterilecek:
+```
+✅ Commit: abc1234 - "feat: LFL Takvim UI eklendi"
+✅ Push: master -> origin/master (10 commits)
+```
+
+### ASLA YAPMA:
+- ❌ `git add` ve `git commit` yapıp `git push` yapmamak
+- ❌ "Yedek alındı" demek ama push etmemek
+- ❌ Lokal commit'leri bekletmek (`ahead of origin by X commits` durumu)
+- ❌ Push sonucunu kullanıcıya göstermemek
+
+### Kontrol:
+```bash
+# Bu komut "ahead of origin" göstermemeli!
+git status
+# Doğru çıktı: "Your branch is up to date with 'origin/master'"
+```
+
+### Neden Bu Kadar Kritik?
+1. Production sunucusu GitHub'dan çekiyor (`git pull`)
+2. Push edilmemiş kod = Production'da YOK
+3. Kullanıcı "çalışıyor" sanıyor ama sunucuda eski kod var
+4. **BU KABUL EDİLEMEZ BİR DURUM!**
+
+---
+
 ## 📋 PROJE KİMLİĞİ
 
 **Clixer**, büyük ölçekli kurumsal analitik platformudur. Perakende, F&B, üniversite, holding gibi farklı sektörlerde kullanılabilir. Temel farkımız: **real-time veri akışı** ve **olağanüstü performans**.
