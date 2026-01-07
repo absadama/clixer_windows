@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useTheme } from '../components/Layout'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -197,6 +197,11 @@ export default function AnalysisPage() {
     addCrossFilter, removeCrossFilter, clearCrossFilters,
     openDrillDown, closeDrillDown, setDrillDownData, setDrillDownLoading
   } = useFilterStore()
+  
+  // Mağaza seçimlerini stabil string'e çevir - useEffect dependency için
+  // sort() ile sıralama yaparak aynı mağazaların farklı sırada seçilmesinde gereksiz fetch'i önle
+  const storeIdsKey = useMemo(() => [...selectedStoreIds].sort().join(','), [selectedStoreIds])
+  
   const [selectedReport, setSelectedReport] = useState<string | null>(null)
   const [selectedDesign, setSelectedDesign] = useState<SavedDesign | null>(null)
   const [designWidgets, setDesignWidgets] = useState<Widget[]>([])
@@ -266,9 +271,11 @@ export default function AnalysisPage() {
   // Filtreler değiştiğinde verileri yeniden yükle (tarih, bölge, mağaza, tip)
   useEffect(() => {
     if (selectedDesign && accessToken) {
+      console.log('[AnalysisPage] Filters changed, refetching...', { startDate, endDate, storeCount: selectedStoreIds.length, storeIdsKey })
       loadDesignDetail(selectedDesign.id)
     }
-  }, [startDate, endDate, selectedRegionId, selectedStoreIds.length, selectedStoreType])
+  // storeIdsKey: useMemo ile hesaplanan stabil string - mağaza değişikliklerini doğru yakalar
+  }, [startDate, endDate, selectedRegionId, storeIdsKey, selectedStoreType])
   
   // Drill-Down verisi çek
   const fetchDrillDownData = async (metricId: string, field: string, value: string | number) => {
@@ -318,6 +325,16 @@ export default function AnalysisPage() {
       if (selectedRegionId) requestBody.regionId = selectedRegionId
       // Mağaza filtresi: Tüm mağazalar seçiliyse filtre GÖNDERİLMEZ ("tüm mağazalar" demektir)
       const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+      
+      // DEBUG: Mağaza filtresi gönderme durumunu logla
+      console.log('[ANALYSIS_DEBUG] loadDesignDetail', {
+        storesCount: stores.length,
+        selectedCount: selectedStoreIds.length,
+        allStoresSelected,
+        willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
+        storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
+      })
+      
       if (selectedStoreIds.length > 0 && !allStoresSelected) {
         requestBody.storeIds = selectedStoreIds.join(',')
       }

@@ -139,6 +139,16 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       // Mağaza filtresi: Tüm mağazalar seçiliyse (stores.length === selectedStoreIds.length) filtre GÖNDERİLMEZ
       // Bu "tüm mağazalar" demektir ve backend'de RLS dışında ek filtre uygulanmaz
       const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+      
+      // DEBUG: Mağaza filtresi gönderme durumunu logla
+      console.log('[STORE_DEBUG] fetchDashboardData', {
+        storesCount: stores.length,
+        selectedCount: selectedStoreIds.length,
+        allStoresSelected,
+        willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
+        storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
+      })
+      
       if (selectedStoreIds.length > 0 && !allStoresSelected) {
         requestBody.storeIds = selectedStoreIds.join(',')
       }

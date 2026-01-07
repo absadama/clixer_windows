@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useDashboardStore } from '../stores/dashboardStore'
 import { useAuthStore } from '../stores/authStore'
 import { useFilterStore } from '../stores/filterStore'
@@ -102,6 +102,10 @@ export default function DashboardPage() {
   const { accessToken, user } = useAuthStore()
   const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType } = useFilterStore()
   const [showDesignSelector, setShowDesignSelector] = useState(false)
+  
+  // Mağaza seçimlerini stabil string'e çevir - useEffect dependency için
+  // sort() ile sıralama yaparak aynı mağazaların farklı sırada seçilmesinde gereksiz fetch'i önle
+  const storeIdsKey = useMemo(() => [...selectedStoreIds].sort().join(','), [selectedStoreIds])
   const { theme, isDark, currentTheme } = useTheme()
   const { width } = useWindowSize()
   
@@ -145,14 +149,14 @@ export default function DashboardPage() {
   useEffect(() => {
     if (currentDesign && accessToken) {
       const timeoutId = setTimeout(() => {
-        console.log('[DashboardPage] Filters changed, refetching...', { startDate, endDate, storeCount: selectedStoreIds.length })
+        console.log('[DashboardPage] Filters changed, refetching...', { startDate, endDate, storeCount: selectedStoreIds.length, storeIdsKey })
         fetchDashboardData(currentDesign.id)
       }, 300) // 300ms debounce - kullanıcı mağaza seçmeyi bitirene kadar bekle
       
       return () => clearTimeout(timeoutId)
     }
-  // selectedStoreIds.join(',') kullanarak içerik değişikliklerini yakala
-  }, [startDate, endDate, selectedRegionId, selectedStoreIds.join(','), selectedStoreType, currentDesign?.id, fetchDashboardData, accessToken])
+  // storeIdsKey: useMemo ile hesaplanan stabil string - mağaza değişikliklerini doğru yakalar
+  }, [startDate, endDate, selectedRegionId, storeIdsKey, selectedStoreType, currentDesign?.id, fetchDashboardData, accessToken])
 
   useEffect(() => {
     // URL'den designId parametresini oku
