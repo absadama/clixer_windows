@@ -2847,11 +2847,16 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
     const userFilterValue = (req.user as any).filterValue || 'all';
     const cacheKey = `dashboard:full:${designId}:${req.user!.tenantId}:${userFilterLevel}:${userFilterValue}:${JSON.stringify(parameters)}`;
 
+    // DEBUG: Cache key kontrolü
+    console.log('[DEBUG] Dashboard cacheKey (first 100 chars):', cacheKey.substring(0, 100));
+    
     // Cache check
     const cachedData = await cache.get(cacheKey);
     if (cachedData) {
+      console.log('[DEBUG] Dashboard CACHE HIT - returning cached data');
       return res.json({ success: true, data: cachedData, cached: true });
     }
+    console.log('[DEBUG] Dashboard CACHE MISS - will execute metrics');
 
     // Design bilgisini al
     const design = await db.queryOne(
