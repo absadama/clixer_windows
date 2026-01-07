@@ -67,6 +67,9 @@ function getDefaultComparisonLabel(compType: string): string {
 /**
  * LFL (Like-for-Like) hesaplama
  * Sadece her iki dönemde de satış olan günleri karşılaştırır
+ * 
+ * Eğer LFL Takvim dataset'i tanımlıysa (lflCalendarDatasetId), bu takvimi kullanır.
+ * Değilse, basit dayOfYear karşılaştırması yapar.
  */
 async function calculateLFL(
   tableName: string,
@@ -74,24 +77,128 @@ async function calculateLFL(
   valueColumn: string,
   aggFunc: string,
   rlsCondition: string,
-  filterCondition: string
+  filterCondition: string,
+  startDate?: string,  // FilterBar'dan gelen başlangıç tarihi
+  endDate?: string,    // FilterBar'dan gelen bitiş tarihi
+  lflCalendarConfig?: {
+    datasetId: string;
+    thisYearColumn: string;
+    lastYearColumn: string;
+    clickhouseTable: string;
+  }
 ): Promise<{
   currentValue: number;
   previousValue: number;
   trend: number;
   commonDays: number;
 } | null> {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   
-  // Bu yıl ve geçen yıl YTD tarihleri
-  const thisYearStart = `${today.getFullYear()}-01-01`;
-  const thisYearEnd = formatDateString(today);
-  const lastYearStart = `${today.getFullYear() - 1}-01-01`;
-  const lastYearEnd = `${today.getFullYear() - 1}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  // Tarih aralığını belirle
+  let thisYearStart: string;
+  let thisYearEnd: string;
   
-  // LFL SQL: Her iki yılda da satış olan günlerin yılın hangi günü olduğunu bul (dayOfYear)
-  // Sonra sadece bu ortak günlerin toplamlarını al
+  if (startDate && endDate) {
+    // FilterBar'dan gelen tarihler
+    thisYearStart = startDate;
+    thisYearEnd = endDate;
+  } else {
+    // Varsayılan: YTD
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    thisYearStart = `${today.getFullYear()}-01-01`;
+    thisYearEnd = formatDateString(today);
+  }
+  
+  logger.debug('LFL calculation started', { thisYearStart, thisYearEnd, hasLflCalendar: !!lflCalendarConfig });
+  
+  // ============================================
+  // LFL TAKVİM KULLANARAK HESAPLAMA
+  // ============================================
+  if (lflCalendarConfig?.clickhouseTable) {
+    const lflTable = `clixer_analytics.${lflCalendarConfig.clickhouseTable}`;
+    const thisYearCol = lflCalendarConfig.thisYearColumn || 'this_year';
+    const lastYearCol = lflCalendarConfig.lastYearColumn || 'last_year';
+    
+    // LFL Takvimden bu tarih aralığına düşen günleri bul
+    const lflSql = `
+      WITH lfl_dates AS (
+        SELECT 
+          toDate(${thisYearCol}) as this_year_date,
+          toDate(${lastYearCol}) as last_year_date
+        FROM ${lflTable}
+        WHERE toDate(${thisYearCol}) >= '${thisYearStart}' 
+          AND toDate(${thisYearCol}) <= '${thisYearEnd}'
+      )
+      SELECT 
+        (
+          SELECT ${aggFunc}
+          FROM ${tableName} s
+          INNER JOIN lfl_dates lfl ON toDate(s.${dateColumn}) = lfl.this_year_date
+          WHERE 1=1
+            ${rlsCondition}
+            ${filterCondition}
+        ) as current_value,
+        (
+          SELECT ${aggFunc}
+          FROM ${tableName} s
+          INNER JOIN lfl_dates lfl ON toDate(s.${dateColumn}) = lfl.last_year_date
+          WHERE 1=1
+            ${rlsCondition}
+            ${filterCondition}
+        ) as previous_value,
+        (SELECT count() FROM lfl_dates) as common_days_count
+    `;
+    
+    logger.debug('LFL with calendar SQL', { lflTable, thisYearCol, lastYearCol });
+    
+    try {
+      const result = await clickhouse.query<{
+        current_value: number;
+        previous_value: number;
+        common_days_count: number;
+      }>(lflSql);
+      
+      if (result.length === 0 || result[0].common_days_count === 0) {
+        logger.warn('LFL calendar returned no matching days', { thisYearStart, thisYearEnd });
+        return null;
+      }
+      
+      const { current_value, previous_value, common_days_count } = result[0];
+      const currentVal = Number(current_value) || 0;
+      const previousVal = Number(previous_value) || 0;
+      
+      let trend = 0;
+      if (previousVal !== 0) {
+        trend = ((currentVal - previousVal) / Math.abs(previousVal)) * 100;
+      } else if (currentVal > 0) {
+        trend = 100;
+      }
+      
+      logger.debug('LFL with calendar result', { 
+        currentVal, previousVal, trend: trend.toFixed(2), commonDays: common_days_count 
+      });
+      
+      return {
+        currentValue: currentVal,
+        previousValue: previousVal,
+        trend,
+        commonDays: Number(common_days_count)
+      };
+    } catch (error) {
+      logger.error('LFL calendar query failed', { error, lflSql: lflSql.substring(0, 200) });
+      // Takvim sorgusu başarısız olursa fallback'e düş
+    }
+  }
+  
+  // ============================================
+  // FALLBACK: BASIT dayOfYear KARŞILAŞTIRMASI
+  // ============================================
+  // Seçilen tarih aralığındaki günlerin geçen yıl karşılıklarını bul
+  const startDateObj = new Date(thisYearStart);
+  const endDateObj = new Date(thisYearEnd);
+  const lastYearStart = `${startDateObj.getFullYear() - 1}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}-${String(startDateObj.getDate()).padStart(2, '0')}`;
+  const lastYearEnd = `${endDateObj.getFullYear() - 1}-${String(endDateObj.getMonth() + 1).padStart(2, '0')}-${String(endDateObj.getDate()).padStart(2, '0')}`;
+  
   const lflSql = `
     WITH 
     -- Bu yıl satış olan günler (dayOfYear)
@@ -1415,13 +1522,46 @@ async function executeMetric(
       // ============================================
       if (compType === 'lfl') {
         // LFL: Sadece her iki dönemde de satış olan günleri karşılaştır
+        // FilterBar'dan gelen tarih parametrelerini al
+        const lflStartDate = parameters.startDate as string;
+        const lflEndDate = parameters.endDate as string;
+        
+        // LFL Takvim dataset bilgilerini chartConfig'den al
+        let lflCalendarConfig: {
+          datasetId: string;
+          thisYearColumn: string;
+          lastYearColumn: string;
+          clickhouseTable: string;
+        } | undefined;
+        
+        if (chartConfig.lflCalendarDatasetId) {
+          // Dataset'in ClickHouse tablo adını bul
+          const lflDataset = await db.queryOne<{ clickhouse_table: string }>(
+            'SELECT clickhouse_table FROM datasets WHERE id = $1',
+            [chartConfig.lflCalendarDatasetId]
+          );
+          
+          if (lflDataset?.clickhouse_table) {
+            lflCalendarConfig = {
+              datasetId: chartConfig.lflCalendarDatasetId,
+              thisYearColumn: chartConfig.lflThisYearColumn || 'this_year',
+              lastYearColumn: chartConfig.lflLastYearColumn || 'last_year',
+              clickhouseTable: lflDataset.clickhouse_table
+            };
+            logger.debug('LFL Calendar config found', lflCalendarConfig);
+          }
+        }
+        
         const lflResult = await calculateLFL(
           tableName,
           dateColumn,
           column,
           aggFunc,
           rlsCondition,
-          filterCondition
+          filterCondition,
+          lflStartDate,
+          lflEndDate,
+          lflCalendarConfig
         );
         
         if (lflResult) {
@@ -1438,7 +1578,8 @@ async function executeMetric(
             currentLFL: lflResult.currentValue,
             previousLFL: lflResult.previousValue,
             commonDays: lflResult.commonDays,
-            trend: trend?.toFixed(2)
+            trend: trend?.toFixed(2),
+            usedCalendar: !!lflCalendarConfig
           });
         }
       } else {
