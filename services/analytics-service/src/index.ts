@@ -1371,9 +1371,12 @@ async function executeMetric(
   const dateHash = cacheDateStart && cacheDateEnd ? `${cacheDateStart}_${cacheDateEnd}` : 'nodate';
   // StoreIds parametresini özel olarak cache key'e ekle (hash collision önlemek için)
   const storeIdsParam = parameters.storeIds as string || '';
+  // StoreIds için crypto hash kullan - base64 substring collision sorunu var!
+  const crypto = require('crypto');
   const storeHash = storeIdsParam 
-    ? Buffer.from(storeIdsParam).toString('base64').substring(0, 32) 
+    ? crypto.createHash('md5').update(storeIdsParam).digest('hex').substring(0, 16) 
     : 'all';
+  console.log('[DEBUG] executeMetric storeHash:', storeHash, 'from storeIds:', storeIdsParam ? storeIdsParam.substring(0, 50) + '...' : 'NONE');
   const otherParams = { ...parameters };
   delete otherParams.startDate;
   delete otherParams.endDate;
