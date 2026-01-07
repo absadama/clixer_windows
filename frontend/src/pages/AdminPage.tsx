@@ -32,6 +32,7 @@ import {
   Eraser,
   Tag,
   Save,
+  Server,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { SystemSetting } from '../types'
@@ -45,6 +46,9 @@ const menuItems = [
   { id: 'labels', label: 'Etiketler', icon: Tag, category: 'SİSTEM' },
   { id: 'performance', label: 'Performans', icon: Gauge, category: 'SİSTEM' },
   { id: 'master', label: 'Master Veriler', icon: Database, category: 'SİSTEM' },
+  { id: 'monitor', label: 'Sistem Monitörü', icon: Activity, category: 'SİSTEM' },
+  { id: 'services', label: 'Servis Yönetimi', icon: Server, category: 'SİSTEM' },
+  { id: 'backup', label: 'Yedekleme', icon: HardDrive, category: 'SİSTEM' },
   { id: 'users', label: 'Kullanıcı Yönetimi', icon: Users, category: 'KULLANICILAR' },
   { id: 'roles', label: 'Rol & Yetkiler', icon: Lock, category: 'KULLANICILAR' },
   { id: 'ldap', label: 'LDAP / SSO', icon: Key, category: 'KULLANICILAR' },
@@ -3048,6 +3052,78 @@ export default function AdminPage() {
               </div>
             )}
           </>
+        )}
+
+        {/* Sistem Monitörü */}
+        {activeTab === 'monitor' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-cyan-500/20' : 'bg-cyan-100')}>
+                <Activity size={24} className={isDark ? 'text-cyan-400' : 'text-cyan-600'} />
+              </div>
+              <div>
+                <h1 className={clsx('text-xl font-bold', theme.contentText)}>Sistem Monitörü</h1>
+                <p className={clsx('text-sm', theme.contentTextMuted)}>
+                  Aktif kullanıcılar ve sistem durumu
+                </p>
+              </div>
+            </div>
+
+            <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
+              <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>Aktif Kullanıcılar</h3>
+              <p className={clsx('text-sm', theme.contentTextMuted)}>
+                Bu özellik yakında eklenecek. Backend endpoint'leri hazır.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Servis Yönetimi */}
+        {activeTab === 'services' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-violet-500/20' : 'bg-violet-100')}>
+                <Server size={24} className={isDark ? 'text-violet-400' : 'text-violet-600'} />
+              </div>
+              <div>
+                <h1 className={clsx('text-xl font-bold', theme.contentText)}>Servis Yönetimi</h1>
+                <p className={clsx('text-sm', theme.contentTextMuted)}>
+                  Backend servislerin durumu ve yönetimi
+                </p>
+              </div>
+            </div>
+
+            <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
+              <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>Servisler</h3>
+              <p className={clsx('text-sm', theme.contentTextMuted)}>
+                Bu özellik yakında eklenecek. Backend endpoint'leri hazır.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Yedekleme */}
+        {activeTab === 'backup' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-amber-500/20' : 'bg-amber-100')}>
+                <HardDrive size={24} className={isDark ? 'text-amber-400' : 'text-amber-600'} />
+              </div>
+              <div>
+                <h1 className={clsx('text-xl font-bold', theme.contentText)}>Yedekleme</h1>
+                <p className={clsx('text-sm', theme.contentTextMuted)}>
+                  Veritabanı yedekleme ve geri yükleme
+                </p>
+              </div>
+            </div>
+
+            <div className={clsx('rounded-2xl p-6', theme.cardBg)}>
+              <h3 className={clsx('font-bold text-lg mb-4', theme.contentText)}>Yedekler</h3>
+              <p className={clsx('text-sm', theme.contentTextMuted)}>
+                Bu özellik yakında eklenecek. Backend endpoint'leri hazır.
+              </p>
+            </div>
+          </div>
         )}
       </div>
 
