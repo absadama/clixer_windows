@@ -7754,7 +7754,8 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-08 | **v4.14** | **No-Code Kolon Tipi Değiştirme (DataGrid Context Menu)** |
+| 2026-01-08 | **v4.15** | **DataGrid Tarih Aralığı Filtresi - Kokpit ile Aynı UI** |
+| 2026-01-08 | v4.14 | No-Code Kolon Tipi Değiştirme (DataGrid Context Menu) |
 | 2026-01-08 | v4.13 | ETL Schedule Cron Fix + Zamanlanmış Görevler Tam Çalışır |
 | 2026-01-08 | v4.12 | Admin Panel: "Servis Yönetimi" sekmesi kaldırıldı (Sistem Monitörü ile mükerrer) |
 | 2026-01-07 | v4.11 | LDAP Sync: Mevcut Kullanıcı Yetkileri Korunuyor + Otomatik Schedule |
@@ -7881,6 +7882,60 @@ ps aux | grep etl-worker | grep -v grep
 
 - **GitHub Tag:** `v4.14`
 - **Commit:** `ff9afb0`
+
+---
+
+## 📅 v4.15 - 8 Ocak 2026
+
+**DataGrid Tarih Aralığı Filtresi - Kokpit ile Aynı UI**
+
+### 1. ✅ Tarih Aralığı Filtresi Eklendi
+
+DataGrid sayfasına kokpit ile aynı tarzda tarih filtresi eklendi:
+
+| Özellik | Açıklama |
+|---------|----------|
+| **Tarih Kolonu Seçici** | Dataset'teki tarih kolonlarından seçim yapılabilir |
+| **Tarih Aralığı Preset** | Son 7 Gün, Son 30 Gün, Özel Tarih seçenekleri |
+| **Özel Tarih** | Start Date ve End Date manuel giriş |
+| **Filtre Uygulama** | "Uygula" butonuyla veriler filtrelenir |
+
+### 2. ✅ Backend Tarih Filtresi Desteği
+
+`data-service` endpoint'lerine tarih filtresi parametreleri eklendi:
+
+| Endpoint | Parametreler |
+|----------|--------------|
+| `/datasets/:id/preview` | `startDate`, `endDate`, `dateColumn` |
+| `/datasets/:id/aggregates` | `startDate`, `endDate`, `dateColumn` |
+
+### 3. ✅ ClickHouse Sorgusu
+
+```sql
+SELECT * FROM clixer_analytics.dataset_table
+WHERE toDate(ReportDay) >= '2025-01-01' AND toDate(ReportDay) <= '2025-12-31'
+LIMIT 50000
+```
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `frontend/src/pages/DataGridDemoPage.tsx` | Tarih filtresi UI, state yönetimi |
+| `services/data-service/src/index.ts` | `/preview` ve `/aggregates` endpoint'lerine tarih filtresi |
+
+### Kullanım
+
+1. Dataset seçildiğinde tarih kolonları otomatik listelenir
+2. Tarih kolonu seçilir (örn: ReportDay)
+3. Tarih aralığı seçilir (Son 7 Gün, Son 30 Gün veya Özel)
+4. "Uygula" butonuna tıklanır
+5. Filtrelenmiş veriler ve toplamlar görüntülenir
+
+### Yedekleme
+
+- **GitHub Tag:** `v4.15`
+- **Commit:** `80ea5d7`
 
 ---
 
