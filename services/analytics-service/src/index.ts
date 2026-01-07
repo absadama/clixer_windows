@@ -2824,6 +2824,11 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
       ? { ...req.query, ...req.body } 
       : req.query as Record<string, any>;
     
+    // DEBUG: Request body ve parameters kontrol
+    console.log('[DEBUG] handleDashboardFull - method:', req.method);
+    console.log('[DEBUG] handleDashboardFull - req.body:', JSON.stringify(req.body));
+    console.log('[DEBUG] handleDashboardFull - parameters.storeIds:', parameters.storeIds);
+    
     // Cross-Filter parse
     let crossFilters: Array<{ field: string; value: any }> = [];
     if (parameters.crossFilters) {
