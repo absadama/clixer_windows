@@ -7632,11 +7632,83 @@ LIMIT 10
 
 ---
 
+---
+
+## 🔴 ETL WORKER TEK INSTANCE KURALI (KRİTİK!)
+
+### MUTLAK KURAL: ETL Worker HER ZAMAN TEK INSTANCE çalışmalı!
+
+**Sorun:** Birden fazla ETL Worker process çalıştığında:
+- Her process aynı schedule'ları kontrol ediyor
+- Her process aynı pending job'ları işlemeye çalışıyor
+- Sonuç: "Günlük" diye ayarlanan job 5 dakikada bir tetikleniyor!
+
+### Belirti:
+```bash
+# 13+ ETL Worker process görünüyor!
+ps aux | grep etl-worker
+root 490646 ... node .../etl-worker/...
+root 531289 ... node .../etl-worker/...
+root 532535 ... node .../etl-worker/...
+# ... 10+ daha
+```
+
+### Çözüm:
+```bash
+# 1. Tüm ETL Worker process'lerini öldür
+sudo pkill -9 -f "etl-worker"
+
+# 2. Kontrol et (sadece grep satırı görünmeli)
+ps aux | grep etl-worker
+
+# 3. TEK bir ETL Worker başlat
+cd /opt/clixer/services/etl-worker
+sudo nohup npm run dev > /opt/clixer/logs/etl-worker-out.log 2>&1 &
+
+# 4. Running job'ları iptal et (opsiyonel)
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+UPDATE etl_jobs SET status = 'cancelled' WHERE status = 'running';
+"
+```
+
+### Kontrol Listesi:
+- [ ] `ps aux | grep etl-worker` sadece 2 satır göstermeli (ts-node-dev wrapper + worker)
+- [ ] `tail -f /opt/clixer/logs/etl-worker-out.log` tek worker logu göstermeli
+- [ ] Schedule'lar cron_expression'a göre çalışmalı, 5 dakikada bir DEĞİL
+
+### Neden Oluyor?
+- `start-all.sh` birden fazla kez çalıştırılmış
+- Sunucu restart'ında temizlenmemiş process'ler kalmış
+- nohup ile arka planda birden fazla instance başlatılmış
+
+### ETL Schedule Kontrolü:
+```bash
+# Schedule ayarını gör
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+SELECT d.name, d.sync_schedule, s.cron_expression, s.next_run_at, s.is_active
+FROM datasets d
+LEFT JOIN etl_schedules s ON d.id = s.dataset_id
+WHERE s.is_active = true;
+"
+
+# Son job'ları gör
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+SELECT id, status, created_at 
+FROM etl_jobs 
+WHERE dataset_id = 'DATASET_UUID'
+ORDER BY created_at DESC 
+LIMIT 10;
+"
+```
+
+---
+
 ## 📋 VERSİYON GEÇMİŞİ (Özet - Güncel)
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-07 | **v4.9** | **Ranking List Multi-Value Columns + Trend Hesaplama** |
+| 2026-01-07 | **v4.10** | **ETL Worker Çoklu Process Düzeltmesi** |
+| 2026-01-07 | v4.9 | Ranking List Multi-Value Columns + Trend Hesaplama |
 | 2026-01-07 | v4.8 | Sıralama Listesi dbColumn Düzeltmesi |
 | 2026-01-07 | v4.7 | JWT Token Süresi 1 Saat & Güncelleme Paketi |
 | 2026-01-07 | v4.6 | Metrik Tarih Kolonu Fallback & UI Uyarısı |
