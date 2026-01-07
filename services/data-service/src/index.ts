@@ -2207,6 +2207,7 @@ app.post('/datasets', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), async
       columnMapping,
       syncStrategy,
       syncSchedule,
+      scheduledHour, // Günlük schedule için saat seçimi
       referenceColumn,
       rowLimit,
       // Yeni partition ve refresh ayarları
@@ -2544,7 +2545,7 @@ app.put('/datasets/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), as
   try {
     const { id } = req.params;
     const { 
-      name, syncStrategy, syncSchedule, rowLimit, status, referenceColumn,
+      name, syncStrategy, syncSchedule, scheduledHour, rowLimit, status, referenceColumn,
       // Partition ayarları
       partitionColumn, partitionType, refreshWindowDays, 
       detectModified, modifiedColumn, weeklyFullRefresh, engineType, customWhere,
@@ -2609,6 +2610,11 @@ app.put('/datasets/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), as
       else if (syncSchedule === '6h') cronExpression = '0 */6 * * *';
       else if (syncSchedule === '12h') cronExpression = '0 */12 * * *';
       else if (syncSchedule === '1d') cronExpression = '0 0 * * *';
+      else if (syncSchedule === 'daily') {
+        // Günlük - kullanıcının seçtiği saatte çalışır
+        const hour = typeof scheduledHour === 'number' ? scheduledHour : 2; // Varsayılan: 02:00
+        cronExpression = `0 ${hour} * * *`; // Her gün seçilen saatte
+      }
       
       // Schedule var mı kontrol et
       const existingSchedule = await db.queryOne(

@@ -4112,6 +4112,12 @@ async function checkScheduledJobs(): Promise<void> {
         else if (cron === '0 */6 * * *') nextRun.setHours(nextRun.getHours() + 6);
         else if (cron === '0 */12 * * *') nextRun.setHours(nextRun.getHours() + 12);
         else if (cron === '0 0 * * *') nextRun.setDate(nextRun.getDate() + 1);
+        else if (cron.match(/^0 \d{1,2} \* \* \*$/)) {
+          // Günlük belirli saat: "0 2 * * *" = her gün 02:00
+          const hour = parseInt(cron.split(' ')[1]);
+          nextRun.setDate(nextRun.getDate() + 1); // Yarın
+          nextRun.setHours(hour, 0, 0, 0); // Belirlenen saat
+        }
         else nextRun.setMinutes(nextRun.getMinutes() + 1); // default: 1 dakika
 
         // Schedule'ı güncelle

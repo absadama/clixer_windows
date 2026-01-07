@@ -404,6 +404,7 @@ export default function DataPage() {
   const [newDatasetDescription, setNewDatasetDescription] = useState('')
   const [newDatasetSyncStrategy, setNewDatasetSyncStrategy] = useState('full_refresh')
   const [newDatasetSyncSchedule, setNewDatasetSyncSchedule] = useState('manual')
+  const [scheduledHour, setScheduledHour] = useState(2) // Günlük/Haftalık için saat (varsayılan: 02:00)
   const [newDatasetReferenceColumn, setNewDatasetReferenceColumn] = useState('')
   const [newDatasetRowLimit, setNewDatasetRowLimit] = useState<number | null>(null) // null = sınırsız
   const [settingsColumns, setSettingsColumns] = useState<string[]>([])
@@ -1170,6 +1171,7 @@ export default function DataPage() {
           columnMapping,
           syncStrategy: newDatasetSyncStrategy,
           syncSchedule: newDatasetSyncSchedule,
+          scheduledHour: newDatasetSyncSchedule === 'daily' ? scheduledHour : null,
           referenceColumn: newDatasetReferenceColumn || null,
           rowLimit: newDatasetRowLimit,
           deleteDays: newDatasetSyncStrategy === 'date_delete_insert' ? deleteDays : null,  // Tarih Bazlı Sil-Yaz için
@@ -1454,6 +1456,12 @@ export default function DataPage() {
     setNewDatasetName(dataset.name)
     setNewDatasetSyncStrategy(dataset.sync_strategy)
     setNewDatasetSyncSchedule(dataset.sync_schedule || 'manual')
+    // Eğer günlük schedule ise ve cron'dan saat çıkarılabilirse kullan
+    if (dataset.sync_schedule === 'daily') {
+      // etl_schedules'dan saati çekebiliriz, ama şimdilik varsayılan 2 kullan
+      // TODO: Backend'den scheduled_hour bilgisi gelmeli
+      setScheduledHour(2)
+    }
     setNewDatasetReferenceColumn(dataset.reference_column || '')
     setNewDatasetRowLimit(dataset.row_limit || null)
     setDeleteDays(dataset.delete_days || 1)  // Tarih Bazlı Sil-Yaz için
@@ -1515,6 +1523,7 @@ export default function DataPage() {
           name: newDatasetName,
           syncStrategy: newDatasetSyncStrategy,
           syncSchedule: newDatasetSyncSchedule,
+          scheduledHour: newDatasetSyncSchedule === 'daily' ? scheduledHour : null,
           referenceColumn: newDatasetReferenceColumn || null,
           rowLimit: newDatasetRowLimit,  // Satır limiti
           deleteDays: newDatasetSyncStrategy === 'date_delete_insert' ? deleteDays : null,  // Tarih Bazlı Sil-Yaz
@@ -2536,7 +2545,12 @@ export default function DataPage() {
                             {(schedule.cron_expression === '*/30 * * * *' || schedule.cron_expression === '30m') && '🕐 Her 30 dakika'}
                             {(schedule.cron_expression === '0 * * * *' || schedule.cron_expression === '1h') && '⏰ Her saat başı'}
                             {(schedule.cron_expression === '0 3 * * *' || schedule.cron_expression === 'daily') && '🌙 Her gün 03:00'}
+                            {/* Dinamik saat seçimli günlük schedule: 0 X * * * formatı */}
+                            {schedule.cron_expression?.match(/^0 \d{1,2} \* \* \*$/) && 
+                             schedule.cron_expression !== '0 3 * * *' && 
+                             `🌙 Her gün ${schedule.cron_expression.split(' ')[1].padStart(2, '0')}:00`}
                             {!['* * * * *', '*/5 * * * *', '*/15 * * * *', '*/30 * * * *', '0 * * * *', '0 3 * * *', '1m', '5m', '15m', '30m', '1h', 'daily', 'manual'].includes(schedule.cron_expression) && 
+                             !schedule.cron_expression?.match(/^0 \d{1,2} \* \* \*$/) &&
                               `📅 ${schedule.cron_expression}`}
                             {schedule.last_run_at && (
                               <span className="ml-2">
@@ -5118,6 +5132,29 @@ export default function DataPage() {
                     <option value="1h">Saatlik</option>
                     <option value="daily">Günlük</option>
                   </select>
+                  
+                  {/* Günlük seçildiğinde saat seçimi */}
+                  {newDatasetSyncSchedule === 'daily' && (
+                    <div className="mt-3">
+                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>
+                        🕐 Çalışma Saati
+                      </label>
+                      <select 
+                        value={scheduledHour}
+                        onChange={(e) => setScheduledHour(parseInt(e.target.value))}
+                        className={clsx('w-full px-4 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                      >
+                        {Array.from({ length: 24 }, (_, i) => (
+                          <option key={i} value={i}>
+                            {String(i).padStart(2, '0')}:00 {i >= 0 && i < 6 ? '🌙' : i >= 6 && i < 12 ? '🌅' : i >= 12 && i < 18 ? '☀️' : '🌆'}
+                          </option>
+                        ))}
+                      </select>
+                      <p className={clsx('mt-1 text-xs', theme.contentTextMuted)}>
+                        💡 Önerilen: Gece saatleri (02:00-04:00) - Sunucu yükü düşük
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
                 
