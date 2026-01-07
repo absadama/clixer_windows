@@ -13,7 +13,7 @@ const logger = createLogger({ service: 'auth' });
 
 // JWT Config
 const JWT_SECRET = process.env.JWT_SECRET || 'clixer_dev_secret';
-const JWT_ACCESS_EXPIRES = process.env.JWT_ACCESS_EXPIRES || '15m';
+const JWT_ACCESS_EXPIRES = process.env.JWT_ACCESS_EXPIRES || '1h';
 const JWT_REFRESH_EXPIRES = process.env.JWT_REFRESH_EXPIRES || '7d';
 const BCRYPT_ROUNDS = 12;
 
