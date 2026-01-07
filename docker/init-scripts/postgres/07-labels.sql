@@ -40,3 +40,4 @@ INSERT INTO labels (tenant_id, label_type, label_key, label_value) VALUES
 ON CONFLICT (tenant_id, label_type, label_key) DO NOTHING;
 
 
+

@@ -2014,6 +2014,8 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
   try {
     const { id } = req.params;
     const limit = parseInt(req.query.limit as string) || 100;
+    const orderByParam = req.query.orderBy as string || ''; // İsteğe bağlı sıralama
+    const sortOrder = req.query.sortOrder as string || 'DESC'; // Varsayılan DESC (en yeni önce)
 
     const dataset = await db.queryOne(
       'SELECT * FROM datasets WHERE id = $1 AND tenant_id = $2',
@@ -2028,10 +2030,70 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
       throw new ValidationError('Dataset henüz ClickHouse tablosu oluşturulmamış');
     }
 
-    // ClickHouse'dan veri çek
+    // ORDER BY kolon belirleme (tarih kolonu öncelikli)
+    let orderByColumn = '';
+    
+    // 1. Query parameter'dan gelen sıralama
+    if (orderByParam) {
+      // Güvenlik: Sadece alfanumerik ve underscore kabul et
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(orderByParam)) {
+        orderByColumn = orderByParam;
+      }
+    }
+    
+    // 2. Dataset'in tarih kolonunu kullan (partition_column veya reference_column)
+    if (!orderByColumn) {
+      if (dataset.partition_column && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(dataset.partition_column)) {
+        orderByColumn = dataset.partition_column;
+      } else if (dataset.reference_column && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(dataset.reference_column)) {
+        orderByColumn = dataset.reference_column;
+      }
+    }
+    
+    // 3. Yaygın tarih kolon isimlerini dene (tablo yapısından)
+    if (!orderByColumn) {
+      try {
+        const columnsResult = await clickhouse.query(
+          `SELECT name, type FROM system.columns WHERE database = 'clixer_analytics' AND table = '${dataset.clickhouse_table}'`
+        );
+        
+        // Tarih/DateTime tipindeki kolonları bul
+        const dateColumns = columnsResult.filter((col: any) => 
+          col.type.includes('Date') || col.type.includes('DateTime')
+        );
+        
+        if (dateColumns.length > 0) {
+          // Yaygın tarih kolon isimleri öncelikli
+          const priorityNames = ['ReportDay', 'report_day', 'date', 'tarih', 'created_at', 'transaction_date', '_synced_at'];
+          for (const name of priorityNames) {
+            const found = dateColumns.find((col: any) => col.name.toLowerCase() === name.toLowerCase());
+            if (found) {
+              orderByColumn = found.name;
+              break;
+            }
+          }
+          // Bulunamadıysa ilk tarih kolonunu kullan
+          if (!orderByColumn && dateColumns.length > 0) {
+            orderByColumn = dateColumns[0].name;
+          }
+        }
+      } catch (e) {
+        // Kolon sorgusu başarısız olursa devam et
+      }
+    }
+
+    // ClickHouse'dan veri çek - ORDER BY ile (en yeni veriler önce)
     const startTime = Date.now();
     const maxLimit = Math.min(limit, 10000); // Max 10K satır
-    const rows = await clickhouse.query(`SELECT * FROM clixer_analytics.${dataset.clickhouse_table} LIMIT ${maxLimit}`);
+    const validSortOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    
+    let sql = `SELECT * FROM clixer_analytics.${dataset.clickhouse_table}`;
+    if (orderByColumn) {
+      sql += ` ORDER BY ${orderByColumn} ${validSortOrder}`;
+    }
+    sql += ` LIMIT ${maxLimit}`;
+    
+    const rows = await clickhouse.query(sql);
     const executionTime = Date.now() - startTime;
 
     // Kolon bilgilerini al
