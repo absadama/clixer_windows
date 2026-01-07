@@ -393,6 +393,193 @@ app.get('/admin/system/status', authenticate, async (req: Request, res: Response
 });
 
 // ============================================
+// ADMIN - SERVİS YÖNETİMİ & SİSTEM MONİTÖRÜ
+// ============================================
+
+// Servis listesi (Servis Yönetimi sayfası için)
+const SERVICE_LIST = [
+  { id: 'gateway', name: 'API Gateway', port: 4000, critical: true },
+  { id: 'auth', name: 'Auth Service', port: 4001, critical: true },
+  { id: 'core', name: 'Core Service', port: 4002, critical: true },
+  { id: 'data', name: 'Data Service', port: 4003, critical: true },
+  { id: 'notification', name: 'Notification Service', port: 4004, critical: false },
+  { id: 'analytics', name: 'Analytics Service', port: 4005, critical: true },
+  { id: 'etl-worker', name: 'ETL Worker', port: null, critical: true }
+];
+
+// Helper: Servise ping at
+async function pingService(url: string, timeout = 3000): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 📊 Sistem istatistikleri (Sistem Monitörü için)
+ * GET /admin/system/stats
+ */
+app.get('/admin/system/stats', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // 1. Aktif bağlantı sayısı (PostgreSQL)
+    const connResult = await db.queryOne(`
+      SELECT count(*) as active FROM pg_stat_activity WHERE state = 'active'
+    `);
+    
+    // 2. Son 24 saat login
+    const last24h = await db.queryOne(`
+      SELECT 
+        count(*) as total_logins,
+        count(DISTINCT user_id) as unique_users
+      FROM audit_logs 
+      WHERE action = 'LOGIN' 
+        AND created_at >= NOW() - INTERVAL '24 hours'
+    `);
+    
+    // 3. Son 7 gün login
+    const last7d = await db.queryOne(`
+      SELECT 
+        count(*) as total_logins,
+        count(DISTINCT user_id) as unique_users
+      FROM audit_logs 
+      WHERE action = 'LOGIN' 
+        AND created_at >= NOW() - INTERVAL '7 days'
+    `);
+    
+    // 4. Veritabanı boyutları
+    let pgSize = 'N/A';
+    let chSize = 'N/A';
+    
+    try {
+      const pgResult = await db.queryOne(`
+        SELECT pg_size_pretty(pg_database_size(current_database())) as size
+      `);
+      pgSize = pgResult?.size || 'N/A';
+    } catch (e) {}
+    
+    try {
+      const chResult = await clickhouse.query(`
+        SELECT formatReadableSize(sum(bytes_on_disk)) as size 
+        FROM system.parts 
+        WHERE database = 'clixer_analytics'
+      `);
+      chSize = chResult?.[0]?.size || 'N/A';
+    } catch (e) {}
+    
+    // 5. Son giriş yapan kullanıcılar
+    const recentLogins = await db.queryAll(`
+      SELECT 
+        u.id,
+        u.email,
+        u.name,
+        p.name as position_name,
+        u.last_login_at,
+        u.last_login_ip
+      FROM users u
+      LEFT JOIN positions p ON u.position_id = p.id
+      WHERE u.last_login_at IS NOT NULL
+      ORDER BY u.last_login_at DESC
+      LIMIT 10
+    `);
+    
+    res.json({
+      success: true,
+      data: {
+        activeConnections: parseInt(connResult?.active || '0'),
+        last24Hours: {
+          logins: parseInt(last24h?.total_logins || '0'),
+          uniqueUsers: parseInt(last24h?.unique_users || '0')
+        },
+        last7Days: {
+          logins: parseInt(last7d?.total_logins || '0'),
+          uniqueUsers: parseInt(last7d?.unique_users || '0')
+        },
+        databaseSize: {
+          postgres: pgSize,
+          clickhouse: chSize
+        },
+        recentLogins
+      }
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+/**
+ * 🔧 Tüm servislerin durumu (Servis Yönetimi için)
+ * GET /admin/services
+ */
+app.get('/admin/services', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const services = await Promise.all(
+      SERVICE_LIST.map(async (svc) => {
+        let status = 'unknown';
+        let responseTime = 0;
+        
+        if (svc.port) {
+          const startTime = Date.now();
+          const isHealthy = await pingService(`http://localhost:${svc.port}/health`);
+          responseTime = Date.now() - startTime;
+          status = isHealthy ? 'running' : 'stopped';
+        } else {
+          // ETL Worker - Redis üzerinden kontrol
+          try {
+            const Redis = require('ioredis');
+            const redis = new Redis({
+              host: process.env.REDIS_HOST || 'localhost',
+              port: parseInt(process.env.REDIS_PORT || '6379'),
+              connectTimeout: 2000
+            });
+            const lastHeartbeat = await redis.get('etl:worker:heartbeat');
+            await redis.quit();
+            
+            if (lastHeartbeat) {
+              const lastTime = new Date(lastHeartbeat).getTime();
+              const now = Date.now();
+              status = (now - lastTime < 120000) ? 'running' : 'stopped'; // 2dk timeout
+            } else {
+              status = 'stopped';
+            }
+          } catch {
+            status = 'unknown';
+          }
+        }
+        
+        return {
+          ...svc,
+          status,
+          statusText: status === 'running' ? 'Çalışıyor' : status === 'stopped' ? 'Durmuş' : 'Bilinmiyor',
+          responseTime
+        };
+      })
+    );
+    
+    const runningCount = services.filter(s => s.status === 'running').length;
+    const stoppedCount = services.filter(s => s.status === 'stopped').length;
+    
+    res.json({
+      success: true,
+      data: {
+        services,
+        summary: {
+          total: services.length,
+          running: runningCount,
+          stopped: stoppedCount
+        }
+      }
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// ============================================
 // DATA CONNECTIONS
 // ============================================
 
