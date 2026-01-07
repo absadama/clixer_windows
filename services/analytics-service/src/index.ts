@@ -1717,8 +1717,26 @@ async function executeMetric(
 
   // ClickHouse'ta çalıştır
   const startTime = Date.now();
+  
+  // DEBUG: SQL ve metrik bilgilerini logla
+  logger.info('executeMetric SQL Debug', {
+    metricId,
+    metricName: metric.name,
+    sql: sql.substring(0, 500),
+    db_column: metric.db_column,
+    group_by_column: metric.group_by_column,
+    aggregation_type: metric.aggregation_type
+  });
+  
   const queryResult = await clickhouse.query<Record<string, any>>(sql);
   const executionTime = Date.now() - startTime;
+  
+  // DEBUG: Sorgu sonucunu logla
+  logger.info('executeMetric Result Debug', {
+    metricId,
+    resultLength: queryResult?.length || 0,
+    firstRow: queryResult?.[0] ? JSON.stringify(queryResult[0]).substring(0, 200) : 'empty'
+  });
 
   // Sonucu işle
   let value: any = null;
