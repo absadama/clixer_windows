@@ -390,7 +390,11 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
         icon: formData.icon,
         color: formData.color,
         datasetId: formData.datasetId || null,
-        dbColumn: isGridOrList ? null : (formData.dbColumn || null),
+        // ranking_list için dbColumn GEREKLİ (sum(dbColumn) yapılıyor)
+        // data_grid ve LIST için null olabilir
+        dbColumn: (formData.visualizationType === 'ranking_list' || !isGridOrList) 
+          ? (formData.dbColumn || null) 
+          : null,
         aggregationType: formData.aggregationType,
         filterSql: formData.filterSql || null,
         groupByColumn: formData.groupByColumn || null,
@@ -516,6 +520,11 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
       if (isGridOrList) {
         if (!formData.selectedColumns || formData.selectedColumns.length === 0) {
           alert('Lütfen en az bir kolon seçin');
+          return;
+        }
+        // ranking_list için dbColumn da gerekli (sum için)
+        if (formData.visualizationType === 'ranking_list' && !formData.dbColumn) {
+          alert('Sıralama listesi için değer kolonu (Revenue vb.) seçmelisiniz');
           return;
         }
       } else if (!formData.dbColumn) {
