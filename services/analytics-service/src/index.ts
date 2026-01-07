@@ -65,11 +65,18 @@ function getDefaultComparisonLabel(compType: string): string {
  * @returns Önceki dönem başlangıç ve bitiş tarihleri + güncel dönem gün sayısı
  */
 /**
- * LFL (Like-for-Like) hesaplama
- * Sadece her iki dönemde de satış olan günleri karşılaştırır
+ * LFL (Like-for-Like) hesaplama - MAĞAZA BAZLI
  * 
- * Eğer LFL Takvim dataset'i tanımlıysa (lflCalendarDatasetId), bu takvimi kullanır.
- * Değilse, basit dayOfYear karşılaştırması yapar.
+ * Her mağaza için ayrı ayrı:
+ * 1. Bu yıl satış kaydı olan günler (LFL Takvim'de)
+ * 2. Aynı günlerin geçen yıl karşılığında da O MAĞAZADA satış kaydı var mı?
+ * 3. Her iki yılda da satış VARSA → karşılaştırmaya dahil et
+ * 4. Tüm mağazaların LFL toplamlarını birleştir
+ * 
+ * Örnek:
+ * - Mağaza A: Bu yıl 1,2,3,4,5 Aralık açık, geçen yıl 1,2,3 Aralık açık → 3 gün karşılaştırılır
+ * - Mağaza B: Bu yıl 1,2,3 Aralık açık, geçen yıl 1,2,3,4,5 Aralık açık → 3 gün karşılaştırılır
+ * - Mağaza C: Bu yıl 1,2 Aralık açık, geçen yıl 3,4,5 Aralık açık → 0 gün (karşılaştırma dışı)
  */
 async function calculateLFL(
   tableName: string,
@@ -85,7 +92,8 @@ async function calculateLFL(
     thisYearColumn: string;
     lastYearColumn: string;
     clickhouseTable: string;
-  }
+  },
+  storeColumn?: string  // Mağaza kolonu (örn: BranchID, store_id)
 ): Promise<{
   currentValue: number;
   previousValue: number;
@@ -109,47 +117,176 @@ async function calculateLFL(
     thisYearEnd = formatDateString(today);
   }
   
-  logger.debug('LFL calculation started', { thisYearStart, thisYearEnd, hasLflCalendar: !!lflCalendarConfig });
+  logger.debug('LFL calculation started', { 
+    thisYearStart, thisYearEnd, 
+    hasLflCalendar: !!lflCalendarConfig,
+    storeColumn: storeColumn || 'not specified'
+  });
   
   // ============================================
-  // LFL TAKVİM KULLANARAK HESAPLAMA
+  // LFL TAKVİM + MAĞAZA BAZLI HESAPLAMA
   // ============================================
   if (lflCalendarConfig?.clickhouseTable) {
     const lflTable = `clixer_analytics.${lflCalendarConfig.clickhouseTable}`;
     const thisYearCol = lflCalendarConfig.thisYearColumn || 'this_year';
     const lastYearCol = lflCalendarConfig.lastYearColumn || 'last_year';
     
-    // LFL Takvimden bu tarih aralığına düşen günleri bul
-    const lflSql = `
-      WITH lfl_dates AS (
-        SELECT 
-          toDate(${thisYearCol}) as this_year_date,
-          toDate(${lastYearCol}) as last_year_date
-        FROM ${lflTable}
-        WHERE toDate(${thisYearCol}) >= '${thisYearStart}' 
-          AND toDate(${thisYearCol}) <= '${thisYearEnd}'
-      )
-      SELECT 
-        (
-          SELECT ${aggFunc}
-          FROM ${tableName} s
-          INNER JOIN lfl_dates lfl ON toDate(s.${dateColumn}) = lfl.this_year_date
-          WHERE 1=1
-            ${rlsCondition}
-            ${filterCondition}
-        ) as current_value,
-        (
-          SELECT ${aggFunc}
-          FROM ${tableName} s
-          INNER JOIN lfl_dates lfl ON toDate(s.${dateColumn}) = lfl.last_year_date
-          WHERE 1=1
-            ${rlsCondition}
-            ${filterCondition}
-        ) as previous_value,
-        (SELECT count() FROM lfl_dates) as common_days_count
-    `;
+    // Mağaza kolonu varsa MAĞAZA BAZLI LFL hesapla
+    // Yoksa genel LFL hesapla
+    const storeCol = storeColumn || null;
     
-    logger.debug('LFL with calendar SQL', { lflTable, thisYearCol, lastYearCol });
+    let lflSql: string;
+    
+    if (storeCol) {
+      // ============================================
+      // MAĞAZA BAZLI LFL (DOĞRU MANTIK)
+      // ============================================
+      // Her mağaza için, hem bu yıl hem geçen yıl satış olan günleri bul
+      // Sonra bu ortak günlerin toplamlarını karşılaştır
+      lflSql = `
+        WITH 
+        -- LFL Takvimden seçilen tarih aralığındaki günler
+        lfl_dates AS (
+          SELECT 
+            toDate(${thisYearCol}) as this_year_date,
+            toDate(${lastYearCol}) as last_year_date
+          FROM ${lflTable}
+          WHERE toDate(${thisYearCol}) >= '${thisYearStart}' 
+            AND toDate(${thisYearCol}) <= '${thisYearEnd}'
+        ),
+        
+        -- Bu yıl mağaza bazında satış olan günler
+        this_year_store_days AS (
+          SELECT DISTINCT 
+            ${storeCol} as store_id,
+            toDate(${dateColumn}) as sale_date
+          FROM ${tableName}
+          WHERE toDate(${dateColumn}) IN (SELECT this_year_date FROM lfl_dates)
+            ${rlsCondition}
+            ${filterCondition}
+        ),
+        
+        -- Geçen yıl mağaza bazında satış olan günler
+        last_year_store_days AS (
+          SELECT DISTINCT 
+            ${storeCol} as store_id,
+            toDate(${dateColumn}) as sale_date
+          FROM ${tableName}
+          WHERE toDate(${dateColumn}) IN (SELECT last_year_date FROM lfl_dates)
+            ${rlsCondition}
+            ${filterCondition}
+        ),
+        
+        -- Her mağaza için, hem bu yıl hem geçen yıl satış olan günler (LFL Takvim eşleşmeli)
+        -- Mağaza + LFL günü kombinasyonu olarak ortak olanlar
+        common_store_days AS (
+          SELECT 
+            ty.store_id,
+            ty.sale_date as this_year_date,
+            lfl.last_year_date
+          FROM this_year_store_days ty
+          INNER JOIN lfl_dates lfl ON ty.sale_date = lfl.this_year_date
+          INNER JOIN last_year_store_days ly 
+            ON ty.store_id = ly.store_id 
+            AND lfl.last_year_date = ly.sale_date
+        )
+        
+        SELECT 
+          -- Bu yıl: Sadece ortak mağaza-gün kombinasyonlarının toplamı
+          (
+            SELECT ${aggFunc}
+            FROM ${tableName} s
+            WHERE EXISTS (
+              SELECT 1 FROM common_store_days csd 
+              WHERE s.${storeCol} = csd.store_id 
+                AND toDate(s.${dateColumn}) = csd.this_year_date
+            )
+            ${rlsCondition}
+            ${filterCondition}
+          ) as current_value,
+          
+          -- Geçen yıl: Sadece ortak mağaza-gün kombinasyonlarının toplamı
+          (
+            SELECT ${aggFunc}
+            FROM ${tableName} s
+            WHERE EXISTS (
+              SELECT 1 FROM common_store_days csd 
+              WHERE s.${storeCol} = csd.store_id 
+                AND toDate(s.${dateColumn}) = csd.last_year_date
+            )
+            ${rlsCondition}
+            ${filterCondition}
+          ) as previous_value,
+          
+          -- Ortak mağaza-gün sayısı
+          (SELECT count() FROM common_store_days) as common_days_count
+      `;
+    } else {
+      // ============================================
+      // GENEL LFL (Mağaza kolonu yoksa)
+      // ============================================
+      lflSql = `
+        WITH lfl_dates AS (
+          SELECT 
+            toDate(${thisYearCol}) as this_year_date,
+            toDate(${lastYearCol}) as last_year_date
+          FROM ${lflTable}
+          WHERE toDate(${thisYearCol}) >= '${thisYearStart}' 
+            AND toDate(${thisYearCol}) <= '${thisYearEnd}'
+        ),
+        
+        -- Bu yıl satış olan günler (LFL Takvim'deki this_year_date'lerde)
+        this_year_days AS (
+          SELECT DISTINCT toDate(${dateColumn}) as sale_date
+          FROM ${tableName}
+          WHERE toDate(${dateColumn}) IN (SELECT this_year_date FROM lfl_dates)
+            ${rlsCondition}
+            ${filterCondition}
+        ),
+        
+        -- Geçen yıl satış olan günler (LFL Takvim'deki last_year_date'lerde)
+        last_year_days AS (
+          SELECT DISTINCT toDate(${dateColumn}) as sale_date
+          FROM ${tableName}
+          WHERE toDate(${dateColumn}) IN (SELECT last_year_date FROM lfl_dates)
+            ${rlsCondition}
+            ${filterCondition}
+        ),
+        
+        -- Her iki yılda da satış olan LFL günleri
+        common_lfl_days AS (
+          SELECT lfl.this_year_date, lfl.last_year_date
+          FROM lfl_dates lfl
+          WHERE lfl.this_year_date IN (SELECT sale_date FROM this_year_days)
+            AND lfl.last_year_date IN (SELECT sale_date FROM last_year_days)
+        )
+        
+        SELECT 
+          (
+            SELECT ${aggFunc}
+            FROM ${tableName} s
+            WHERE toDate(s.${dateColumn}) IN (SELECT this_year_date FROM common_lfl_days)
+              ${rlsCondition}
+              ${filterCondition}
+          ) as current_value,
+          (
+            SELECT ${aggFunc}
+            FROM ${tableName} s
+            WHERE toDate(s.${dateColumn}) IN (SELECT last_year_date FROM common_lfl_days)
+              ${rlsCondition}
+              ${filterCondition}
+          ) as previous_value,
+          (SELECT count() FROM common_lfl_days) as common_days_count
+      `;
+    }
+    
+    logger.debug('LFL SQL generated', { 
+      hasStoreColumn: !!storeCol, 
+      lflTable, 
+      thisYearCol, 
+      lastYearCol,
+      sqlLength: lflSql.length
+    });
     
     try {
       const result = await clickhouse.query<{
@@ -159,7 +296,7 @@ async function calculateLFL(
       }>(lflSql);
       
       if (result.length === 0 || result[0].common_days_count === 0) {
-        logger.warn('LFL calendar returned no matching days', { thisYearStart, thisYearEnd });
+        logger.warn('LFL calendar returned no matching days', { thisYearStart, thisYearEnd, hasStoreColumn: !!storeCol });
         return null;
       }
       
@@ -175,7 +312,10 @@ async function calculateLFL(
       }
       
       logger.debug('LFL with calendar result', { 
-        currentVal, previousVal, trend: trend.toFixed(2), commonDays: common_days_count 
+        currentVal, previousVal, 
+        trend: trend.toFixed(2), 
+        commonDays: common_days_count,
+        storeBasedLFL: !!storeCol
       });
       
       return {
@@ -185,67 +325,134 @@ async function calculateLFL(
         commonDays: Number(common_days_count)
       };
     } catch (error) {
-      logger.error('LFL calendar query failed', { error, lflSql: lflSql.substring(0, 200) });
+      logger.error('LFL calendar query failed', { error, lflSql: lflSql.substring(0, 500) });
       // Takvim sorgusu başarısız olursa fallback'e düş
     }
   }
   
   // ============================================
-  // FALLBACK: BASIT dayOfYear KARŞILAŞTIRMASI
+  // FALLBACK: BASIT dayOfYear KARŞILAŞTIRMASI (Mağaza bazlı)
   // ============================================
-  // Seçilen tarih aralığındaki günlerin geçen yıl karşılıklarını bul
   const startDateObj = new Date(thisYearStart);
   const endDateObj = new Date(thisYearEnd);
   const lastYearStart = `${startDateObj.getFullYear() - 1}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}-${String(startDateObj.getDate()).padStart(2, '0')}`;
   const lastYearEnd = `${endDateObj.getFullYear() - 1}-${String(endDateObj.getMonth() + 1).padStart(2, '0')}-${String(endDateObj.getDate()).padStart(2, '0')}`;
   
-  const lflSql = `
-    WITH 
-    -- Bu yıl satış olan günler (dayOfYear)
-    this_year_days AS (
-      SELECT DISTINCT toDayOfYear(toDate(${dateColumn})) as day_of_year
-      FROM ${tableName}
-      WHERE toDate(${dateColumn}) >= '${thisYearStart}' 
-        AND toDate(${dateColumn}) <= '${thisYearEnd}'
-        ${rlsCondition}
-        ${filterCondition}
-    ),
-    -- Geçen yıl satış olan günler (dayOfYear)
-    last_year_days AS (
-      SELECT DISTINCT toDayOfYear(toDate(${dateColumn})) as day_of_year
-      FROM ${tableName}
-      WHERE toDate(${dateColumn}) >= '${lastYearStart}' 
-        AND toDate(${dateColumn}) <= '${lastYearEnd}'
-        ${rlsCondition}
-        ${filterCondition}
-    ),
-    -- Her iki yılda da satış olan günler (ortak günler)
-    common_days AS (
-      SELECT t.day_of_year
-      FROM this_year_days t
-      INNER JOIN last_year_days l ON t.day_of_year = l.day_of_year
-    )
-    SELECT 
-      (
-        SELECT ${aggFunc}
+  let lflSql: string;
+  
+  if (storeColumn) {
+    // Mağaza bazlı fallback
+    lflSql = `
+      WITH 
+      -- Bu yıl mağaza bazında satış olan günler (dayOfYear)
+      this_year_store_days AS (
+        SELECT DISTINCT 
+          ${storeColumn} as store_id,
+          toDayOfYear(toDate(${dateColumn})) as day_of_year
         FROM ${tableName}
-        WHERE toDayOfYear(toDate(${dateColumn})) IN (SELECT day_of_year FROM common_days)
+        WHERE toDate(${dateColumn}) >= '${thisYearStart}' 
+          AND toDate(${dateColumn}) <= '${thisYearEnd}'
+          ${rlsCondition}
+          ${filterCondition}
+      ),
+      
+      -- Geçen yıl mağaza bazında satış olan günler (dayOfYear)
+      last_year_store_days AS (
+        SELECT DISTINCT 
+          ${storeColumn} as store_id,
+          toDayOfYear(toDate(${dateColumn})) as day_of_year
+        FROM ${tableName}
+        WHERE toDate(${dateColumn}) >= '${lastYearStart}' 
+          AND toDate(${dateColumn}) <= '${lastYearEnd}'
+          ${rlsCondition}
+          ${filterCondition}
+      ),
+      
+      -- Her mağaza için, hem bu yıl hem geçen yıl satış olan dayOfYear
+      common_store_days AS (
+        SELECT ty.store_id, ty.day_of_year
+        FROM this_year_store_days ty
+        INNER JOIN last_year_store_days ly 
+          ON ty.store_id = ly.store_id 
+          AND ty.day_of_year = ly.day_of_year
+      )
+      
+      SELECT 
+        (
+          SELECT ${aggFunc}
+          FROM ${tableName} s
+          WHERE EXISTS (
+            SELECT 1 FROM common_store_days csd 
+            WHERE s.${storeColumn} = csd.store_id 
+              AND toDayOfYear(toDate(s.${dateColumn})) = csd.day_of_year
+          )
           AND toDate(${dateColumn}) >= '${thisYearStart}'
           AND toDate(${dateColumn}) <= '${thisYearEnd}'
           ${rlsCondition}
           ${filterCondition}
-      ) as current_value,
-      (
-        SELECT ${aggFunc}
-        FROM ${tableName}
-        WHERE toDayOfYear(toDate(${dateColumn})) IN (SELECT day_of_year FROM common_days)
+        ) as current_value,
+        (
+          SELECT ${aggFunc}
+          FROM ${tableName} s
+          WHERE EXISTS (
+            SELECT 1 FROM common_store_days csd 
+            WHERE s.${storeColumn} = csd.store_id 
+              AND toDayOfYear(toDate(s.${dateColumn})) = csd.day_of_year
+          )
           AND toDate(${dateColumn}) >= '${lastYearStart}'
           AND toDate(${dateColumn}) <= '${lastYearEnd}'
           ${rlsCondition}
           ${filterCondition}
-      ) as previous_value,
-      (SELECT count() FROM common_days) as common_days_count
-  `;
+        ) as previous_value,
+        (SELECT count() FROM common_store_days) as common_days_count
+    `;
+  } else {
+    // Genel fallback (eski mantık)
+    lflSql = `
+      WITH 
+      this_year_days AS (
+        SELECT DISTINCT toDayOfYear(toDate(${dateColumn})) as day_of_year
+        FROM ${tableName}
+        WHERE toDate(${dateColumn}) >= '${thisYearStart}' 
+          AND toDate(${dateColumn}) <= '${thisYearEnd}'
+          ${rlsCondition}
+          ${filterCondition}
+      ),
+      last_year_days AS (
+        SELECT DISTINCT toDayOfYear(toDate(${dateColumn})) as day_of_year
+        FROM ${tableName}
+        WHERE toDate(${dateColumn}) >= '${lastYearStart}' 
+          AND toDate(${dateColumn}) <= '${lastYearEnd}'
+          ${rlsCondition}
+          ${filterCondition}
+      ),
+      common_days AS (
+        SELECT t.day_of_year
+        FROM this_year_days t
+        INNER JOIN last_year_days l ON t.day_of_year = l.day_of_year
+      )
+      SELECT 
+        (
+          SELECT ${aggFunc}
+          FROM ${tableName}
+          WHERE toDayOfYear(toDate(${dateColumn})) IN (SELECT day_of_year FROM common_days)
+            AND toDate(${dateColumn}) >= '${thisYearStart}'
+            AND toDate(${dateColumn}) <= '${thisYearEnd}'
+            ${rlsCondition}
+            ${filterCondition}
+        ) as current_value,
+        (
+          SELECT ${aggFunc}
+          FROM ${tableName}
+          WHERE toDayOfYear(toDate(${dateColumn})) IN (SELECT day_of_year FROM common_days)
+            AND toDate(${dateColumn}) >= '${lastYearStart}'
+            AND toDate(${dateColumn}) <= '${lastYearEnd}'
+            ${rlsCondition}
+            ${filterCondition}
+        ) as previous_value,
+        (SELECT count() FROM common_days) as common_days_count
+    `;
+  }
   
   const result = await clickhouse.query<{
     current_value: number;
@@ -1552,6 +1759,10 @@ async function executeMetric(
           }
         }
         
+        // Mağaza kolonu - LFL hesaplaması için kritik!
+        // Dataset'teki store_column'u kullanarak mağaza bazlı LFL hesapla
+        const lflStoreColumn = metric.store_column || null;
+        
         const lflResult = await calculateLFL(
           tableName,
           dateColumn,
@@ -1561,7 +1772,8 @@ async function executeMetric(
           filterCondition,
           lflStartDate,
           lflEndDate,
-          lflCalendarConfig
+          lflCalendarConfig,
+          lflStoreColumn  // Mağaza bazlı LFL için
         );
         
         if (lflResult) {
@@ -1571,7 +1783,9 @@ async function executeMetric(
             current: lflResult.commonDays,
             previous: lflResult.commonDays
           };
-          comparisonLabel = `LFL (${lflResult.commonDays} gün)`;
+          comparisonLabel = lflStoreColumn 
+            ? `LFL (${lflResult.commonDays} mağaza-gün)` 
+            : `LFL (${lflResult.commonDays} gün)`;
           
           logger.debug('LFL comparison calculated', {
             metricId,
@@ -1579,7 +1793,8 @@ async function executeMetric(
             previousLFL: lflResult.previousValue,
             commonDays: lflResult.commonDays,
             trend: trend?.toFixed(2),
-            usedCalendar: !!lflCalendarConfig
+            usedCalendar: !!lflCalendarConfig,
+            storeBasedLFL: !!lflStoreColumn
           });
         }
       } else {
