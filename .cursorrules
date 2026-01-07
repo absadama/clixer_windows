@@ -7512,6 +7512,97 @@ dbColumn: (formData.visualizationType === 'ranking_list' || !isGridOrList)
 
 ---
 
+## 📅 v4.9 - 7 Ocak 2026
+
+**Ranking List Multi-Value Columns + Trend Hesaplama**
+
+### Eklenen Özellikler
+
+1. ✅ **Çoklu Değer Kolonu Desteği (Multi-Value Columns)**
+   - `ranking_list` metrikleri artık birden fazla değer kolonu destekliyor
+   - Örn: TOP10 mağaza listesi → Revenue + Visitor aynı anda
+   - `chart_config.gridColumns` ile kolon seçimi
+   - SQL: `SELECT label, sum(Revenue) as Revenue, sum(Visitor) as Visitor FROM ... GROUP BY label`
+
+2. ✅ **Otomatik Trend Hesaplama (WoW/MoM/YoY/LFL)**
+   - `autoCalculateTrend: true` ile trend otomatik hesaplanır
+   - `trendComparisonType`: wow, mom, yoy, lfl seçenekleri
+   - Dashboard tarih filtresine göre dinamik karşılaştırma dönemi
+   - Çoklu kolon modunda ilk değer kolonuna (örn: Revenue) göre trend
+
+3. ✅ **ORDER BY Düzeltmesi**
+   - Çoklu kolon modunda `ORDER BY value DESC` yerine `ORDER BY Revenue DESC`
+   - İlk değer kolonu dinamik olarak belirleniyor
+
+4. ✅ **Trend Değer Okuma Düzeltmesi**
+   - Çoklu kolon modunda `row.value` yerine `row[actualAggregateColumn]` kullanılıyor
+   - Örn: `row["Revenue"]` ile trend hesaplanıyor
+
+### Metrik Ayarları (chart_config)
+
+```json
+{
+  "gridColumns": [
+    {"column": "BranchName", "label": "BranchName", "visible": true},
+    {"column": "Revenue", "label": "Revenue", "visible": true},
+    {"column": "Visitor", "label": "Visitor", "visible": true}
+  ],
+  "autoCalculateTrend": true,
+  "trendComparisonType": "wow",
+  "comparisonColumn": "ReportDay",
+  "limit": 10
+}
+```
+
+### Trend Karşılaştırma Tipleri
+
+| Tip | Açıklama | Hesaplama |
+|-----|----------|-----------|
+| wow | Week-over-Week | 7 gün önceki aynı dönem |
+| mom | Month-over-Month | 30 gün önceki aynı dönem |
+| yoy | Year-over-Year | 365 gün önceki aynı dönem |
+| lfl | Like-for-Like | LFL takvim tablosuna göre |
+
+### Backend SQL Üretimi
+
+```sql
+-- Çoklu kolon modunda
+SELECT toString(BranchName) as label, 
+       sum(Revenue) as Revenue, 
+       sum(Visitor) as Visitor 
+FROM dataset 
+WHERE toDate(ReportDay) >= '2026-01-01' AND toDate(ReportDay) <= '2026-01-07'
+GROUP BY BranchName 
+ORDER BY Revenue DESC  -- İlk değer kolonuna göre
+LIMIT 10
+
+-- Trend için önceki dönem
+SELECT toString(BranchName) as label, 
+       sum(Revenue) as prev_value 
+FROM dataset 
+WHERE toDate(ReportDay) >= '2025-12-25' AND toDate(ReportDay) <= '2025-12-31'
+GROUP BY BranchName
+```
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `services/analytics-service/src/index.ts` | Multi-value columns, ORDER BY fix, trend calculation |
+
+### Test Sonuçları
+
+| Mağaza | Revenue | Visitor | Trend (WoW) |
+|--------|---------|---------|-------------|
+| ANKAMALL | ₺294.227 | 649 | Hesaplanıyor ✅ |
+| 34 İSTİKLAL PERA | ₺256.197 | 540 | Hesaplanıyor ✅ |
+
+### Yedekleme
+
+- **GitHub Tag:** `v4.9`
+
+---
+
 ## 🔴 SIRALAMA LİSTESİ (RANKING_LIST) KURALLARI
 
 ### MUTLAK KURAL: ranking_list için hem groupByColumn hem dbColumn ZORUNLU!
@@ -7545,7 +7636,8 @@ LIMIT 10
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-07 | **v4.8** | **Sıralama Listesi dbColumn Düzeltmesi** |
+| 2026-01-07 | **v4.9** | **Ranking List Multi-Value Columns + Trend Hesaplama** |
+| 2026-01-07 | v4.8 | Sıralama Listesi dbColumn Düzeltmesi |
 | 2026-01-07 | v4.7 | JWT Token Süresi 1 Saat & Güncelleme Paketi |
 | 2026-01-07 | v4.6 | Metrik Tarih Kolonu Fallback & UI Uyarısı |
 | 2026-01-07 | v4.5 | Mağaza Filtresi Cache Collision Düzeltmesi - MD5 Hash |
