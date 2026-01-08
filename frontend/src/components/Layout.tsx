@@ -260,7 +260,8 @@ export default function Layout({ children }: LayoutProps) {
     isLoaded,
     defaultTheme,
     defaultLanguage,
-    appName
+    appName,
+    appLogo
   } = useSettingsStore()
 
   // Menü etiketlerini yükle
@@ -394,6 +395,7 @@ export default function Layout({ children }: LayoutProps) {
               isDark={isDark}
               onClose={() => setSidebarOpen(false)}
               displayAppName={displayAppName}
+              appLogo={appLogo}
             />
           </div>
       </div>
@@ -417,6 +419,7 @@ export default function Layout({ children }: LayoutProps) {
             theme={theme}
             isDark={isDark}
             displayAppName={displayAppName}
+            appLogo={appLogo}
           />
       </div>
 
@@ -440,7 +443,17 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Mobile logo */}
             <div className="flex items-center gap-2 lg:hidden">
-              <img src="/logo.png" alt="Clixer" className="h-8 object-contain" />
+              <img 
+                src={appLogo?.startsWith('/uploads/') ? appLogo : '/logo.png'} 
+                alt={appName || 'Clixer'} 
+                className="h-8 object-contain"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  if (target.src !== window.location.origin + '/logo.png') {
+                    target.src = '/logo.png';
+                  }
+                }}
+              />
             </div>
 
             {/* Search bar - Desktop */}
@@ -511,6 +524,7 @@ interface SidebarContentProps {
   isDark: boolean
   onClose?: () => void
   displayAppName?: string
+  appLogo?: string
 }
 
 function SidebarContent({ 
@@ -527,7 +541,8 @@ function SidebarContent({
   theme,
   isDark,
   onClose,
-  displayAppName = 'CLIXER'
+  displayAppName = 'CLIXER',
+  appLogo
 }: SidebarContentProps) {
   const navigate = useNavigate()
 
@@ -549,14 +564,22 @@ function SidebarContent({
           className="flex items-center justify-center hover:opacity-80 transition-opacity w-full h-full py-4"
         >
           <img 
-            src="/logo.png" 
-            alt="Clixer" 
+            src={appLogo?.startsWith('/uploads/') ? appLogo : '/logo.png'} 
+            alt={displayAppName || 'Clixer'} 
             className={clsx(
-              'object-contain transition-all drop-shadow-lg w-full',
-              isCollapsed ? 'h-14' : 'h-28',
+              'object-contain transition-all drop-shadow-lg',
+              // Collapse durumuna göre boyut ayarla - daha büyük ve okunabilir
+              isCollapsed ? 'h-12 w-12' : 'h-20 max-w-[180px]',
               // Açık temada logo'ya hafif gölge ekle
               !isDark && 'brightness-95'
-            )} 
+            )}
+            onError={(e) => {
+              // Yükleme hatası olursa fallback logo kullan
+              const target = e.target as HTMLImageElement;
+              if (target.src !== window.location.origin + '/logo.png') {
+                target.src = '/logo.png';
+              }
+            }}
           />
         </button>
         

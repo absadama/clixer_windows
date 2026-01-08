@@ -164,6 +164,13 @@ server {
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host $host;
     }
+
+    # WhiteLabel Logo Uploads (v4.20+)
+    location /uploads/ {
+        alias /opt/clixer/frontend/dist/uploads/;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+    }
 }
 ```
 
@@ -226,6 +233,82 @@ sudo -u clixer npm install --prefix shared
 sudo -u clixer npm run build --prefix shared
 pm2 restart all
 ```
+
+---
+
+## 🎨 WhiteLabel Logo Yönetimi (v4.20+)
+
+Müşteriler kendi logolarını UI üzerinden yükleyebilir. Logo otomatik olarak sidebar, PWA, favicon ve login sayfasında görünür.
+
+### Güncelleme Scripti
+
+Mevcut kurulumu WhiteLabel özelliğiyle güncellemek için:
+
+```bash
+sudo bash /opt/clixer/deploy/update-whitelabel.sh
+```
+
+Bu script:
+1. Yedek alır
+2. GitHub'dan en son kodu çeker
+3. Core service bağımlılıklarını kurar (multer, sharp)
+4. Uploads klasörünü oluşturur
+5. Servisleri yeniden başlatır
+6. Frontend build alır
+
+### Nginx Ayarı (Tek Seferlik)
+
+Script çalıştıktan sonra Nginx'e uploads location ekleyin:
+
+```bash
+sudo nano /etc/nginx/sites-available/default
+```
+
+Server bloğuna ekleyin:
+
+```nginx
+# WhiteLabel Logo Uploads
+location /uploads/ {
+    alias /opt/clixer/frontend/dist/uploads/;
+    expires 30d;
+    add_header Cache-Control "public, no-transform";
+}
+```
+
+Nginx'i yeniden başlatın:
+
+```bash
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+### Logo Yükleme
+
+1. Admin Panel → Sistem Ayarları → Marka Logosu
+2. PNG veya SVG dosyası yükleyin (min 512x512 piksel)
+3. Logo otomatik olarak tüm alanlarda görünür:
+   - Sidebar logo
+   - PWA/Mobil ikon
+   - Favicon
+   - Login sayfası
+
+### Logo Gereksinimleri
+
+| Kural | Değer |
+|-------|-------|
+| Format | PNG veya SVG |
+| Minimum boyut | 512x512 piksel |
+| Maksimum dosya | 5 MB |
+| Arka plan | Şeffaf (hem açık hem koyu temada çalışır) |
+
+### Otomatik Oluşturulan Boyutlar
+
+| Dosya | Boyut | Kullanım |
+|-------|-------|----------|
+| logo-512.png | 512x512 | PWA büyük ikon |
+| logo-192.png | 192x192 | PWA küçük ikon, Apple Touch |
+| logo-96.png | 96x96 | Alternatif |
+| logo-72.png | 72x72 | Mobil |
+| logo-32.png | 32x32 | Favicon |
 
 ---
 

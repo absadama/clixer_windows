@@ -164,6 +164,17 @@ export default function AdminPage() {
   const [sessionsLoading, setSessionsLoading] = useState(false)
   
   
+  // Logo Upload States
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoError, setLogoError] = useState<string | null>(null)
+  const [logoInfo, setLogoInfo] = useState<{
+    hasCustomLogo: boolean
+    currentLogoUrl: string
+    currentFaviconUrl: string
+  } | null>(null)
+  
   // Yedekleme States
   const [backups, setBackups] = useState<any[]>([])
   const [backupsLoading, setBackupsLoading] = useState(false)
@@ -515,6 +526,111 @@ export default function AdminPage() {
       alert('Hata: ' + err.message)
     } finally {
       setSeeding(false)
+    }
+  }
+
+  // Logo bilgisini yükle
+  const loadLogoInfo = useCallback(async () => {
+    if (!accessToken) return
+    try {
+      const result = await apiCall('/core/logo-info')
+      if (result.data) {
+        setLogoInfo(result.data)
+      }
+    } catch (err) {
+      console.error('Logo bilgisi yüklenemedi:', err)
+    }
+  }, [accessToken, apiCall])
+
+  // Logo dosyası seçildiğinde
+  const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setLogoError(null)
+
+    // Dosya tipi kontrolü
+    if (!['image/png', 'image/svg+xml'].includes(file.type)) {
+      setLogoError('Sadece PNG veya SVG formatı kabul edilir')
+      return
+    }
+
+    // Dosya boyutu kontrolü (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setLogoError('Dosya boyutu en fazla 5MB olabilir')
+      return
+    }
+
+    // PNG ise boyut kontrolü
+    if (file.type === 'image/png') {
+      const img = new Image()
+      img.onload = () => {
+        if (img.width < 512 || img.height < 512) {
+          setLogoError(`Logo en az 512x512 piksel olmalı. Yüklenen: ${img.width}x${img.height}`)
+          setLogoFile(null)
+          setLogoPreview(null)
+        } else {
+          setLogoFile(file)
+          setLogoPreview(URL.createObjectURL(file))
+        }
+      }
+      img.src = URL.createObjectURL(file)
+    } else {
+      // SVG için direkt kabul et
+      setLogoFile(file)
+      setLogoPreview(URL.createObjectURL(file))
+    }
+  }
+
+  // Logo yükle
+  const uploadLogo = async () => {
+    if (!logoFile) return
+
+    setLogoUploading(true)
+    setLogoError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('logo', logoFile)
+
+      const response = await fetch(`${API_BASE}/core/upload/logo`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: formData
+      })
+
+      // Response text olarak al, sonra JSON parse et
+      const text = await response.text()
+      let result
+      try {
+        result = JSON.parse(text)
+      } catch {
+        // JSON parse hatası - muhtemelen HTML veya proxy error
+        if (!response.ok) {
+          throw new Error(`Sunucu hatası: ${response.status}`)
+        }
+        // 200 ama JSON değilse bile devam et
+        result = { success: true }
+      }
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Logo yüklenemedi')
+      }
+
+      // Başarılı - state temizle ve bilgiyi güncelle
+      setLogoFile(null)
+      setLogoPreview(null)
+      await loadLogoInfo()
+      alert('Logo başarıyla yüklendi! Sidebar ve PWA logosu güncellendi.')
+      
+      // Sayfayı yenile ki yeni logo görünsün
+      window.location.reload()
+    } catch (err: any) {
+      setLogoError(err.message || 'Logo yüklenirken hata oluştu')
+    } finally {
+      setLogoUploading(false)
     }
   }
 
@@ -1240,7 +1356,8 @@ export default function AdminPage() {
     loadSyncLogs()
     loadPerfSettings()
     loadLabels()
-  }, [loadSettings, loadUsers, loadPositions, loadStoresAndRegions, loadLdapConfig, loadPositionMappings, loadStoreMappings, loadSyncLogs, loadPerfSettings, loadLabels])
+    loadLogoInfo()
+  }, [loadSettings, loadUsers, loadPositions, loadStoresAndRegions, loadLdapConfig, loadPositionMappings, loadStoreMappings, loadSyncLogs, loadPerfSettings, loadLabels, loadLogoInfo])
 
   // Tab değiştiğinde ilgili verileri yükle
   useEffect(() => {
@@ -2137,6 +2254,100 @@ export default function AdminPage() {
                   {seeding ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
                   {seeding ? 'Kaydediliyor...' : 'Varsayılanları Yükle'}
                 </button>
+              </div>
+            </div>
+
+            {/* Logo Upload Bölümü */}
+            <div className={clsx('p-6 rounded-2xl', theme.cardBg)}>
+              <div className="flex items-center gap-4 mb-4">
+                <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-cyan-500/20' : 'bg-cyan-100')}>
+                  <Upload size={24} className={isDark ? 'text-cyan-400' : 'text-cyan-600'} />
+                </div>
+                <div>
+                  <h3 className={clsx('font-bold', theme.contentText)}>Kurumsal Logo</h3>
+                  <p className={clsx('text-sm', theme.contentTextMuted)}>
+                    Şeffaf arka planlı PNG veya SVG yükleyin (min. 512x512 piksel)
+                  </p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Mevcut Logo */}
+                <div className={clsx('p-4 rounded-xl border', isDark ? 'border-slate-700 bg-slate-800/50' : 'border-slate-200 bg-slate-50')}>
+                  <p className={clsx('text-sm font-medium mb-3', theme.contentTextMuted)}>Mevcut Logo</p>
+                  <div className="flex items-center justify-center p-4 rounded-lg" style={{ background: 'repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 16px 16px' }}>
+                    <img 
+                      src={logoInfo?.currentLogoUrl || '/logo.png'} 
+                      alt="Mevcut Logo" 
+                      className="h-24 object-contain"
+                      onError={(e) => { (e.target as HTMLImageElement).src = '/logo.png' }}
+                    />
+                  </div>
+                  <p className={clsx('text-xs mt-2 text-center', theme.contentTextMuted)}>
+                    {logoInfo?.hasCustomLogo ? '✅ Özel logo yüklü' : '📌 Varsayılan Clixer logosu'}
+                  </p>
+                </div>
+
+                {/* Yeni Logo Yükle */}
+                <div className={clsx('p-4 rounded-xl border', isDark ? 'border-slate-700 bg-slate-800/50' : 'border-slate-200 bg-slate-50')}>
+                  <p className={clsx('text-sm font-medium mb-3', theme.contentTextMuted)}>Yeni Logo Yükle</p>
+                  
+                  {logoPreview ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-center p-4 rounded-lg" style={{ background: 'repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 16px 16px' }}>
+                        <img src={logoPreview} alt="Önizleme" className="h-24 object-contain" />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={uploadLogo}
+                          disabled={logoUploading}
+                          className={clsx('flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
+                        >
+                          {logoUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                          {logoUploading ? 'Yükleniyor...' : 'Yükle'}
+                        </button>
+                        <button
+                          onClick={() => { setLogoFile(null); setLogoPreview(null); setLogoError(null) }}
+                          className={clsx('px-4 py-2 rounded-xl', theme.buttonSecondary)}
+                        >
+                          İptal
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className={clsx(
+                      'flex flex-col items-center justify-center p-6 rounded-lg border-2 border-dashed cursor-pointer transition-colors',
+                      isDark ? 'border-slate-600 hover:border-cyan-500 hover:bg-cyan-500/10' : 'border-slate-300 hover:border-cyan-500 hover:bg-cyan-50'
+                    )}>
+                      <Upload size={32} className={isDark ? 'text-slate-500' : 'text-slate-400'} />
+                      <span className={clsx('mt-2 text-sm', theme.contentTextMuted)}>PNG veya SVG dosyası seçin</span>
+                      <span className={clsx('text-xs', theme.contentTextMuted)}>veya sürükleyip bırakın</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/svg+xml"
+                        onChange={handleLogoSelect}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                  
+                  {logoError && (
+                    <div className={clsx('mt-3 p-3 rounded-lg text-sm', isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-600')}>
+                      ⚠️ {logoError}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Bilgi Kutusu */}
+              <div className={clsx('mt-4 p-4 rounded-xl text-sm', isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')}>
+                <p className="font-medium mb-2">💡 Logo Gereksinimleri:</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Format:</strong> PNG (şeffaf arka plan) veya SVG</li>
+                  <li><strong>Minimum boyut:</strong> 512x512 piksel</li>
+                  <li><strong>Önerilen:</strong> Hem açık hem koyu temada görünebilecek renklerde</li>
+                  <li><strong>Kullanım alanları:</strong> Sidebar, PWA ikonu, Favicon, Tarayıcı sekmesi</li>
+                </ul>
               </div>
             </div>
 

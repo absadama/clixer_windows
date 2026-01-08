@@ -331,6 +331,24 @@ const adminIPWhitelist = async (req: Request, res: Response, next: NextFunction)
   next();
 };
 
+// Manifest.json route (PUBLIC - Auth gerektirmez, PWA için)
+app.get('/manifest.json', createProxyMiddleware({
+  ...proxyOptions(SERVICES.CORE),
+  pathRewrite: { '^/manifest.json': '/manifest.json' }
+}));
+
+// Logo info route (Admin Panel için)
+app.use('/api/core/logo-info', createProxyMiddleware({
+  ...proxyOptions(SERVICES.CORE),
+  pathRewrite: { '^/api/core': '' }
+}));
+
+// Logo upload route (Admin Panel için)
+app.use('/api/core/upload/logo', createProxyMiddleware({
+  ...proxyOptions(SERVICES.CORE),
+  pathRewrite: { '^/api/core': '' }
+}));
+
 // Grid Designs route (IP whitelist gerektirmez - kullanıcı bazlı)
 app.use('/api/core/grid-designs', createProxyMiddleware({
   ...proxyOptions(SERVICES.CORE),

@@ -61,10 +61,21 @@ interface SettingsState {
 // Tüm pozisyonlar
 const ALL_POSITIONS = ['GENERAL_MANAGER', 'DIRECTOR', 'REGION_MANAGER', 'STORE_MANAGER', 'ANALYST', 'VIEWER']
 
+// LocalStorage'dan logo önbellek oku (flash önleme)
+const getCachedLogo = (): string => {
+  try {
+    const cached = localStorage.getItem('cachedLogoUrl');
+    if (cached && cached.startsWith('/uploads/')) {
+      return cached;
+    }
+  } catch {}
+  return '/logo.png';
+};
+
 // Varsayılan değerler
 const defaultSettings = {
   appName: 'Clixer',
-  appLogo: '/logo.png',
+  appLogo: getCachedLogo(), // Flash önlemek için localStorage'dan oku
   appFavicon: '/favicon.ico',
   defaultTheme: 'clixer' as const,
   defaultLanguage: 'tr' as const,
@@ -151,6 +162,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           case 'app_logo':
           case 'app_logo_url':
             updates.appLogo = value
+            // Flash önlemek için localStorage'a kaydet
+            if (value && value.startsWith('/uploads/')) {
+              try { localStorage.setItem('cachedLogoUrl', value); } catch {}
+            }
             break
           case 'app_favicon':
           case 'app_favicon_url':

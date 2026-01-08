@@ -8,8 +8,39 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import dotenv from 'dotenv';
+import multer from 'multer';
+import sharp from 'sharp';
+import path from 'path';
+import fs from 'fs';
 
 dotenv.config({ path: '../../.env' });
+
+// Logo upload configuration
+// Development modunda public/ klasörüne, production'da dist/uploads klasörüne kaydet
+const isDev = process.env.NODE_ENV !== 'production';
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, isDev ? '../../../frontend/public/uploads' : '../../../frontend/dist/uploads');
+const LOGO_SIZES = [
+  { name: 'logo-512', size: 512 },
+  { name: 'logo-192', size: 192 },
+  { name: 'logo-96', size: 96 },
+  { name: 'logo-72', size: 72 },
+  { name: 'logo-32', size: 32 }
+];
+
+// Multer configuration for logo upload
+const logoStorage = multer.memoryStorage();
+const logoUpload = multer({
+  storage: logoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/png', 'image/svg+xml'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Sadece PNG veya SVG formatı kabul edilir'));
+    }
+  }
+});
 
 import {
   createLogger,
@@ -3565,6 +3596,285 @@ async function start() {
         next(error)
       }
     })
+
+    // ============================================
+    // LOGO UPLOAD (WhiteLabel)
+    // ============================================
+
+    // Ensure upload directory exists
+    const ensureUploadDir = () => {
+      if (!fs.existsSync(UPLOAD_DIR)) {
+        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+        logger.info('Created upload directory', { path: UPLOAD_DIR });
+      }
+    };
+
+    // POST /upload/logo - Logo yükle ve resize et
+    app.post('/upload/logo', authenticate, authorize(ROLES.ADMIN), logoUpload.single('logo'), async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ success: false, error: 'Logo dosyası gerekli' });
+        }
+
+        const tenantId = (req.user as any).tenantId;
+        ensureUploadDir();
+
+        // Get image metadata to check dimensions
+        const metadata = await sharp(req.file.buffer).metadata();
+        if (!metadata.width || !metadata.height) {
+          return res.status(400).json({ success: false, error: 'Görsel boyutları okunamadı' });
+        }
+
+        if (metadata.width < 512 || metadata.height < 512) {
+          return res.status(400).json({ 
+            success: false, 
+            error: `Logo en az 512x512 piksel olmalı. Yüklenen: ${metadata.width}x${metadata.height}` 
+          });
+        }
+
+        // SVG ise direkt kaydet, PNG ise resize et
+        const isSvg = req.file.mimetype === 'image/svg+xml';
+        const generatedFiles: string[] = [];
+
+        if (isSvg) {
+          // SVG'yi direkt kaydet
+          const svgPath = path.join(UPLOAD_DIR, 'logo.svg');
+          fs.writeFileSync(svgPath, req.file.buffer);
+          generatedFiles.push('logo.svg');
+
+          // SVG'den PNG versiyonları oluştur
+          for (const logoSize of LOGO_SIZES) {
+            const outputPath = path.join(UPLOAD_DIR, `${logoSize.name}.png`);
+            await sharp(req.file.buffer)
+              .resize(logoSize.size, logoSize.size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+              .png()
+              .toFile(outputPath);
+            generatedFiles.push(`${logoSize.name}.png`);
+          }
+        } else {
+          // PNG için tüm boyutları oluştur
+          for (const logoSize of LOGO_SIZES) {
+            const outputPath = path.join(UPLOAD_DIR, `${logoSize.name}.png`);
+            await sharp(req.file.buffer)
+              .resize(logoSize.size, logoSize.size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+              .png()
+              .toFile(outputPath);
+            generatedFiles.push(`${logoSize.name}.png`);
+          }
+        }
+
+        // system_settings tablosunda app_logo_url güncelle (SELECT + INSERT/UPDATE)
+        // SVG varsa onu kullan (daha net görünür), yoksa PNG
+        const logoUrl = isSvg ? '/uploads/logo.svg' : '/uploads/logo-512.png';
+        const faviconUrl = '/uploads/logo-32.png';
+        const currentTenantId = tenantId || '00000000-0000-0000-0000-000000000001';
+
+        // app_logo_url
+        const existingLogo = await db.query(
+          `SELECT id FROM system_settings WHERE tenant_id = $1 AND key = 'app_logo_url'`,
+          [currentTenantId]
+        );
+        if (existingLogo.rows.length > 0) {
+          await db.query(
+            `UPDATE system_settings SET value = $1, updated_at = NOW() WHERE tenant_id = $2 AND key = 'app_logo_url'`,
+            [JSON.stringify(logoUrl), currentTenantId]
+          );
+        } else {
+          await db.query(
+            `INSERT INTO system_settings (tenant_id, key, value, category, created_at, updated_at) VALUES ($1, 'app_logo_url', $2, 'branding', NOW(), NOW())`,
+            [currentTenantId, JSON.stringify(logoUrl)]
+          );
+        }
+
+        // app_favicon_url
+        const existingFavicon = await db.query(
+          `SELECT id FROM system_settings WHERE tenant_id = $1 AND key = 'app_favicon_url'`,
+          [currentTenantId]
+        );
+        if (existingFavicon.rows.length > 0) {
+          await db.query(
+            `UPDATE system_settings SET value = $1, updated_at = NOW() WHERE tenant_id = $2 AND key = 'app_favicon_url'`,
+            [JSON.stringify(faviconUrl), currentTenantId]
+          );
+        } else {
+          await db.query(
+            `INSERT INTO system_settings (tenant_id, key, value, category, created_at, updated_at) VALUES ($1, 'app_favicon_url', $2, 'branding', NOW(), NOW())`,
+            [currentTenantId, JSON.stringify(faviconUrl)]
+          );
+        }
+
+        // Cache temizle
+        await cache.del('settings:*');
+
+        logger.info('Logo uploaded successfully', { 
+          user: (req.user as any).email, 
+          files: generatedFiles,
+          originalSize: `${metadata.width}x${metadata.height}`
+        });
+
+        res.json({ 
+          success: true, 
+          data: {
+            logoUrl,
+            faviconUrl,
+            files: generatedFiles,
+            originalSize: { width: metadata.width, height: metadata.height }
+          }
+        });
+      } catch (error) {
+        logger.error('Logo upload failed', { error });
+        next(error);
+      }
+    });
+
+    // GET /manifest.json - Dinamik PWA manifest (PUBLIC - Auth gerektirmez)
+    app.get('/manifest.json', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        // system_settings'den app_name ve logo bilgilerini al
+        const settings = await db.queryAll(
+          `SELECT key, value FROM system_settings WHERE key IN ('app_name', 'app_logo_url', 'default_theme')`
+        );
+
+        const settingsMap: Record<string, any> = {};
+        for (const s of settings) {
+          try {
+            const parsed = JSON.parse(s.value);
+            // Nested object durumunu handle et: {"type":"string","value":"Dinamo"}
+            if (typeof parsed === 'object' && parsed !== null) {
+              if (parsed.value !== undefined) {
+                settingsMap[s.key] = parsed.value;
+              } else {
+                settingsMap[s.key] = parsed;
+              }
+            } else {
+              settingsMap[s.key] = parsed;
+            }
+          } catch {
+            settingsMap[s.key] = s.value;
+          }
+        }
+
+        // appName string olmalı
+        let appName = settingsMap['app_name'] || 'Clixer';
+        if (typeof appName === 'object' && appName.value) {
+          appName = appName.value;
+        }
+        const logoUrl = settingsMap['app_logo_url'] || '/logo.png';
+        const theme = settingsMap['default_theme'] || 'clixer';
+
+        // Tema renklerini belirle
+        const themeColors: Record<string, { theme: string; background: string }> = {
+          clixer: { theme: '#00CFDE', background: '#0F1116' },
+          light: { theme: '#4F46E5', background: '#FFFFFF' },
+          dark: { theme: '#6366F1', background: '#1F2937' },
+          corporate: { theme: '#14B8A6', background: '#0A1F2E' },
+          midnight: { theme: '#8B5CF6', background: '#0F0F23' },
+          ember: { theme: '#F97316', background: '#1A0F0A' }
+        };
+
+        const colors = themeColors[theme] || themeColors.clixer;
+
+        // Logo dosyalarının varlığını kontrol et
+        const logo192Exists = fs.existsSync(path.join(UPLOAD_DIR, 'logo-192.png'));
+        const logo512Exists = fs.existsSync(path.join(UPLOAD_DIR, 'logo-512.png'));
+
+        const icons = [];
+        if (logo192Exists) {
+          icons.push({ src: '/uploads/logo-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' });
+        }
+        if (logo512Exists) {
+          icons.push({ src: '/uploads/logo-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' });
+        }
+
+        // Fallback to default logo
+        if (icons.length === 0) {
+          icons.push(
+            { src: '/logo.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+            { src: '/logo.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          );
+        }
+
+        const manifest = {
+          name: appName,
+          short_name: appName,
+          description: `${appName} - Enterprise Analytics Platform`,
+          icons,
+          start_url: '/',
+          display: 'standalone',
+          orientation: 'portrait-primary',
+          theme_color: colors.theme,
+          background_color: colors.background,
+          categories: ['business', 'productivity'],
+          lang: 'tr'
+        };
+
+        res.setHeader('Content-Type', 'application/manifest+json');
+        res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 saat cache
+        res.json(manifest);
+      } catch (error) {
+        logger.error('Manifest generation failed', { error });
+        next(error);
+      }
+    });
+
+    // GET /logo-info - Logo durumu (PUBLIC - LoginPage ve Admin Panel için)
+    app.get('/logo-info', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const logo512Exists = fs.existsSync(path.join(UPLOAD_DIR, 'logo-512.png'));
+        const logo192Exists = fs.existsSync(path.join(UPLOAD_DIR, 'logo-192.png'));
+        const logoSvgExists = fs.existsSync(path.join(UPLOAD_DIR, 'logo.svg'));
+
+        // system_settings'den mevcut URL'leri ve app_name'i al
+        const settings = await db.queryAll(
+          `SELECT key, value FROM system_settings WHERE key IN ('app_logo_url', 'app_favicon_url', 'app_name')`
+        );
+
+        const settingsMap: Record<string, any> = {};
+        for (const s of settings) {
+          try {
+            const parsed = JSON.parse(s.value);
+            settingsMap[s.key] = typeof parsed === 'object' && parsed.value !== undefined ? parsed.value : parsed;
+          } catch {
+            settingsMap[s.key] = s.value;
+          }
+        }
+
+        // Önce SVG, yoksa PNG kullan
+        const logoUrl = logoSvgExists ? '/uploads/logo.svg' 
+                      : logo512Exists ? '/uploads/logo-512.png' 
+                      : '/logo.png';
+
+        // appName'i ayıkla
+        let appName = 'Clixer';
+        if (settingsMap['app_name']) {
+          const raw = settingsMap['app_name'];
+          if (typeof raw === 'object' && raw.value) {
+            appName = raw.value;
+          } else if (typeof raw === 'string') {
+            appName = raw;
+          }
+        }
+
+        res.json({
+          success: true,
+          data: {
+            hasCustomLogo: logo512Exists || logoSvgExists,
+            logoUrl, // LoginPage için basit alan
+            appName, // Sekme başlığı için
+            files: {
+              'logo-512.png': logo512Exists,
+              'logo-192.png': logo192Exists,
+              'logo.svg': logoSvgExists
+            },
+            currentLogoUrl: settingsMap['app_logo_url'] || '/logo.png',
+            currentFaviconUrl: settingsMap['app_favicon_url'] || '/logo.png',
+            uploadDir: UPLOAD_DIR
+          }
+        });
+      } catch (error) {
+        next(error);
+      }
+    });
 
     app.listen(PORT, () => {
       logger.info(`📦 Core Service running on port ${PORT}`);

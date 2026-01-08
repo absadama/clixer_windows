@@ -2,13 +2,77 @@
 <html lang="tr">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Clixer - Enterprise Analytics Platform" />
-    <title>Clixer</title>
+    <meta name="theme-color" content="#00CFDE" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    
+    <!-- Favicon - Dinamik olarak JS ile güncellenir -->
+    <link rel="icon" type="image/png" href="/logo.png" id="dynamic-favicon" />
+    
+    <!-- PWA Manifest - Core Service'den dinamik gelir -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Apple Touch Icons - PWA için -->
+    <link rel="apple-touch-icon" sizes="192x192" href="/uploads/logo-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/uploads/logo-512.png" />
+    <!-- Fallback -->
+    <link rel="apple-touch-icon" href="/logo.png" />
+    
+    <title id="dynamic-title">Clixer</title>
+    
+    <!-- Title: Önce localStorage'dan hemen güncelle -->
+    <script>
+      (function() {
+        try {
+          var cachedName = localStorage.getItem('cachedAppName');
+          if (cachedName) {
+            document.getElementById('dynamic-title').textContent = cachedName;
+          }
+        } catch(e) {}
+      })();
+    </script>
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Dinamik favicon ve title script -->
+    <script>
+      // Logo ve title yüklendiğinde güncelle (PUBLIC endpoint kullanır)
+      (function() {
+        function updateBranding() {
+          // logo-info PUBLIC endpoint'inden al (auth gerektirmez)
+          fetch('/api/core/logo-info')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (data.success && data.data) {
+                // Favicon güncelle
+                var favicon = document.getElementById('dynamic-favicon');
+                if (favicon && data.data.files && data.data.files['logo-32.png']) {
+                  favicon.href = '/uploads/logo-32.png';
+                }
+                
+                // Title güncelle ve localStorage'a kaydet
+                if (data.data.appName) {
+                  document.title = data.data.appName;
+                  try { localStorage.setItem('cachedAppName', data.data.appName); } catch(e) {}
+                }
+              }
+            })
+            .catch(function() { /* Fallback: varsayılan kalır */ });
+        }
+        
+        // Sayfa yüklendiğinde çalıştır
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', updateBranding);
+        } else {
+          updateBranding();
+        }
+      })();
+    </script>
   </head>
   <body class="antialiased">
     <div id="root"></div>

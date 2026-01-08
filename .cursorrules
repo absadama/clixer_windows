@@ -7754,7 +7754,9 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-08 | **v4.18** | **Müşteri Tam Yedek - Kod + PostgreSQL + ClickHouse + Redis + Nginx + SSL** |
+| 2026-01-09 | **v4.20** | **WhiteLabel Logo Hataları Düzeltildi - localStorage Önbellek, Title/Favicon Dinamik** |
+| 2026-01-08 | v4.19 | WhiteLabel Logo Yönetimi - Admin Panel Logo Upload, PWA Manifest, Dinamik Favicon |
+| 2026-01-08 | v4.18 | Müşteri Tam Yedek - Kod + PostgreSQL + ClickHouse + Redis + Nginx + SSL |
 | 2026-01-08 | v4.17 | grid_designs Tablo Şeması Düzeltmesi (grid_key → grid_id) |
 | 2026-01-08 | v4.16 | ClickHouse Part/Partition Dokümantasyonu + DataGrid Doğrulama |
 | 2026-01-08 | v4.15 | DataGrid Tarih Aralığı Filtresi - Kokpit ile Aynı UI |
@@ -8210,3 +8212,409 @@ SET cron_expression = '0 2 * * *',
 WHERE dataset_id = (SELECT id FROM datasets WHERE name = 'DATASET_ADI');
 "
 ```
+
+---
+
+## 🎨 WHITELABEL LOGO YÖNETİMİ (v4.19 - 8 Ocak 2026)
+
+### MUTLAK KURAL: Logo sistemi dosya tabanlı çalışır, veritabanında sadece URL saklanır!
+
+### Logo Dosya Akışı
+
+```
+Admin Panel → Logo Yükle → Core Service → Sharp resize → /opt/clixer/frontend/dist/uploads/
+                                                                    ↓
+                                                        Nginx /uploads location ile serve
+                                                                    ↓
+                                                    PWA, Favicon, Sidebar dinamik kullanır
+```
+
+### Logo Boyutları (Otomatik Oluşturulur)
+
+| Dosya | Boyut | Kullanım |
+|-------|-------|----------|
+| `logo-512.png` | 512x512 | PWA büyük ikon |
+| `logo-192.png` | 192x192 | PWA küçük ikon, Apple Touch Icon |
+| `logo-96.png` | 96x96 | Favicon alternatif |
+| `logo-72.png` | 72x72 | Mobil ikon |
+| `logo-32.png` | 32x32 | Favicon |
+
+### Nginx Yapılandırması (ZORUNLU!)
+
+Müşteri sunucusunda `/etc/nginx/sites-available/default` dosyasına ekle:
+
+```nginx
+server {
+    # ... mevcut ayarlar ...
+
+    # Logo uploads - static dosya servisi
+    location /uploads/ {
+        alias /opt/clixer/frontend/dist/uploads/;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+        
+        # CORS header (opsiyonel, PWA için gerekebilir)
+        add_header Access-Control-Allow-Origin "*";
+        
+        # Güvenlik: Sadece resim dosyalarına izin ver
+        location ~ !\.(png|jpg|jpeg|gif|ico|svg|webp)$ {
+            return 403;
+        }
+    }
+}
+```
+
+**Nginx restart:**
+```bash
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+### API Endpoint'leri
+
+| Endpoint | Metod | Yetki | Açıklama |
+|----------|-------|-------|----------|
+| `/api/core/upload/logo` | POST | ADMIN | Logo yükle (multipart/form-data) |
+| `/api/core/logo-info` | GET | Auth | Mevcut logo bilgisi |
+| `/manifest.json` | GET | PUBLIC | Dinamik PWA manifest |
+
+### Logo Upload Gereksinimleri
+
+| Kural | Değer |
+|-------|-------|
+| Kabul edilen formatlar | PNG, SVG |
+| Önerilen format | PNG (şeffaf arka plan) |
+| Minimum boyut | 512x512 piksel |
+| Maksimum dosya boyutu | 5 MB |
+| Tema uyumu | Şeffaf arka plan zorunlu (hem açık hem koyu temada çalışır) |
+
+### Müşteri Logo Kurulumu Adımları
+
+1. **Uploads klasörü oluştur:**
+   ```bash
+   sudo mkdir -p /opt/clixer/frontend/dist/uploads
+   sudo chown -R www-data:www-data /opt/clixer/frontend/dist/uploads
+   sudo chmod 755 /opt/clixer/frontend/dist/uploads
+   ```
+
+2. **Nginx uploads location ekle:**
+   ```bash
+   sudo nano /etc/nginx/sites-available/default
+   # Yukarıdaki location bloğunu ekle
+   sudo nginx -t && sudo systemctl restart nginx
+   ```
+
+3. **Core service'i yeniden başlat:**
+   ```bash
+   sudo pkill -f "core-service"
+   cd /opt/clixer/services/core-service
+   sudo nohup npm run dev > /opt/clixer/logs/core-out.log 2>&1 &
+   ```
+
+4. **Admin Panel'den logo yükle:**
+   - Yönetim Paneli → Sistem Ayarları → Marka Logosu
+   - 512x512 veya daha büyük PNG dosyası yükle
+
+### PWA Manifest Dinamik Oluşturma
+
+`/manifest.json` endpoint'i şu bilgileri döndürür:
+
+```json
+{
+  "name": "Müşteri App Adı",
+  "short_name": "Müşteri",
+  "icons": [
+    { "src": "/uploads/logo-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/uploads/logo-192.png", "sizes": "192x192", "type": "image/png" }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#00CFDE",
+  "background_color": "#0F1116"
+}
+```
+
+### Test Komutları
+
+```bash
+# 1. Logo info endpoint'i test et
+TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@clixer","password":"Admin1234!"}' | \
+  grep -o '"accessToken":"[^"]*"' | cut -d'"' -f4)
+
+curl -s http://localhost:4000/api/core/logo-info -H "Authorization: Bearer $TOKEN"
+
+# 2. Manifest.json test et (PUBLIC)
+curl -s http://localhost:4000/manifest.json
+
+# 3. Uploads klasörünü kontrol et
+ls -la /opt/clixer/frontend/dist/uploads/
+
+# 4. Nginx test et
+curl -I http://localhost/uploads/logo-512.png
+```
+
+### Sorun Giderme
+
+| Sorun | Olası Sebep | Çözüm |
+|-------|-------------|-------|
+| Logo yüklenmiyor | Uploads klasörü yok/izin sorunu | `mkdir -p` ve `chown www-data` |
+| PWA'da eski logo | Tarayıcı cache | Hard refresh (Ctrl+Shift+R) |
+| "C" harfi görünüyor | manifest.json yok | Gateway restart, Nginx check |
+| 404 on /uploads/ | Nginx location eksik | Nginx config ekle ve restart |
+| CORS hatası | Nginx header eksik | `add_header Access-Control-Allow-Origin "*"` |
+
+### package.json Bağımlılıkları (Core Service)
+
+```json
+{
+  "dependencies": {
+    "multer": "^1.4.5-lts.1",
+    "sharp": "^0.33.2"
+  },
+  "devDependencies": {
+    "@types/multer": "^1.4.12"
+  }
+}
+```
+
+### 🔴 WHITELABEL LOGO HATALARI VE ÇÖZÜMLERİ (v4.20 - 9 Ocak 2026)
+
+Bu bölüm WhiteLabel logo sistemi geliştirilirken karşılaşılan hataları ve kesin çözümlerini içerir.
+
+---
+
+#### HATA 1: `appLogo is not defined` / `appName is not defined`
+
+**Belirti:**
+```
+Layout.tsx:563 Uncaught ReferenceError: appLogo is not defined at SidebarContent
+Layout.tsx:568 Uncaught ReferenceError: appName is not defined at SidebarContent
+```
+
+**KÖK NEDEN:** `SidebarContent` component'ine `appLogo` ve `appName` prop olarak geçirilmedi.
+
+**ÇÖZÜM:**
+1. `SidebarContentProps` interface'ine `appLogo?: string` ve `appName?: string` ekle
+2. `SidebarContent` fonksiyonuna parametreleri ekle
+3. Her `<SidebarContent>` çağrısına `appLogo={appLogo} appName={appName}` ekle
+
+---
+
+#### HATA 2: `502 Bad Gateway` / `Cannot find module 'multer'`
+
+**Belirti:** Logo yükleme endpoint'ine istek atınca 502 hatası
+
+**KÖK NEDEN:** Core service'e multer ve sharp paketi eklendi ama servis yeniden başlatılmadı.
+
+**ÇÖZÜM:**
+```bash
+npx kill-port 4002
+cd services/core-service
+npm run dev
+```
+
+---
+
+#### HATA 3: `500 Internal Server Error` - Logo Upload
+
+**Belirti 1:** Port çakışması
+```
+Error: listen EADDRINUSE: address already in use :::4002
+```
+
+**ÇÖZÜM:**
+```bash
+npx kill-port 4002
+```
+
+**Belirti 2:** Veritabanı constraint hatası
+```
+null value in column "category" of relation "system_settings" violates not-null constraint
+```
+
+**KÖK NEDEN:** `INSERT INTO system_settings` sorgusunda `category` kolonu eksik.
+
+**ÇÖZÜM:**
+```sql
+-- YANLIŞ
+INSERT INTO system_settings (tenant_id, key, value, created_at, updated_at) VALUES (...)
+
+-- DOĞRU
+INSERT INTO system_settings (tenant_id, key, value, category, created_at, updated_at) VALUES (..., 'branding', ...)
+```
+
+---
+
+#### HATA 4: `400 Bad Request` + `Unexpected token '<'`
+
+**Belirti:**
+```
+POST /api/core/upload/logo 400 (Bad Request)
+Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+```
+
+**KÖK NEDEN:** Proxy veya gateway hatası HTML döndürüyor, frontend JSON bekliyor.
+
+**ÇÖZÜM:** Frontend'de hata yönetimini güçlendir:
+```typescript
+const text = await response.text();
+let result;
+try {
+  result = JSON.parse(text);
+} catch {
+  if (!response.ok) {
+    throw new Error(`Sunucu hatası: ${response.status}`);
+  }
+  result = { success: true };
+}
+```
+
+---
+
+#### HATA 5: `401 Unauthorized` - Login Öncesi Settings
+
+**Belirti:**
+```
+GET /api/core/settings 401 (Unauthorized)
+```
+
+**KÖK NEDEN:** Login sayfasında veya sayfa yüklenirken auth gerektiren `/settings` endpoint'i çağrılıyor.
+
+**ÇÖZÜM:**
+1. `/logo-info` endpoint'ini PUBLIC yap (authenticate middleware kaldır)
+2. `index.html`'de `/api/core/settings` yerine `/api/core/logo-info` kullan
+3. `settingsStore.ts`'de 401 hatasını sessizce handle et
+4. `LoginPage.tsx`'den gereksiz `useSettingsStore` import'larını kaldır
+
+---
+
+#### HATA 6: `noscript` içinde `title` - Vite Parse Hatası
+
+**Belirti:**
+```
+Unable to parse HTML; parse5 error code disallowed-content-in-noscript-in-head
+```
+
+**KÖK NEDEN:** HTML5'te `<head>` içindeki `<noscript>` sadece `<link>`, `<style>`, `<meta>` içerebilir.
+
+**ÇÖZÜM:**
+```html
+<!-- YANLIŞ -->
+<script>document.write('<title>...</title>');</script>
+<noscript><title>Clixer</title></noscript>
+
+<!-- DOĞRU -->
+<title id="dynamic-title">Clixer</title>
+<script>
+  try {
+    var cached = localStorage.getItem('cachedAppName');
+    if (cached) document.getElementById('dynamic-title').textContent = cached;
+  } catch(e) {}
+</script>
+```
+
+---
+
+#### HATA 7: Logo/Title Flash Sorunu (Eski Değer Bir Anlık Görünüyor)
+
+**Belirti:** Sayfa yenilendiğinde Clixer logosu veya başlığı bir anlık görünüp sonra güncel değere dönüyor.
+
+**KÖK NEDEN:** API yanıtı gelene kadar varsayılan değer gösteriliyor.
+
+**ÇÖZÜM - localStorage Önbellek:**
+
+**1. index.html için:**
+```html
+<title id="dynamic-title">Clixer</title>
+<script>
+  (function() {
+    try {
+      var cachedName = localStorage.getItem('cachedAppName');
+      if (cachedName) {
+        document.getElementById('dynamic-title').textContent = cachedName;
+      }
+    } catch(e) {}
+  })();
+</script>
+```
+
+**2. settingsStore.ts için:**
+```typescript
+// Başlangıçta localStorage'dan oku
+const getCachedLogo = (): string => {
+  try {
+    const cached = localStorage.getItem('cachedLogoUrl');
+    if (cached && cached.startsWith('/uploads/')) return cached;
+  } catch {}
+  return '/logo.png';
+};
+
+// API'den geldikten sonra kaydet
+if (value && value.startsWith('/uploads/')) {
+  try { localStorage.setItem('cachedLogoUrl', value); } catch {}
+}
+```
+
+**3. LoginPage.tsx için:**
+```typescript
+const getCachedLogoUrl = (): string => {
+  try {
+    const cached = localStorage.getItem('cachedLogoUrl');
+    if (cached && cached.startsWith('/uploads/')) return cached;
+  } catch {}
+  return '/logo-dark.png';
+};
+
+const [logoUrl, setLogoUrl] = useState<string>(getCachedLogoUrl());
+```
+
+---
+
+#### HATA 8: Sekme Başlığı Güncellenmiyor
+
+**Belirti:** Admin Panel'de app_name "Dinamo" olarak ayarlı ama sekme başlığı hala "Clixer"
+
+**KÖK NEDEN:** `/api/core/logo-info` endpoint'i `appName` döndürmüyordu.
+
+**ÇÖZÜM:**
+```typescript
+// core-service/src/index.ts - logo-info endpoint
+const settings = await db.queryAll(
+  `SELECT key, value FROM system_settings WHERE key IN ('app_logo_url', 'app_favicon_url', 'app_name')`
+);
+
+// appName'i ayıkla
+let appName = 'Clixer';
+if (settingsMap['app_name']) {
+  const raw = settingsMap['app_name'];
+  if (typeof raw === 'object' && raw.value) {
+    appName = raw.value;
+  } else if (typeof raw === 'string') {
+    appName = raw;
+  }
+}
+
+res.json({
+  success: true,
+  data: {
+    hasCustomLogo: logo512Exists || logoSvgExists,
+    logoUrl,
+    appName, // ← EKLENDİ
+    // ...
+  }
+});
+```
+
+---
+
+### ÖNLEME KURALLARI
+
+1. **Component prop'ları:** Nested component'lere prop geçirirken TypeScript interface'i güncelle
+2. **npm install sonrası:** Servisi her zaman yeniden başlat
+3. **Veritabanı INSERT:** NOT NULL kolonları kontrol et
+4. **PUBLIC endpoint'ler:** Auth gerektirmeyen endpoint'leri gateway'de ayrı route'a al
+5. **HTML5 validasyonu:** `<noscript>` içinde sadece izin verilen tagları kullan
+6. **Flash önleme:** Kritik görsel değerleri localStorage'da önbellekle
+
+---

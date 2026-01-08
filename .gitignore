@@ -41,6 +41,10 @@ tmp/
 temp/
 *.tmp
 
+# Uploaded files (user logos, etc.)
+frontend/public/uploads/
+frontend/dist/uploads/
+
 # OS files
 Thumbs.db
 .DS_Store

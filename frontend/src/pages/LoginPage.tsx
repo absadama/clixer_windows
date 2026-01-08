@@ -1,11 +1,51 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { Mail, Lock, Loader2, Zap } from 'lucide-react'
+
+// LocalStorage'dan önbellek logo URL'si al (flash önleme)
+const getCachedLogoUrl = (): string => {
+  try {
+    const cached = localStorage.getItem('cachedLogoUrl')
+    if (cached && cached.startsWith('/uploads/')) {
+      return cached
+    }
+  } catch {}
+  return '/logo-dark.png'
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const { login, isLoading, error, clearError } = useAuthStore()
+  
+  // Login sayfası logosu - önce localStorage'dan oku (flash önleme)
+  const [logoUrl, setLogoUrl] = useState<string>(getCachedLogoUrl())
+  
+  useEffect(() => {
+    // Sistem ayarlarından logo URL'ini al (public endpoint)
+    const fetchLogoInfo = async () => {
+      try {
+        const response = await fetch('/api/core/logo-info')
+        if (response.ok) {
+          const data = await response.json()
+          // LoginPage için PNG tercih et (SVG'de arka plan sorunu olabilir)
+          // Önce 512 PNG kontrol et, yoksa logoUrl kullan
+          let newLogoUrl = '/logo-dark.png'
+          if (data.data?.files?.['logo-512.png']) {
+            newLogoUrl = '/uploads/logo-512.png'
+          } else if (data.data?.logoUrl) {
+            newLogoUrl = data.data.logoUrl
+          }
+          setLogoUrl(newLogoUrl)
+          // LocalStorage'a kaydet (sonraki refresh için)
+          try { localStorage.setItem('cachedLogoUrl', newLogoUrl) } catch {}
+        }
+      } catch {
+        // Hata durumunda varsayılan logo kullan
+      }
+    }
+    fetchLogoInfo()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -19,12 +59,12 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative" style={{ backgroundColor: '#0F1116' }}>
-      {/* Background Logo Silhouette - Positioned at top */}
-      <div className="absolute inset-x-0 top-8 flex justify-center overflow-hidden pointer-events-none z-0">
+      {/* Background Logo Silhouette - Sayfanın üst kısmında görünür */}
+      <div className="absolute top-16 left-1/2 transform -translate-x-1/2 overflow-hidden pointer-events-none z-0">
         <img 
-          src="/logo-dark.png" 
+          src={logoUrl} 
           alt="" 
-          className="w-[700px] h-auto opacity-[0.08] select-none"
+          className="w-[500px] h-auto opacity-[0.06] select-none"
         />
       </div>
 
@@ -51,15 +91,6 @@ export default function LoginPage() {
         >
           {/* Header - Neon Cyan Accent */}
           <div className="h-1" style={{ background: 'linear-gradient(90deg, #00CFDE 0%, #00A5B5 100%)' }} />
-          
-          {/* Logo Silhouette INSIDE the card */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
-            <img 
-              src="/logo-dark.png" 
-              alt="" 
-              className="w-[280px] h-auto opacity-[0.06] select-none"
-            />
-          </div>
           
           <div className="p-8 relative z-10">
             {/* Form */}
