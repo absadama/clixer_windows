@@ -261,8 +261,26 @@ export default function Layout({ children }: LayoutProps) {
     defaultTheme,
     defaultLanguage,
     appName,
-    appLogo
+    appLogo: storeAppLogo
   } = useSettingsStore()
+  
+  // Logo için localStorage öncelikli - flash önleme
+  const getEffectiveLogo = (): string => {
+    // 1. Store'dan gelen değer uploads ise kullan
+    if (storeAppLogo?.startsWith('/uploads/')) {
+      return storeAppLogo;
+    }
+    // 2. localStorage'dan kontrol et
+    try {
+      const cached = localStorage.getItem('cachedLogoUrl');
+      if (cached && cached.startsWith('/uploads/')) {
+        return cached;
+      }
+    } catch {}
+    // 3. Fallback
+    return '/logo.png';
+  };
+  const appLogo = getEffectiveLogo();
 
   // Menü etiketlerini yükle
   const loadMenuLabels = useCallback(async () => {
@@ -444,7 +462,7 @@ export default function Layout({ children }: LayoutProps) {
             {/* Mobile logo */}
             <div className="flex items-center gap-2 lg:hidden">
               <img 
-                src={appLogo?.startsWith('/uploads/') ? appLogo : '/logo.png'} 
+                src={appLogo} 
                 alt={appName || 'Clixer'} 
                 className="h-8 object-contain"
                 onError={(e) => {
@@ -564,7 +582,7 @@ function SidebarContent({
           className="flex items-center justify-center hover:opacity-80 transition-opacity w-full h-full py-4"
         >
           <img 
-            src={appLogo?.startsWith('/uploads/') ? appLogo : '/logo.png'} 
+            src={appLogo} 
             alt={displayAppName || 'Clixer'} 
             className={clsx(
               'object-contain transition-all drop-shadow-lg',

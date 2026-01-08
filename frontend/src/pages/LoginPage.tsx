@@ -7,9 +7,14 @@ const getCachedLogoUrl = (): string => {
   try {
     const cached = localStorage.getItem('cachedLogoUrl')
     if (cached && cached.startsWith('/uploads/')) {
+      // PNG tercih et (SVG'de arka plan sorunu olabilir)
+      if (cached.endsWith('.svg')) {
+        return '/uploads/logo-512.png'
+      }
       return cached
     }
   } catch {}
+  // Hiç custom logo yoksa varsayılan Clixer logosu
   return '/logo-dark.png'
 }
 
