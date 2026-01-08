@@ -7754,7 +7754,8 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-08 | **v4.17** | **grid_designs Tablo Şeması Düzeltmesi (grid_key → grid_id)** |
+| 2026-01-08 | **v4.18** | **Müşteri Tam Yedek - Kod + PostgreSQL + ClickHouse + Redis + Nginx + SSL** |
+| 2026-01-08 | v4.17 | grid_designs Tablo Şeması Düzeltmesi (grid_key → grid_id) |
 | 2026-01-08 | v4.16 | ClickHouse Part/Partition Dokümantasyonu + DataGrid Doğrulama |
 | 2026-01-08 | v4.15 | DataGrid Tarih Aralığı Filtresi - Kokpit ile Aynı UI |
 | 2026-01-08 | v4.14 | No-Code Kolon Tipi Değiştirme (DataGrid Context Menu) |
@@ -8032,6 +8033,82 @@ Kokpit ile DataGrid arasında **birebir eşleşme** sağlandı:
 | Hızlı preset | Bugün, Dün, Son 7/30 Gün |
 | Özel tarih | Manuel tarih girişi |
 | Footer toplamlar | Filtrelenmiş veriye göre güncelleniyor |
+
+---
+
+## 📅 v4.18 - 8 Ocak 2026
+
+**Müşteri Tam Yedek - T Anı Snapshot**
+
+### ✅ Yedek Başarıyla Tamamlandı
+
+| Bileşen | Durum | Detay |
+|---------|-------|-------|
+| **Konum** | `/opt/backup_20260108_full` | 1.1 GB |
+| **Kod** | ✅ | `/code` - Tüm Clixer kaynak kodları |
+| **PostgreSQL** | ✅ | `postgresql_full.sql` - 4036 satır |
+| **ClickHouse** | ✅ | 5 tablo (şema + veri CSV) |
+| **Redis** | ✅ | `redis_dump.rdb` |
+| **Nginx** | ✅ | `/nginx/default` |
+| **SSL** | ✅ | `/ssl/` (sertifikalar) |
+| **.env** | ✅ | Ortam değişkenleri |
+
+### Yedek İçeriği
+
+```
+/opt/backup_20260108_full/
+├── code/                    # Tüm Clixer kaynak kodları
+├── postgresql_full.sql      # PostgreSQL tam yedek (kullanıcılar, tasarımlar, metrikler)
+├── clickhouse/
+│   ├── _etl_log_schema.sql + _etl_log_data.csv
+│   ├── ds_4195e184..._schema.sql + _data.csv (VW_PBI_Branch)
+│   ├── ds_9ddcb41c..._schema.sql + _data.csv (rprSalesGroupDaily - 1M satır)
+│   ├── ds_bbfb1073..._schema.sql + _data.csv
+│   └── excel_lfl_takvim..._schema.sql + _data.csv
+├── redis_dump.rdb           # Redis önbellek
+├── nginx/default            # Nginx yapılandırması
+├── ssl/                     # SSL sertifikaları
+└── .env                     # Ortam değişkenleri
+```
+
+### Geri Yükleme Komutu
+
+```bash
+# 1. Kodu geri yükle
+sudo cp -r /opt/backup_20260108_full/code/* /opt/clixer/
+
+# 2. PostgreSQL geri yükle
+sudo docker exec -i clixer_postgres psql -U clixer -d clixer < /opt/backup_20260108_full/postgresql_full.sql
+
+# 3. ClickHouse tabloları geri yükle
+for schema in /opt/backup_20260108_full/clickhouse/*_schema.sql; do
+  curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025" --data-binary @"$schema"
+done
+
+# 4. ClickHouse verilerini geri yükle
+for csv in /opt/backup_20260108_full/clickhouse/*_data.csv; do
+  table=$(basename "$csv" _data.csv)
+  curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025&query=INSERT%20INTO%20clixer_analytics.$table%20FORMAT%20CSVWithNames" --data-binary @"$csv"
+done
+
+# 5. Redis geri yükle
+sudo docker cp /opt/backup_20260108_full/redis_dump.rdb clixer_redis:/data/dump.rdb
+sudo docker restart clixer_redis
+
+# 6. Nginx geri yükle
+sudo cp /opt/backup_20260108_full/nginx/default /etc/nginx/sites-available/
+sudo systemctl restart nginx
+
+# 7. SSL geri yükle
+sudo cp /opt/backup_20260108_full/ssl/* /etc/ssl/certs/
+sudo cp /opt/backup_20260108_full/ssl/certificate.key /etc/ssl/private/
+
+# 8. .env geri yükle
+sudo cp /opt/backup_20260108_full/.env /opt/clixer/
+
+# 9. Servisleri başlat
+sudo bash /opt/clixer/scripts/start-all.sh
+```
 
 ---
 
