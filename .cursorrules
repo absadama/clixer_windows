@@ -7755,6 +7755,7 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
 | 2026-01-09 | **v4.20** | **WhiteLabel Logo Hataları Düzeltildi - localStorage Önbellek, Title/Favicon Dinamik** |
+| 2026-01-09 | **v4.20** | **WhiteLabel Logo Hataları Düzeltildi - localStorage Önbellek, Title/Favicon Dinamik** |
 | 2026-01-08 | v4.19 | WhiteLabel Logo Yönetimi - Admin Panel Logo Upload, PWA Manifest, Dinamik Favicon |
 | 2026-01-08 | v4.18 | Müşteri Tam Yedek - Kod + PostgreSQL + ClickHouse + Redis + Nginx + SSL |
 | 2026-01-08 | v4.17 | grid_designs Tablo Şeması Düzeltmesi (grid_key → grid_id) |
@@ -8215,6 +8216,73 @@ WHERE dataset_id = (SELECT id FROM datasets WHERE name = 'DATASET_ADI');
 
 ---
 
+## 📅 v4.20 - 9 Ocak 2026
+
+**WhiteLabel Logo Flash Düzeltmesi - Sidebar & Login Page**
+
+### Çözülen Sorunlar
+
+1. ✅ **Sidebar'da eski logo bir anlık görünüyordu**
+   - **Kök Neden:** `appLogo` state'i store'dan geliyor ama sayfa yüklenirken önce default değer render ediliyordu
+   - **Çözüm:** `getEffectiveLogo()` fonksiyonu eklendi - önce store, sonra localStorage kontrol ediyor
+
+2. ✅ **Login sayfasında eski logo bir anlık görünüyordu**
+   - **Kök Neden:** `getCachedLogoUrl()` fallback olarak `/logo-dark.png` kullanıyordu
+   - **Çözüm:** localStorage'dan `/uploads/` ile başlayan değer okunuyor
+
+3. ✅ **Manifest syntax error düzeltildi**
+   - `/manifest.json` endpoint'i doğru JSON döndürüyor
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `frontend/src/components/Layout.tsx` | `getEffectiveLogo()` fonksiyonu - localStorage öncelikli |
+| `frontend/src/pages/LoginPage.tsx` | `getCachedLogoUrl()` SVG→PNG dönüşümü |
+
+### localStorage Flash Önleme Mekanizması
+
+```typescript
+// Layout.tsx - Sidebar için
+const getEffectiveLogo = (): string => {
+  // 1. Store'dan gelen değer uploads ise kullan
+  if (storeAppLogo?.startsWith('/uploads/')) {
+    return storeAppLogo;
+  }
+  // 2. localStorage'dan kontrol et
+  try {
+    const cached = localStorage.getItem('cachedLogoUrl');
+    if (cached && cached.startsWith('/uploads/')) {
+      return cached;
+    }
+  } catch {}
+  // 3. Fallback
+  return '/logo.png';
+};
+
+// LoginPage.tsx - Login için
+const getCachedLogoUrl = (): string => {
+  try {
+    const cached = localStorage.getItem('cachedLogoUrl');
+    if (cached && cached.startsWith('/uploads/')) {
+      // PNG tercih et (SVG'de arka plan sorunu olabilir)
+      if (cached.endsWith('.svg')) {
+        return '/uploads/logo-512.png';
+      }
+      return cached;
+    }
+  } catch {}
+  return '/logo-dark.png';
+};
+```
+
+### Yedekleme
+
+- **GitHub Commit:** `2acfb21`
+- **GitHub Tag:** Oluşturulmalı: `v4.20`
+
+---
+
 ## 🎨 WHITELABEL LOGO YÖNETİMİ (v4.19 - 8 Ocak 2026)
 
 ### MUTLAK KURAL: Logo sistemi dosya tabanlı çalışır, veritabanında sadece URL saklanır!
@@ -8608,6 +8676,63 @@ res.json({
 
 ---
 
+---
+
+#### HATA 9: Sidebar'da Eski Logo Bir Anlık Görünüyor (v4.20)
+
+**Belirti:** F5 yapıldığında sidebar'da eski Clixer logosu bir anlık görünüp sonra yeni logo geliyor.
+
+**KÖK NEDEN:** `appLogo` state'i Zustand store'dan geliyor ama sayfa ilk render'ında store henüz yüklenmemiş, default değer (`/logo.png`) kullanılıyor.
+
+**ÇÖZÜM - `Layout.tsx`'te `getEffectiveLogo()` fonksiyonu:**
+```typescript
+const getEffectiveLogo = (): string => {
+  // 1. Store'dan gelen değer uploads ise kullan
+  if (storeAppLogo?.startsWith('/uploads/')) {
+    return storeAppLogo;
+  }
+  // 2. localStorage'dan kontrol et (FLASH ÖNLEME!)
+  try {
+    const cached = localStorage.getItem('cachedLogoUrl');
+    if (cached && cached.startsWith('/uploads/')) {
+      return cached;
+    }
+  } catch {}
+  // 3. Fallback
+  return '/logo.png';
+};
+const appLogo = getEffectiveLogo();
+```
+
+---
+
+#### HATA 10: Login Sayfasında Eski Logo Bir Anlık Görünüyor (v4.20)
+
+**Belirti:** Login sayfası F5 yapıldığında eski Clixer logosu görünüp sonra yeni logo geliyor.
+
+**KÖK NEDEN:** `getCachedLogoUrl()` fonksiyonu localStorage'da değer yoksa `/logo-dark.png` (eski Clixer logosu) döndürüyordu.
+
+**ÇÖZÜM - `LoginPage.tsx`'te `getCachedLogoUrl()` güncellemesi:**
+```typescript
+const getCachedLogoUrl = (): string => {
+  try {
+    const cached = localStorage.getItem('cachedLogoUrl');
+    if (cached && cached.startsWith('/uploads/')) {
+      // PNG tercih et (SVG'de arka plan sorunu olabilir)
+      if (cached.endsWith('.svg')) {
+        return '/uploads/logo-512.png';
+      }
+      return cached;
+    }
+  } catch {}
+  return '/logo-dark.png';
+};
+```
+
+**ÖNEMLİ:** Logo yüklendiğinde `localStorage.setItem('cachedLogoUrl', logoUrl)` ile cache'lenmeli!
+
+---
+
 ### ÖNLEME KURALLARI
 
 1. **Component prop'ları:** Nested component'lere prop geçirirken TypeScript interface'i güncelle
@@ -8616,5 +8741,6 @@ res.json({
 4. **PUBLIC endpoint'ler:** Auth gerektirmeyen endpoint'leri gateway'de ayrı route'a al
 5. **HTML5 validasyonu:** `<noscript>` içinde sadece izin verilen tagları kullan
 6. **Flash önleme:** Kritik görsel değerleri localStorage'da önbellekle
+7. **Logo flash önleme:** Store yüklenmeden önce localStorage'dan oku (v4.20)
 
 ---
