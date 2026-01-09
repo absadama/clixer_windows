@@ -1456,11 +1456,24 @@ export default function DataPage() {
     setNewDatasetName(dataset.name)
     setNewDatasetSyncStrategy(dataset.sync_strategy)
     setNewDatasetSyncSchedule(dataset.sync_schedule || 'manual')
-    // Eğer günlük schedule ise ve cron'dan saat çıkarılabilirse kullan
+    
+    // Eğer günlük schedule ise cron_expression'dan saati parse et
     if (dataset.sync_schedule === 'daily') {
-      // etl_schedules'dan saati çekebiliriz, ama şimdilik varsayılan 2 kullan
-      // TODO: Backend'den scheduled_hour bilgisi gelmeli
-      setScheduledHour(2)
+      // schedules array'ından bu dataset'in schedule'ını bul
+      const schedule = schedules.find(s => s.dataset_id === dataset.id)
+      if (schedule?.cron_expression) {
+        // cron_expression formatı: "0 3 * * *" -> saat 3
+        const match = schedule.cron_expression.match(/^0\s+(\d+)\s+\*\s+\*\s+\*$/)
+        if (match) {
+          setScheduledHour(parseInt(match[1]))
+        } else {
+          // Parse edilemezse varsayılan 2 kullan
+          setScheduledHour(2)
+        }
+      } else {
+        // Schedule yoksa varsayılan 2 kullan
+        setScheduledHour(2)
+      }
     }
     setNewDatasetReferenceColumn(dataset.reference_column || '')
     setNewDatasetRowLimit(dataset.row_limit || null)
@@ -5977,6 +5990,29 @@ export default function DataPage() {
                   </select>
                 </div>
               </div>
+
+              {/* Günlük seçildiğinde saat seçici */}
+              {newDatasetSyncSchedule === 'daily' && (
+                <div>
+                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>
+                    🕐 Çalışma Saati
+                  </label>
+                  <select
+                    value={scheduledHour}
+                    onChange={(e) => setScheduledHour(parseInt(e.target.value))}
+                    className={clsx('w-full px-4 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <option key={i} value={i}>
+                        {i.toString().padStart(2, '0')}:00 {i >= 0 && i < 6 ? '🌙' : i >= 6 && i < 12 ? '🌅' : i >= 12 && i < 18 ? '☀️' : '🌆'}
+                      </option>
+                    ))}
+                  </select>
+                  <p className={clsx('mt-1 text-xs', theme.contentTextMuted)}>
+                    Günlük senkronizasyon her gün bu saatte çalışır
+                  </p>
+                </div>
+              )}
 
               {/* Satır Limiti */}
               <div>
