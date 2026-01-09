@@ -81,6 +81,9 @@ function Stop-ClixerProcesses {
 function Start-DockerDesktop {
     Write-Step 2 7 "Docker Desktop kontrol ediliyor..."
     
+    # Docker Desktop process'i calisyor mu?
+    $dockerProcess = Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue
+    
     # Docker daemon calisyor mu kontrol et
     $dockerInfo = docker info 2>&1
     if ($LASTEXITCODE -eq 0) {
@@ -88,20 +91,25 @@ function Start-DockerDesktop {
         return $true
     }
     
-    Write-Info "Docker Desktop baslatiliyor..."
-    
-    # Docker Desktop'i bul ve baslat
-    $dockerPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-    if (-not (Test-Path $dockerPath)) {
-        Write-Error "Docker Desktop bulunamadi: $dockerPath"
-        Write-Error "Lutfen Docker Desktop'i manuel olarak baslatin"
-        return $false
+    # Docker Desktop process var mi ama daemon hazir degil mi?
+    if ($dockerProcess) {
+        Write-Info "Docker Desktop baslatilmis, daemon hazir olmasi bekleniyor..."
+    } else {
+        Write-Info "Docker Desktop baslatiliyor..."
+        
+        # Docker Desktop'i bul ve baslat
+        $dockerPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+        if (-not (Test-Path $dockerPath)) {
+            Write-Error "Docker Desktop bulunamadi: $dockerPath"
+            Write-Error "Lutfen Docker Desktop'i manuel olarak baslatin"
+            return $false
+        }
+        
+        Start-Process $dockerPath
     }
     
-    Start-Process $dockerPath
-    
-    # Docker daemon hazir olana kadar bekle (max 90 saniye)
-    $maxWait = 90
+    # Docker daemon hazir olana kadar bekle (max 120 saniye)
+    $maxWait = 120
     $waited = 0
     
     while ($waited -lt $maxWait) {
@@ -114,10 +122,11 @@ function Start-DockerDesktop {
             return $true
         }
         
-        Write-Wait "Docker baslatiliyor... ($waited/$maxWait saniye)"
+        Write-Wait "Docker daemon bekleniyor... ($waited/$maxWait saniye)"
     }
     
-    Write-Error "Docker Desktop $maxWait saniyede baslatilmadi!"
+    Write-Error "Docker Desktop $maxWait saniyede hazir olmadi!"
+    Write-Error "Lutfen Docker Desktop'i manuel olarak acin ve tekrar deneyin."
     return $false
 }
 
