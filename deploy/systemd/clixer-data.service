@@ -1,0 +1,31 @@
+[Unit]
+Description=Clixer Data Service
+Documentation=https://github.com/absadama/clixer_windows
+After=network.target docker.service clixer-gateway.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/clixer/services/data-service
+ExecStart=/usr/bin/npm run dev
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Logging
+StandardOutput=append:/opt/clixer/logs/data.log
+StandardError=append:/opt/clixer/logs/data-error.log
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=4003
+
+# Process management
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

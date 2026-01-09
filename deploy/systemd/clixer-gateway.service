@@ -1,0 +1,31 @@
+[Unit]
+Description=Clixer API Gateway
+Documentation=https://github.com/absadama/clixer_windows
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/clixer/gateway
+ExecStart=/usr/bin/npm run dev
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Logging
+StandardOutput=append:/opt/clixer/logs/gateway.log
+StandardError=append:/opt/clixer/logs/gateway-error.log
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=4000
+
+# Process management
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

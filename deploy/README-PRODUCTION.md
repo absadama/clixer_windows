@@ -31,23 +31,47 @@ sudo bash install-ubuntu.sh
 
 ## 📋 Kurulum Sonrası
 
-### Servisleri Başlat
+### Systemd Service'leri Kur (v4.21+)
 
 ```bash
-sudo -u clixer /opt/clixer/scripts/start-production.sh
+# 1. Service dosyalarını kopyala
+sudo cp /opt/clixer/deploy/systemd/*.service /etc/systemd/system/
+
+# 2. Systemd'yi yeniden yükle
+sudo systemctl daemon-reload
+
+# 3. Servisleri etkinleştir (boot'ta otomatik başlasın)
+sudo systemctl enable clixer-gateway clixer-auth clixer-core clixer-data clixer-notification clixer-analytics clixer-etl-worker
+
+# 4. Servisleri başlat
+sudo bash /opt/clixer/scripts/start-all.sh
 ```
 
 ### Durumu Kontrol Et
 
 ```bash
-pm2 status
+# Tüm servislerin durumu
+sudo bash /opt/clixer/scripts/status.sh
+
+# veya tek tek
+sudo systemctl status clixer-*
+
+# Docker durumu
 docker ps
 ```
 
 ### Logları İzle
 
 ```bash
-pm2 logs
+# Tüm loglar
+tail -f /opt/clixer/logs/*.log
+
+# Tek servis
+tail -f /opt/clixer/logs/etl-worker.log
+journalctl -u clixer-etl-worker -f
+
+# Docker logları
+docker logs clixer_postgres --tail 100
 ```
 
 ---
@@ -172,6 +196,79 @@ server {
         add_header Cache-Control "public, no-transform";
     }
 }
+```
+
+---
+
+## ⚙️ Systemd Service Yönetimi (v4.21+)
+
+### Neden Systemd?
+
+`nohup` ile başlatılan servisler SSH oturumu kapandığında SIGHUP sinyali alarak kapanır. Systemd ile:
+- Sunucu restart'ında servisler otomatik başlar
+- Crash durumunda 10 saniyede otomatik yeniden başlar
+- SSH oturumu kapansa bile servisler çalışmaya devam eder
+- Log yönetimi journalctl ile entegre
+
+### Kurulu Servisler
+
+| Service | Port | Açıklama |
+|---------|------|----------|
+| clixer-gateway | 4000 | API Gateway |
+| clixer-auth | 4001 | Auth Service |
+| clixer-core | 4002 | Core Service |
+| clixer-data | 4003 | Data Service |
+| clixer-notification | 4004 | Notification Service |
+| clixer-analytics | 4005 | Analytics Service |
+| clixer-etl-worker | - | ETL Worker |
+
+### Komutlar
+
+```bash
+# Tek servisi başlat/durdur/yeniden başlat
+sudo systemctl start clixer-etl-worker
+sudo systemctl stop clixer-etl-worker
+sudo systemctl restart clixer-etl-worker
+
+# Durumu gör
+sudo systemctl status clixer-etl-worker
+
+# Logları gör
+journalctl -u clixer-etl-worker -f
+journalctl -u clixer-etl-worker --since "1 hour ago"
+
+# Tüm Clixer servislerini yeniden başlat
+sudo systemctl restart clixer-*
+
+# Boot'ta başlamasını devre dışı bırak
+sudo systemctl disable clixer-etl-worker
+
+# Service dosyasını düzenle
+sudo nano /etc/systemd/system/clixer-etl-worker.service
+sudo systemctl daemon-reload
+```
+
+### Service Dosyası Örneği
+
+```ini
+[Unit]
+Description=Clixer ETL Worker
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/clixer/services/etl-worker
+ExecStart=/usr/bin/npm run dev
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/opt/clixer/logs/etl-worker.log
+StandardError=append:/opt/clixer/logs/etl-worker-error.log
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
 ```
 
 ---
@@ -329,19 +426,28 @@ docker logs clixer_clickhouse
 docker logs clixer_redis
 ```
 
-### PM2 Logları
+### Servis Logları
 
 ```bash
-pm2 logs clixer-gateway --lines 100
-pm2 logs clixer-auth --lines 100
+# Tüm loglar
+tail -f /opt/clixer/logs/*.log
+
+# Tek servis (dosya)
+tail -f /opt/clixer/logs/etl-worker.log
+
+# Tek servis (journalctl)
+journalctl -u clixer-etl-worker -f
 ```
 
 ### Servisleri Yeniden Başlat
 
 ```bash
-pm2 restart all
-# veya
-pm2 delete all && /opt/clixer/scripts/start-production.sh
+# Tüm servisleri yeniden başlat
+sudo bash /opt/clixer/scripts/stop-all.sh
+sudo bash /opt/clixer/scripts/start-all.sh
+
+# veya tek servis
+sudo systemctl restart clixer-etl-worker
 ```
 
 ---

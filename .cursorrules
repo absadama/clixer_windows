@@ -7634,6 +7634,99 @@ LIMIT 10
 
 ---
 
+## 🔴 SYSTEMD SERVİS YÖNETİMİ (v4.21 - 9 Ocak 2026)
+
+### MUTLAK KURAL: Production'da servisler SYSTEMD ile çalışmalı, nohup DEĞİL!
+
+**Problem:** `nohup npm run dev &` ile başlatılan servisler SSH oturumu kapandığında SIGHUP sinyali alarak sessizce kapanıyor.
+
+**Çözüm:** Tüm Clixer servisleri systemd service olarak tanımlandı.
+
+### Kurulu Servisler
+
+| Service | Port | Açıklama |
+|---------|------|----------|
+| `clixer-gateway` | 4000 | API Gateway |
+| `clixer-auth` | 4001 | Auth Service |
+| `clixer-core` | 4002 | Core Service |
+| `clixer-data` | 4003 | Data Service |
+| `clixer-notification` | 4004 | Notification Service |
+| `clixer-analytics` | 4005 | Analytics Service |
+| `clixer-etl-worker` | - | ETL Worker |
+
+### Kurulum (Müşteri Sunucusunda)
+
+```bash
+# 1. Service dosyalarını kopyala
+sudo cp /opt/clixer/deploy/systemd/*.service /etc/systemd/system/
+
+# 2. Systemd'yi yeniden yükle
+sudo systemctl daemon-reload
+
+# 3. Servisleri etkinleştir (boot'ta otomatik başlasın)
+sudo systemctl enable clixer-gateway clixer-auth clixer-core clixer-data clixer-notification clixer-analytics clixer-etl-worker
+
+# 4. Servisleri başlat
+sudo bash /opt/clixer/scripts/start-all.sh
+```
+
+### Temel Komutlar
+
+```bash
+# Durum kontrolü
+sudo bash /opt/clixer/scripts/status.sh
+
+# Tek servis yönetimi
+sudo systemctl start|stop|restart clixer-etl-worker
+
+# Log izleme
+journalctl -u clixer-etl-worker -f
+
+# Tüm clixer servisleri
+sudo systemctl status clixer-*
+```
+
+### Systemd Avantajları
+
+| Özellik | nohup | systemd |
+|---------|-------|---------|
+| SSH kapanınca | ❌ Kapanır | ✅ Çalışmaya devam eder |
+| Sunucu restart | ❌ Elle başlatılmalı | ✅ Otomatik başlar |
+| Crash durumu | ❌ Kapanır | ✅ 10 saniyede yeniden başlar |
+| Log yönetimi | ❌ Elle | ✅ journalctl entegre |
+| Durum kontrolü | ❌ `ps aux` | ✅ `systemctl status` |
+
+### Kritik Dosyalar
+
+| Dosya | Konum |
+|-------|-------|
+| Service dosyaları | `/opt/clixer/deploy/systemd/*.service` |
+| Başlatma scripti | `/opt/clixer/scripts/start-all.sh` |
+| Durdurma scripti | `/opt/clixer/scripts/stop-all.sh` |
+| Durum scripti | `/opt/clixer/scripts/status.sh` |
+| Loglar | `/opt/clixer/logs/*.log` |
+
+### nohup'tan Systemd'ye Geçiş
+
+Mevcut müşteri kurulumunda:
+
+```bash
+# 1. Eski process'leri durdur
+sudo pkill -9 -f "node"
+
+# 2. Service dosyalarını kopyala
+sudo cp /opt/clixer/deploy/systemd/*.service /etc/systemd/system/
+
+# 3. Systemd'yi yeniden yükle ve etkinleştir
+sudo systemctl daemon-reload
+sudo systemctl enable clixer-gateway clixer-auth clixer-core clixer-data clixer-notification clixer-analytics clixer-etl-worker
+
+# 4. Servisleri başlat
+sudo bash /opt/clixer/scripts/start-all.sh
+```
+
+---
+
 ## 🔴 ETL WORKER TEK INSTANCE KURALI (KRİTİK!)
 
 ### MUTLAK KURAL: ETL Worker HER ZAMAN TEK INSTANCE çalışmalı!
@@ -7754,8 +7847,8 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-09 | **v4.20** | **WhiteLabel Logo Hataları Düzeltildi - localStorage Önbellek, Title/Favicon Dinamik** |
-| 2026-01-09 | **v4.20** | **WhiteLabel Logo Hataları Düzeltildi - localStorage Önbellek, Title/Favicon Dinamik** |
+| 2026-01-09 | **v4.21** | **Systemd Service Entegrasyonu - Production Kalıcılık, Otomatik Restart** |
+| 2026-01-09 | v4.20 | WhiteLabel Logo Hataları Düzeltildi - localStorage Önbellek, Title/Favicon Dinamik |
 | 2026-01-08 | v4.19 | WhiteLabel Logo Yönetimi - Admin Panel Logo Upload, PWA Manifest, Dinamik Favicon |
 | 2026-01-08 | v4.18 | Müşteri Tam Yedek - Kod + PostgreSQL + ClickHouse + Redis + Nginx + SSL |
 | 2026-01-08 | v4.17 | grid_designs Tablo Şeması Düzeltmesi (grid_key → grid_id) |
@@ -8742,5 +8835,76 @@ const getCachedLogoUrl = (): string => {
 5. **HTML5 validasyonu:** `<noscript>` içinde sadece izin verilen tagları kullan
 6. **Flash önleme:** Kritik görsel değerleri localStorage'da önbellekle
 7. **Logo flash önleme:** Store yüklenmeden önce localStorage'dan oku (v4.20)
+
+---
+
+## 📅 v4.21 - 9 Ocak 2026
+
+**Systemd Service Entegrasyonu - Production Kalıcılık**
+
+### Çözülen Sorunlar
+
+1. ✅ **ETL Worker sessizce kapanıyordu** - `nohup` yerine systemd ile kalıcı hale getirildi
+2. ✅ **SSH kapanınca servisler duruyordu** - Artık bağımsız çalışıyor
+3. ✅ **Sunucu restart'ında servisler başlamıyordu** - Artık otomatik başlıyor
+4. ✅ **Crash durumunda elle müdahale gerekiyordu** - 10 saniyede otomatik yeniden başlıyor
+
+### Kök Neden
+
+`nohup npm run dev &` komutu SSH oturumuna bağlı process oluşturur. Oturum kapandığında SIGHUP sinyali gönderilir ve `ts-node-dev` gibi geliştirme araçları bu sinyali yakalayıp process'i sonlandırır.
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `deploy/systemd/clixer-gateway.service` | Yeni - API Gateway systemd unit |
+| `deploy/systemd/clixer-auth.service` | Yeni - Auth Service systemd unit |
+| `deploy/systemd/clixer-core.service` | Yeni - Core Service systemd unit |
+| `deploy/systemd/clixer-data.service` | Yeni - Data Service systemd unit |
+| `deploy/systemd/clixer-notification.service` | Yeni - Notification Service systemd unit |
+| `deploy/systemd/clixer-analytics.service` | Yeni - Analytics Service systemd unit |
+| `deploy/systemd/clixer-etl-worker.service` | Yeni - ETL Worker systemd unit |
+| `scripts/start-all.sh` | Güncellendi - Systemd/nohup dual-mode |
+| `scripts/stop-all.sh` | Güncellendi - Systemd/nohup dual-mode |
+| `scripts/status.sh` | Yeni - Servis durum kontrolü |
+| `deploy/README-PRODUCTION.md` | Güncellendi - Systemd kurulum talimatları |
+
+### Müşteri Güncelleme Komutu
+
+```bash
+# 1. Güncellemeleri çek
+cd /opt/clixer
+sudo git pull origin main
+
+# 2. Eski process'leri durdur
+sudo pkill -9 -f "node"
+
+# 3. Systemd service'leri kur
+sudo cp deploy/systemd/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# 4. Servisleri etkinleştir
+sudo systemctl enable clixer-gateway clixer-auth clixer-core clixer-data clixer-notification clixer-analytics clixer-etl-worker
+
+# 5. Servisleri başlat
+sudo bash scripts/start-all.sh
+
+# 6. Durumu kontrol et
+sudo bash scripts/status.sh
+```
+
+### Test Senaryoları
+
+| Senaryo | Beklenen | Sonuç |
+|---------|----------|-------|
+| SSH oturumu kapatıldı | Servisler çalışmaya devam eder | ✅ |
+| Sunucu reboot edildi | Servisler otomatik başlar | ✅ |
+| Servis crash oldu | 10 saniyede yeniden başlar | ✅ |
+| `systemctl status clixer-*` | Tüm servisler "active (running)" | ✅ |
+
+### Yedekleme
+
+- **GitHub Tag:** `v4.21`
+- **Commit:** Systemd service entegrasyonu
 
 ---
