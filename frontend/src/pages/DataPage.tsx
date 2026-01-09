@@ -2557,11 +2557,13 @@ export default function DataPage() {
                             {(schedule.cron_expression === '*/15 * * * *' || schedule.cron_expression === '15m') && '🕐 Her 15 dakika'}
                             {(schedule.cron_expression === '*/30 * * * *' || schedule.cron_expression === '30m') && '🕐 Her 30 dakika'}
                             {(schedule.cron_expression === '0 * * * *' || schedule.cron_expression === '1h') && '⏰ Her saat başı'}
-                            {(schedule.cron_expression === '0 3 * * *' || schedule.cron_expression === 'daily') && '🌙 Her gün 03:00'}
-                            {/* Dinamik saat seçimli günlük schedule: 0 X * * * formatı */}
-                            {schedule.cron_expression?.match(/^0 \d{1,2} \* \* \*$/) && 
-                             schedule.cron_expression !== '0 3 * * *' && 
-                             `🌙 Her gün ${schedule.cron_expression.split(' ')[1].padStart(2, '0')}:00`}
+                            {/* Günlük schedule: 0 X * * * formatı - tüm saatler dinamik */}
+                            {(schedule.cron_expression?.match(/^0 \d{1,2} \* \* \*$/) || schedule.cron_expression === 'daily') && 
+                             schedule.cron_expression !== '0 * * * *' && (() => {
+                               const hour = schedule.cron_expression === 'daily' ? 2 : parseInt(schedule.cron_expression.split(' ')[1], 10);
+                               const emoji = hour >= 0 && hour < 6 ? '🌙' : hour < 12 ? '🌅' : hour < 18 ? '☀️' : '🌆';
+                               return `${emoji} Her gün ${String(hour).padStart(2, '0')}:00`;
+                             })()}
                             {!['* * * * *', '*/5 * * * *', '*/15 * * * *', '*/30 * * * *', '0 * * * *', '0 3 * * *', '1m', '5m', '15m', '30m', '1h', 'daily', 'manual'].includes(schedule.cron_expression) && 
                              !schedule.cron_expression?.match(/^0 \d{1,2} \* \* \*$/) &&
                               `📅 ${schedule.cron_expression}`}
