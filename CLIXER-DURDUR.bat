@@ -5,5 +5,15 @@ echo ========================================
 echo    CLiXER DURDURULUYOR...
 echo ========================================
 echo.
-PowerShell -ExecutionPolicy Bypass -File "%~dp0scripts\stop-local.ps1"
+
+:: PowerShell scriptini calistir
+PowerShell -ExecutionPolicy Bypass -NoProfile -File "%~dp0scripts\stop-local.ps1"
+
+echo.
+echo ========================================
+echo    CLiXER DURDURULDU
+echo ========================================
+echo.
+echo Tekrar baslatmak icin: CLIXER-BASLAT.bat
+echo.
 pause
