@@ -2659,23 +2659,70 @@ app.put('/datasets/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), as
         [id, req.user!.tenantId]
       );
       
+      // Bir sonraki çalışma zamanını hesapla (cron_expression'a göre)
+      const calculateNextRunTime = (cron: string, hour?: number): Date => {
+        const now = new Date();
+        const nextRun = new Date(now);
+        
+        // Günlük schedule: "0 H * * *" formatı
+        if (cron.match(/^0 \d{1,2} \* \* \*$/)) {
+          const scheduledHourValue = parseInt(cron.split(' ')[1]);
+          // Bugün seçilen saat geçmiş mi?
+          if (now.getHours() >= scheduledHourValue) {
+            // Yarın çalışacak
+            nextRun.setDate(nextRun.getDate() + 1);
+          }
+          nextRun.setHours(scheduledHourValue, 0, 0, 0);
+        }
+        // Saatlik: "0 * * * *"
+        else if (cron === '0 * * * *') {
+          nextRun.setHours(nextRun.getHours() + 1, 0, 0, 0);
+        }
+        // 6 saatlik: "0 */6 * * *"
+        else if (cron === '0 */6 * * *') {
+          nextRun.setHours(nextRun.getHours() + 6, 0, 0, 0);
+        }
+        // Her dakika, 5, 15, 30 dakika
+        else if (cron === '* * * * *') {
+          nextRun.setMinutes(nextRun.getMinutes() + 1, 0, 0);
+        }
+        else if (cron === '*/5 * * * *') {
+          nextRun.setMinutes(nextRun.getMinutes() + 5, 0, 0);
+        }
+        else if (cron === '*/15 * * * *') {
+          nextRun.setMinutes(nextRun.getMinutes() + 15, 0, 0);
+        }
+        else if (cron === '*/30 * * * *') {
+          nextRun.setMinutes(nextRun.getMinutes() + 30, 0, 0);
+        }
+        // Varsayılan: yarın 02:00 (güvenli fallback)
+        else {
+          nextRun.setDate(nextRun.getDate() + 1);
+          nextRun.setHours(2, 0, 0, 0);
+        }
+        
+        return nextRun;
+      };
+      
+      const nextRunTime = calculateNextRunTime(cronExpression, scheduledHour);
+      
       if (existingSchedule) {
-        // Güncelle - next_run_at'ı NOW() yap ki hemen çalışsın!
+        // Güncelle - next_run_at'ı doğru hesaplanmış zamana ayarla
         await db.query(
           `UPDATE etl_schedules SET 
             cron_expression = $1, 
             is_active = true, 
-            next_run_at = NOW(),
+            next_run_at = $2,
             updated_at = NOW() 
-           WHERE id = $2`,
-          [cronExpression, existingSchedule.id]
+           WHERE id = $3`,
+          [cronExpression, nextRunTime, existingSchedule.id]
         );
       } else {
-        // Yeni oluştur - next_run_at = NOW() ile hemen çalışır
+        // Yeni oluştur - next_run_at'ı doğru hesaplanmış zamana ayarla
         await db.query(
           `INSERT INTO etl_schedules (tenant_id, dataset_id, cron_expression, is_active, next_run_at)
-           VALUES ($1, $2, $3, true, NOW())`,
-          [req.user!.tenantId, id, cronExpression]
+           VALUES ($1, $2, $3, true, $4)`,
+          [req.user!.tenantId, id, cronExpression, nextRunTime]
         );
       }
       

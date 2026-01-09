@@ -4180,22 +4180,30 @@ async function checkScheduledJobs(): Promise<void> {
         let nextRun = new Date();
         const cron = schedule.cron_expression;
         
-        // Basit cron parser
+        // Basit cron parser - Güvenli fallback'lar ile
         if (cron === '* * * * *') nextRun.setMinutes(nextRun.getMinutes() + 1);
         else if (cron === '*/5 * * * *') nextRun.setMinutes(nextRun.getMinutes() + 5);
         else if (cron === '*/15 * * * *') nextRun.setMinutes(nextRun.getMinutes() + 15);
         else if (cron === '*/30 * * * *') nextRun.setMinutes(nextRun.getMinutes() + 30);
-        else if (cron === '0 * * * *') nextRun.setHours(nextRun.getHours() + 1);
-        else if (cron === '0 */6 * * *') nextRun.setHours(nextRun.getHours() + 6);
-        else if (cron === '0 */12 * * *') nextRun.setHours(nextRun.getHours() + 12);
-        else if (cron === '0 0 * * *') nextRun.setDate(nextRun.getDate() + 1);
+        else if (cron === '0 * * * *') nextRun.setHours(nextRun.getHours() + 1, 0, 0, 0);
+        else if (cron === '0 */6 * * *') nextRun.setHours(nextRun.getHours() + 6, 0, 0, 0);
+        else if (cron === '0 */12 * * *') nextRun.setHours(nextRun.getHours() + 12, 0, 0, 0);
+        else if (cron === '0 0 * * *') {
+          nextRun.setDate(nextRun.getDate() + 1);
+          nextRun.setHours(0, 0, 0, 0);
+        }
         else if (cron.match(/^0 \d{1,2} \* \* \*$/)) {
           // Günlük belirli saat: "0 2 * * *" = her gün 02:00
           const hour = parseInt(cron.split(' ')[1]);
           nextRun.setDate(nextRun.getDate() + 1); // Yarın
           nextRun.setHours(hour, 0, 0, 0); // Belirlenen saat
         }
-        else nextRun.setMinutes(nextRun.getMinutes() + 1); // default: 1 dakika
+        else {
+          // ⚠️ Tanınmayan cron - GÜVENLİ FALLBACK: 24 saat sonra (1 dakika DEĞİL!)
+          logger.warn('Unknown cron expression, using 24h fallback', { cron, dataset: schedule.dataset_name });
+          nextRun.setDate(nextRun.getDate() + 1);
+          nextRun.setHours(2, 0, 0, 0); // Yarın 02:00
+        }
 
         // Schedule'ı güncelle
         await db.query(
