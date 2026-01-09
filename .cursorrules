@@ -7847,7 +7847,8 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-09 | **v4.21** | **Systemd Service Entegrasyonu - Production Kalıcılık, Otomatik Restart** |
+| 2026-01-10 | **v4.22** | **Frontend Build Logo Koruma - dist/uploads yedekleme, ETL Schedule Fix** |
+| 2026-01-09 | v4.21 | Systemd Service Entegrasyonu - Production Kalıcılık, Otomatik Restart |
 | 2026-01-09 | v4.20 | WhiteLabel Logo Hataları Düzeltildi - localStorage Önbellek, Title/Favicon Dinamik |
 | 2026-01-08 | v4.19 | WhiteLabel Logo Yönetimi - Admin Panel Logo Upload, PWA Manifest, Dinamik Favicon |
 | 2026-01-08 | v4.18 | Müşteri Tam Yedek - Kod + PostgreSQL + ClickHouse + Redis + Nginx + SSL |
@@ -8826,6 +8827,40 @@ const getCachedLogoUrl = (): string => {
 
 ---
 
+#### HATA 11: Frontend Build Sonrası Müşteri Logoları Kayboluyor (v4.22)
+
+**Belirti:** `git pull` + `npm run build` sonrası müşteri logosu gidip Clixer logosu geliyor.
+
+**KÖK NEDEN:** `npm run build` komutu (Vite) `dist` klasörünü **tamamen silip yeniden oluşturuyor**. Bu sırada `dist/uploads/` içindeki müşteri logoları da siliniyor!
+
+**ÇÖZÜM - Build öncesi uploads yedekle, sonra geri yükle:**
+```bash
+# Build öncesi
+if [ -d "dist/uploads" ]; then
+  sudo cp -r dist/uploads /tmp/clixer_uploads_backup
+fi
+
+# Build
+sudo rm -rf dist node_modules/.vite
+sudo npm run build
+
+# Build sonrası
+if [ -d "/tmp/clixer_uploads_backup" ]; then
+  sudo mkdir -p dist/uploads
+  sudo cp -r /tmp/clixer_uploads_backup/* dist/uploads/
+  sudo rm -rf /tmp/clixer_uploads_backup
+fi
+```
+
+**ETKİLENEN DOSYALAR:**
+- `deploy/README-PRODUCTION.md` - Düzeltildi
+- `deploy/update-whitelabel.sh` - Düzeltildi
+
+**ÖNEMLİ:** `.gitignore`'da `frontend/dist/uploads/` var ama bu **build process'i etkilemiyor**!
+Build process `.gitignore`'u okumaz, sadece `dist` klasörünü tamamen siler.
+
+---
+
 ### ÖNLEME KURALLARI
 
 1. **Component prop'ları:** Nested component'lere prop geçirirken TypeScript interface'i güncelle
@@ -8835,6 +8870,36 @@ const getCachedLogoUrl = (): string => {
 5. **HTML5 validasyonu:** `<noscript>` içinde sadece izin verilen tagları kullan
 6. **Flash önleme:** Kritik görsel değerleri localStorage'da önbellekle
 7. **Logo flash önleme:** Store yüklenmeden önce localStorage'dan oku (v4.20)
+8. **🔴 Frontend build:** `npm run build` öncesi `dist/uploads/` MUTLAKA yedeklenmeli! (v4.22)
+
+---
+
+## 📅 v4.22 - 10 Ocak 2026
+
+**Frontend Build Logo Koruma & ETL Schedule Fix**
+
+### Çözülen Sorunlar
+
+1. ✅ **Müşteri logoları `npm run build` sonrası kayboluyordu**
+   - **Kök Neden:** Vite `dist` klasörünü tamamen silip yeniden oluşturuyor
+   - **Çözüm:** Build öncesi `dist/uploads/` yedekleniyor, sonra geri yükleniyor
+
+2. ✅ **ETL Job'lar her dakika çalışıyordu**
+   - **Kök Neden:** `next_run_at` schedule güncellenirken `NOW()` olarak ayarlanıyordu
+   - **Çözüm:** `cron-parser` ile doğru next_run_at hesaplanıyor
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `deploy/README-PRODUCTION.md` | Build öncesi uploads yedekleme adımları eklendi |
+| `deploy/update-whitelabel.sh` | Müşteri logolarını koruma mekanizması eklendi |
+| `services/data-service/src/index.ts` | `calculateNextRunTime()` fonksiyonu eklendi |
+| `services/etl-worker/src/index.ts` | `cron-parser` ile next_run_at hesaplaması |
+
+### Yedekleme
+
+- **GitHub Tag:** `v4.22`
 
 ---
 

@@ -85,9 +85,16 @@ bash scripts/stop-all.sh 2>/dev/null || pkill -f "node" 2>/dev/null || true
 sleep 2
 echo -e "${GREEN}✓ Servisler durduruldu${NC}"
 
-# 6. Frontend Build
+# 6. Frontend Build (MÜŞTERİ LOGOLARINI KORUYARAK!)
 echo -e "${YELLOW}[6/7] Frontend build alınıyor...${NC}"
 cd $CLIXER_DIR/frontend
+
+# 🔴 KRİTİK: Mevcut uploads klasörünü yedekle (müşteri logoları!)
+UPLOADS_BACKUP="/tmp/clixer_uploads_backup_$(date +%s)"
+if [ -d "dist/uploads" ] && [ "$(ls -A dist/uploads 2>/dev/null)" ]; then
+  echo -e "${BLUE}  Müşteri logoları yedekleniyor...${NC}"
+  cp -r dist/uploads $UPLOADS_BACKUP
+fi
 
 # .env.production kontrolü
 if grep -q "http://" .env.production 2>/dev/null; then
@@ -96,6 +103,16 @@ if grep -q "http://" .env.production 2>/dev/null; then
 fi
 
 npm run build --silent
+
+# 🔴 KRİTİK: Müşteri logolarını geri yükle!
+if [ -d "$UPLOADS_BACKUP" ]; then
+  echo -e "${BLUE}  Müşteri logoları geri yükleniyor...${NC}"
+  mkdir -p dist/uploads
+  cp -r $UPLOADS_BACKUP/* dist/uploads/
+  rm -rf $UPLOADS_BACKUP
+  echo -e "${GREEN}  ✓ Müşteri logoları korundu${NC}"
+fi
+
 chown -R www-data:www-data dist
 chmod -R 755 dist
 echo -e "${GREEN}✓ Frontend build tamamlandı${NC}"

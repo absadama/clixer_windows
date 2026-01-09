@@ -125,10 +125,23 @@ Vite, build sırasında `.env.production` dosyasındaki `VITE_API_URL` değerini
 # .env.production dosyasını düzelt
 echo 'VITE_API_URL=/api' | sudo tee /opt/clixer/frontend/.env.production
 
-# Yeniden build al
+# Yeniden build al (MÜŞTERİ LOGOLARINI KORUYARAK!)
 cd /opt/clixer/frontend
+
+# Mevcut uploads klasörünü yedekle (müşteri logoları!)
+if [ -d "dist/uploads" ]; then
+  sudo cp -r dist/uploads /tmp/clixer_uploads_backup
+fi
+
 sudo rm -rf dist node_modules/.vite
 sudo npm run build
+
+# Müşteri logolarını geri yükle
+if [ -d "/tmp/clixer_uploads_backup" ]; then
+  sudo mkdir -p dist/uploads
+  sudo cp -r /tmp/clixer_uploads_backup/* dist/uploads/
+  sudo rm -rf /tmp/clixer_uploads_backup
+fi
 
 # DOĞRULAMA (0 dönmeli!)
 grep -o "http://[^\"']*:4000" /opt/clixer/frontend/dist/assets/*.js | wc -l
