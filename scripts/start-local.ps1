@@ -78,6 +78,21 @@ function Stop-ClixerProcesses {
 # ============================================
 # ADIM 2: Docker Desktop Kontrol ve Baslat
 # ============================================
+function Reset-DockerWSL {
+    Write-Info "WSL sifirlaniyor (Docker sorunu cozuluyor)..."
+    
+    # Docker Desktop'i durdur
+    Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    
+    # WSL'i kapat ve resetle
+    wsl --shutdown 2>&1 | Out-Null
+    Start-Sleep -Seconds 3
+    
+    Write-Success "WSL sifirlandi"
+    return $true
+}
+
 function Start-DockerDesktop {
     Write-Step 2 7 "Docker Desktop kontrol ediliyor..."
     
@@ -86,10 +101,24 @@ function Start-DockerDesktop {
     
     # Docker daemon calisyor mu kontrol et
     $dockerInfo = docker info 2>&1
+    $dockerOutput = $dockerInfo -join " "
+    
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Docker Desktop zaten calisiyor"
         return $true
     }
+    
+    # WSL/Docker hatasi varsa otomatik duzelt
+    if ($dockerOutput -like "*unable to start*" -or $dockerOutput -like "*WSL*" -or $dockerOutput -like "*wsl*") {
+        Write-Info "Docker Desktop WSL sorunu tespit edildi, otomatik duzeltiliyor..."
+        Reset-DockerWSL
+        
+        # Docker Desktop'i yeniden baslat
+        $dockerProcess = $null
+    }
+    
+    # Docker Desktop path
+    $dockerPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
     
     # Docker Desktop process var mi ama daemon hazir degil mi?
     if ($dockerProcess) {
@@ -97,8 +126,6 @@ function Start-DockerDesktop {
     } else {
         Write-Info "Docker Desktop baslatiliyor..."
         
-        # Docker Desktop'i bul ve baslat
-        $dockerPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
         if (-not (Test-Path $dockerPath)) {
             Write-Error "Docker Desktop bulunamadi: $dockerPath"
             Write-Error "Lutfen Docker Desktop'i manuel olarak baslatin"
@@ -108,25 +135,43 @@ function Start-DockerDesktop {
         Start-Process $dockerPath
     }
     
-    # Docker daemon hazir olana kadar bekle (max 120 saniye)
-    $maxWait = 120
+    # Docker daemon hazir olana kadar bekle (max 180 saniye)
+    $maxWait = 180
     $waited = 0
+    $wslResetTried = $false
     
     while ($waited -lt $maxWait) {
         Start-Sleep -Seconds 5
         $waited += 5
         
         $dockerInfo = docker info 2>&1
+        $dockerOutput = $dockerInfo -join " "
+        
         if ($LASTEXITCODE -eq 0) {
             Write-Success "Docker Desktop hazir ($waited saniye)"
             return $true
+        }
+        
+        # 60 saniye sonra hala WSL hatasi varsa tekrar dene
+        if ($waited -eq 60 -and -not $wslResetTried) {
+            if ($dockerOutput -like "*unable to start*" -or $dockerOutput -like "*WSL*") {
+                Write-Info "WSL hatasi devam ediyor, yeniden duzeltiliyor..."
+                Reset-DockerWSL
+                
+                # Docker Desktop'i tekrar baslat
+                Start-Process $dockerPath
+                $wslResetTried = $true
+            }
         }
         
         Write-Wait "Docker daemon bekleniyor... ($waited/$maxWait saniye)"
     }
     
     Write-Error "Docker Desktop $maxWait saniyede hazir olmadi!"
-    Write-Error "Lutfen Docker Desktop'i manuel olarak acin ve tekrar deneyin."
+    Write-Info "Cozum onerileri:"
+    Write-Info "  1. Docker Desktop'i tamamen kapatin"
+    Write-Info "  2. Windows'u yeniden baslatin"
+    Write-Info "  3. Tekrar CLIXER-BASLAT.bat calistirin"
     return $false
 }
 
