@@ -539,8 +539,8 @@ export default function AnalysisPage() {
                 // Preset'e göre etiket
                 if (datePreset === 'today') return 'Bugün'
                 if (datePreset === 'yesterday') return 'Dün'
-                if (datePreset === 'last7days') return 'Son 7 gün'
-                if (datePreset === 'last30days') return 'Son 30 gün'
+                if (datePreset === 'last7') return 'Son 7 gün'
+                if (datePreset === 'last30') return 'Son 30 gün'
                 if (datePreset === 'thisMonth') return 'Bu ay'
                 if (datePreset === 'lastMonth') return 'Geçen ay'
                 if (datePreset === 'thisYear') return 'Bu yıl'
