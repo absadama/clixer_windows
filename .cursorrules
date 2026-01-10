@@ -7847,7 +7847,8 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-10 | **v4.23** | **Dinamik Tarih Etiketi & Göster/Gizle Toggle - Metrik kartlarında esnek period label** |
+| 2026-01-11 | **v4.24** | **Sıralama Listesi UI Düzeltmesi - Trend hesaplaması için ana değer kolonu seçimi eklendi.** |
+| 2026-01-10 | v4.23 | Dinamik Tarih Etiketi & Göster/Gizle Toggle - Metrik kartlarında esnek period label |
 | 2026-01-10 | v4.22 | Frontend Build Logo Koruma - dist/uploads yedekleme, ETL Schedule Fix |
 | 2026-01-09 | v4.21 | Systemd Service Entegrasyonu - Production Kalıcılık, Otomatik Restart |
 | 2026-01-09 | v4.20 | WhiteLabel Logo Hataları Düzeltildi - localStorage Önbellek, Title/Favicon Dinamik |
@@ -8378,19 +8379,27 @@ const getCachedLogoUrl = (): string => {
 
 ---
 
-## 🎨 WHITELABEL LOGO YÖNETİMİ (v4.19 - 8 Ocak 2026)
+## 🎨 WHITELABEL LOGO YÖNETİMİ (v4.19+)
 
-### MUTLAK KURAL: Logo sistemi dosya tabanlı çalışır, veritabanında sadece URL saklanır!
+### MUTLAK KURAL: Logo sistemi PERSISTENT klasörde çalışır!
+Logo dosyaları build klasöründen (dist) bağımsız, kalıcı bir dizinde saklanır. Bu sayede build/git işlemleri logoları silemez.
 
-### Logo Dosya Akışı
+**Persistent Storage Ayarları:**
+- **Klasör:** `/opt/clixer/uploads/`
+- **İzinler:** `www-data:www-data` (755)
+- **Nginx Yönlendirme:** `/uploads/` -> `/opt/clixer/uploads/`
 
-```
-Admin Panel → Logo Yükle → Core Service → Sharp resize → /opt/clixer/frontend/dist/uploads/
+**Logo Dosya Akışı:**
+Admin Panel → Logo Yükle → Core Service → Sharp resize → /opt/clixer/uploads/
                                                                     ↓
-                                                        Nginx /uploads location ile serve
+                                                        Nginx /uploads alias ile serve
                                                                     ↓
                                                     PWA, Favicon, Sidebar dinamik kullanır
-```
+
+**KRİTİK:** `npm run build` sırasında `dist` klasörü silinse bile logolar bu klasörde güvende kalır.
+
+### Logo Boyutları (Otomatik Oluşturulur)
+
 
 ### Logo Boyutları (Otomatik Oluşturulur)
 
@@ -9019,5 +9028,23 @@ sudo bash scripts/status.sh
 
 - **GitHub Tag:** `v4.21`
 - **Commit:** Systemd service entegrasyonu
+
+---
+## 📅 v4.24 - 11 Ocak 2026
+
+**Sıralama Listesi UI Düzeltmesi - Trend Hesaplama Özgürlüğü**
+
+### 1. ✅ Ana Değer Kolonu Seçimi Eklendi
+**Sorun:** Sıralama Listesi (ranking_list) seçildiğinde "Hesaplanacak Kolon" gizlendiği için trend yüzdeleri hesaplanamıyordu.
+**Çözüm:** 
+anking_list modu için bu alan tekrar görünür yapıldı ve "Ana Değer Kolonu (Sıralama ve Trend İçin)" olarak isimlendirildi.
+
+### 2. ✅ Görsel Rehberlik
+- Seçim kutusu yeşil (emerald-400) vurgu ile belirginleştirildi.
+- Altına "Bu seçim, listedeki ana değeri ve büyüme oranlarını (%) belirler." notu eklendi.
+
+### 3. ✅ Teknik Arkaplan
+- Backend'deki dbColumn null olma sorunu UI üzerinden kalıcı olarak engellendi.
+- Artık kullanıcılar Revenue, Visitor vb. kolonları hem listede gösterip hem de hangisine göre trend hesaplanacağını seçebiliyor.
 
 ---

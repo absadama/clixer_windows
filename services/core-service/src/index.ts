@@ -16,9 +16,11 @@ import fs from 'fs';
 dotenv.config({ path: '../../.env' });
 
 // Logo upload configuration
-// Development modunda public/ klasörüne, production'da dist/uploads klasörüne kaydet
+// Development modunda public/ klasörüne, production'da kalıcı /opt/clixer/uploads klasörüne kaydet
 const isDev = process.env.NODE_ENV !== 'production';
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, isDev ? '../../../frontend/public/uploads' : '../../../frontend/dist/uploads');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || (isDev 
+  ? path.join(__dirname, '../../../frontend/public/uploads') 
+  : '/opt/clixer/uploads');
 const LOGO_SIZES = [
   { name: 'logo-512', size: 512 },
   { name: 'logo-192', size: 192 },

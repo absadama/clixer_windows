@@ -202,11 +202,12 @@ server {
         proxy_set_header Host $host;
     }
 
-    # WhiteLabel Logo Uploads (v4.20+)
+    # WhiteLabel Logo Uploads (PERSISTENT STORAGE v4.24+)
     location /uploads/ {
-        alias /opt/clixer/frontend/dist/uploads/;
+        alias /opt/clixer/uploads/;
         expires 30d;
         add_header Cache-Control "public, no-transform";
+        add_header Access-Control-Allow-Origin "*";
     }
 
     # PWA Manifest (v4.23+)
