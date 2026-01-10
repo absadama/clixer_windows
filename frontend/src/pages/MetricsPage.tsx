@@ -1222,14 +1222,18 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
                     )}
                   </div>
                   
-                  {/* Tek kolon seçimi (aggregation için) - Grid/List hariç */}
-                  {!isGridOrList && (
+                  {/* Tek kolon seçimi (aggregation için) - Grid/List hariç, ancak ranking_list için trend hesabı için gerekli */}
+                  {(!isGridOrList || formData.visualizationType === 'ranking_list') && (
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Hesaplanacak Kolon</label>
+                      <label className={`block text-sm font-medium mb-1 ${formData.visualizationType === 'ranking_list' ? 'text-emerald-400 font-semibold' : 'text-slate-300'}`}>
+                        {formData.visualizationType === 'ranking_list' ? 'Ana Değer Kolonu (Sıralama ve Trend İçin)' : 'Hesaplanacak Kolon'}
+                      </label>
                       <select
                         value={formData.dbColumn}
                         onChange={e => setFormData({ ...formData, dbColumn: e.target.value })}
-                        className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                        className={`w-full px-3 py-2 bg-slate-700 border rounded-lg text-white transition-colors ${
+                          formData.visualizationType === 'ranking_list' ? 'border-emerald-500/50 focus:border-emerald-500' : 'border-slate-600'
+                        }`}
                         disabled={!formData.datasetId}
                       >
                         <option value="">Seçin...</option>
@@ -1237,6 +1241,11 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
+                      {formData.visualizationType === 'ranking_list' && (
+                        <p className="text-[10px] text-slate-400 mt-1 italic">
+                          * Bu seçim, listedeki ana değeri ve büyüme oranlarını (%) belirler.
+                        </p>
+                      )}
                     </div>
                   )}
                   
