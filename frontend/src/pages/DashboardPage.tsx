@@ -317,7 +317,18 @@ export default function DashboardPage() {
             const widgetTrend = widgetData?.trend || widgetData?.change || widgetData?.metadata?.trend
             const trendValue = typeof widgetTrend === 'number' ? widgetTrend : null
             const trendDirection = trendValue !== null ? (trendValue >= 0 ? 'up' : 'down') : null
-            const periodLabel = widgetData?.period || widgetData?.subtitle || widgetData?.metadata?.period || 'Son 30 gün'
+            
+            // Dinamik tarih etiketi oluştur
+            const showPeriodLabel = chartConfig?.showPeriodLabel !== false // Varsayılan true
+            let periodLabel = widgetData?.period || widgetData?.subtitle || widgetData?.metadata?.period
+            if (!periodLabel && startDate && endDate) {
+              const formatDate = (d: Date | string) => {
+                const date = typeof d === 'string' ? new Date(d) : d
+                return date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+              }
+              periodLabel = `${formatDate(startDate)} - ${formatDate(endDate)}`
+            }
+            if (!periodLabel) periodLabel = 'Son 30 gün'
             
             // Widget'ın ikonunu al (backend'den gelen)
             const widgetIcon = (widget as any).icon || (widget as any).metricIcon || 'BarChart3'
@@ -554,7 +565,9 @@ export default function DashboardPage() {
                               {sparkTrendDirection === 'up' ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                               {sparkTrend >= 0 ? '+' : ''}{sparkTrend.toFixed(1)}%
                         </span>
-                            <span className={clsx('text-xs', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel || 'Son 30 gün'}</span>
+                            {showPeriodLabel && (
+                              <span className={clsx('text-xs', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel}</span>
+                            )}
                       </div>
                     )}
                   </div>
@@ -587,7 +600,9 @@ export default function DashboardPage() {
                           {trendDirection === 'up' ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                           {trendDirection === 'up' ? '+' : ''}{trendValue.toFixed(1)}%
                         </span>
-                          <span className={clsx('text-xs', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel}</span>
+                          {showPeriodLabel && (
+                            <span className={clsx('text-xs', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel}</span>
+                          )}
                       </div>
                     )}
                   </div>
@@ -1171,7 +1186,9 @@ export default function DashboardPage() {
                           {trendDirection === 'up' ? '+' : ''}{trendValue.toFixed(1)}%
                         </span>
                       )}
-                      <span className={clsx('text-xs font-medium', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel}</span>
+                      {showPeriodLabel && (
+                        <span className={clsx('text-xs font-medium', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel}</span>
+                      )}
                       </div>
                       
                       {/* Cache indicator */}

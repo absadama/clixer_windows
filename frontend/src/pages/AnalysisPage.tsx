@@ -520,7 +520,33 @@ export default function AnalysisPage() {
               const widgetTrend = widgetData?.trend || widgetData?.change || widgetData?.metadata?.trend
               const trendValue = typeof widgetTrend === 'number' ? widgetTrend : null
               const trendDirection = trendValue !== null ? (trendValue >= 0 ? 'up' : 'down') : null
-              const periodLabel = widgetData?.period || widgetData?.subtitle || widgetData?.metadata?.period || 'Son 30 gün'
+              
+              // Tarih etiketi - dinamik olarak oluştur
+              const showPeriodLabel = widget.chartConfig?.showPeriodLabel !== false // Varsayılan göster
+              const periodLabel = (() => {
+                // Backend'den gelen etiket varsa kullan
+                if (widgetData?.period || widgetData?.subtitle || widgetData?.metadata?.period) {
+                  return widgetData.period || widgetData.subtitle || widgetData.metadata.period
+                }
+                // Filtreden dinamik oluştur
+                if (startDate && endDate) {
+                  const formatDate = (dateStr: string) => {
+                    const d = new Date(dateStr)
+                    return d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                  }
+                  return `${formatDate(startDate)} - ${formatDate(endDate)}`
+                }
+                // Preset'e göre etiket
+                if (datePreset === 'today') return 'Bugün'
+                if (datePreset === 'yesterday') return 'Dün'
+                if (datePreset === 'last7days') return 'Son 7 gün'
+                if (datePreset === 'last30days') return 'Son 30 gün'
+                if (datePreset === 'thisMonth') return 'Bu ay'
+                if (datePreset === 'lastMonth') return 'Geçen ay'
+                if (datePreset === 'thisYear') return 'Bu yıl'
+                if (datePreset === 'all') return 'Tüm zamanlar'
+                return 'Son 30 gün'
+              })()
               
               return (
                 <div
@@ -1217,9 +1243,11 @@ export default function AnalysisPage() {
                                   {sparkTrendDirection === 'up' ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                                   {sparkTrend >= 0 ? '+' : ''}{sparkTrend.toFixed(1)}%
                                 </span>
-                                <span className={clsx('text-xs', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>
-                                  {periodLabel || 'Son 30 gün'}
-                                </span>
+                                {showPeriodLabel && (
+                                  <span className={clsx('text-xs', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>
+                                    {periodLabel}
+                                  </span>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1285,7 +1313,9 @@ export default function AnalysisPage() {
                                   {sparkTrendDirection === 'up' ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                                   {sparkTrend >= 0 ? '+' : ''}{sparkTrend.toFixed(1)}%
                                 </span>
-                                <span className={clsx('text-xs', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel}</span>
+                                {showPeriodLabel && (
+                                  <span className={clsx('text-xs', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel}</span>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1747,7 +1777,9 @@ export default function AnalysisPage() {
                             </span>
                           )}
                           {/* Dönem bilgisi */}
-                          <span className={clsx('text-xs font-medium', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel}</span>
+                          {showPeriodLabel && (
+                            <span className={clsx('text-xs font-medium', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>{periodLabel}</span>
+                          )}
                     </div>
                         
                         {/* Cache indicator */}

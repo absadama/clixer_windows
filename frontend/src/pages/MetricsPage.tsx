@@ -121,6 +121,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
     color: '#3B82F6',
     colorMode: 'none' as 'none' | 'accent' | 'full', // Renk modu: none (sade), accent (üst bar), full (tam arka plan)
     borderStyle: 'rounded' as 'rounded' | 'sharp' | 'pill', // Köşe stili
+    showPeriodLabel: true, // Tarih etiketi göster/gizle
     datasetId: '',
     dbColumn: '',
     aggregationType: 'SUM',
@@ -265,6 +266,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
         color: metric.color,
         colorMode: (metric.chartConfig?.colorMode || 'none') as 'none' | 'accent' | 'full',
         borderStyle: (metric.chartConfig?.borderStyle || 'rounded') as 'rounded' | 'sharp' | 'pill',
+        showPeriodLabel: metric.chartConfig?.showPeriodLabel !== false, // Varsayılan true
         datasetId: metric.datasetId || '',
         dbColumn: metric.dbColumn || '',
         aggregationType: metric.aggregationType,
@@ -312,6 +314,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
         color: '#3B82F6',
         colorMode: 'none' as 'none' | 'accent' | 'full',
         borderStyle: 'rounded' as 'rounded' | 'sharp' | 'pill',
+        showPeriodLabel: true,
         datasetId: '',
         dbColumn: '',
         aggregationType: 'SUM',
@@ -418,6 +421,8 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
           borderStyle: formData.borderStyle || 'rounded',
           // Renk modu (accent: üst bar, full: tam arka plan)
           colorMode: formData.colorMode || 'accent',
+          // Tarih etiketi göster/gizle
+          showPeriodLabel: formData.showPeriodLabel,
           // SQL Modu
           useSqlMode: formData.useSqlMode || false,
           customSql: formData.useSqlMode ? formData.customSql : undefined,
@@ -984,6 +989,27 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
                         </button>
                       ))}
                     </div>
+                  </div>
+                  
+                  {/* Tarih Etiketi Göster/Gizle */}
+                  <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                    <div>
+                      <div className="text-sm font-medium text-slate-300">Tarih Etiketi</div>
+                      <div className="text-xs text-slate-500">Kart altında "Son 30 gün" gibi tarih bilgisi gösterilsin mi?</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, showPeriodLabel: !formData.showPeriodLabel })}
+                      className={clsx(
+                        'relative w-12 h-6 rounded-full transition-colors',
+                        formData.showPeriodLabel ? 'bg-blue-500' : 'bg-slate-600'
+                      )}
+                    >
+                      <div className={clsx(
+                        'absolute top-1 w-4 h-4 bg-white rounded-full transition-all',
+                        formData.showPeriodLabel ? 'left-7' : 'left-1'
+                      )} />
+                    </button>
                   </div>
                   
                   {/* Dataset ve Kolon */}
