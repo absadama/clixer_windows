@@ -590,7 +590,7 @@ function SidebarContent({
               isCollapsed ? 'h-12 w-12' : 'h-20 max-w-[180px]',
               // Açık temada logo'ya hafif gölge ekle
               !isDark && 'brightness-95'
-            )}
+            )} 
             onError={(e) => {
               // Yükleme hatası olursa fallback logo kullan
               const target = e.target as HTMLImageElement;

@@ -208,6 +208,13 @@ server {
         expires 30d;
         add_header Cache-Control "public, no-transform";
     }
+
+    # PWA Manifest (v4.23+)
+    location = /manifest.json {
+        proxy_pass http://localhost:4000/manifest.json;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
 }
 ```
 
