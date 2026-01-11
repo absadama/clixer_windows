@@ -1633,50 +1633,39 @@ async function executeMetric(
     
     // Mağaza filtresi (FilterBar'dan gelen storeIds - UUID formatında)
     const storeIds = parameters.storeIds as string;
-    if (storeIds && metric.dataset_id) {
+    const storeType = parameters.storeType as string;
+    const hasGroupFilter = storeType && storeType !== 'ALL';
+
+    // EĞER grup filtresi (MERKEZ/FR vb) VAKSA, mağaza ID listesini GÖRMEZDEN GEL
+    // Çünkü grup filtresi tarihsel doğruluk için doğrudan ClickHouse BranchType kolonuna bakmalı.
+    if (storeIds && !hasGroupFilter && metric.dataset_id) {
       // Dataset'ten store_column'u al
       const datasetResult = await db.query('SELECT store_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.store_column) {
         const storeColumn = datasetResult.rows[0].store_column;
         
         // Frontend'den gelen UUID listesini stores.code değerlerine çevir
-        // Çünkü ClickHouse'daki BranchID Integer, frontend UUID gönderiyor
         const storeUUIDs = storeIds.split(',').map(s => s.trim());
-        
         const storeCodesResult = await db.query(
           `SELECT code FROM stores WHERE id = ANY($1::uuid[])`,
           [storeUUIDs]
         );
         
         if (storeCodesResult.rows.length > 0) {
-          // stores.code değerlerini kullan (BranchID'ler)
           const storeCodes = storeCodesResult.rows.map((r: any) => r.code);
-          // Integer kolon için tırnak olmadan, String kolon için tırnaklı
-          // ClickHouse'da BranchID Int32 olduğu için tırnaksız gönder
           const storeCodeList = storeCodes.join(',');
-          
           whereConditions.push(`${storeColumn} IN (${storeCodeList})`);
-          logger.debug('Store filter applied (UUID to code)', { 
-            originalUUIDs: storeUUIDs.length, 
-            resolvedCodes: storeCodes.length,
-            storeColumn 
-          });
-        } else {
-          logger.warn('No store codes found for UUIDs', { storeUUIDs });
         }
       }
     }
     
-    // Sahiplik tipi filtresi (MERKEZ/FRANCHISE)
-    const storeType = parameters.storeType as string;
-    if (storeType && storeType !== 'ALL' && metric.dataset_id) {
-      // Dataset'ten group_column'u al (sahiplik grubu)
+    // Sahiplik tipi filtresi (MERKEZ/FRANCHISE) - HER ZAMAN EN ÜSTÜN FİLTRE
+    if (hasGroupFilter && metric.dataset_id) {
       const datasetResult = await db.query('SELECT group_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.group_column) {
         const groupColumn = datasetResult.rows[0].group_column;
-        // Case-insensitive ve boşluk duyarsız karşılaştırma için trim(lower()) kullanıyoruz
         whereConditions.push(`trim(lower(${groupColumn})) = trim(lower('${storeType}'))`);
-        logger.debug('Store type filter applied (trim/lower)', { storeType, groupColumn });
+        logger.debug('Master group filter applied (overrides store list)', { storeType, groupColumn });
       }
     }
     
