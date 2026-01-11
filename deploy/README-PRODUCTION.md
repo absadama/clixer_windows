@@ -374,7 +374,7 @@ Bu script:
 5. Servisleri yeniden başlatır
 6. Frontend build alır
 
-### Nginx Ayarı (Tek Seferlik)
+### Nginx Ayarı (Tek Seferlik - PERSISTENT STORAGE v4.26+)
 
 Script çalıştıktan sonra Nginx'e uploads location ekleyin:
 
@@ -385,11 +385,12 @@ sudo nano /etc/nginx/sites-available/default
 Server bloğuna ekleyin:
 
 ```nginx
-# WhiteLabel Logo Uploads
-location /uploads/ {
-    alias /opt/clixer/frontend/dist/uploads/;
+# WhiteLabel Logo Uploads (Persistent)
+location ^~ /uploads/ {
+    alias /opt/clixer/uploads/;
     expires 30d;
     add_header Cache-Control "public, no-transform";
+    add_header Access-Control-Allow-Origin "*";
 }
 ```
 

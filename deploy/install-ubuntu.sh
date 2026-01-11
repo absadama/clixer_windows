@@ -104,6 +104,11 @@ fi
 mkdir -p $CLIXER_DIR
 chown -R $CLIXER_USER:$CLIXER_USER $CLIXER_DIR
 
+# Persistent Uploads Klasörü (WhiteLabel için)
+mkdir -p /opt/clixer/uploads
+chown -R www-data:www-data /opt/clixer/uploads
+chmod 755 /opt/clixer/uploads
+
 # ============================================
 # 6. Clixer İndirme
 # ============================================

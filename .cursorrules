@@ -9048,3 +9048,39 @@ anking_list modu için bu alan tekrar görünür yapıldı ve "Ana Değer Kolonu
 - Artık kullanıcılar Revenue, Visitor vb. kolonları hem listede gösterip hem de hangisine göre trend hesaplanacağını seçebiliyor.
 
 ---
+
+---
+## 📅 v4.25 - 11 Ocak 2026
+
+**WhiteLabel Kalıcı Depolama (Persistent Storage) Altyapısı**
+
+### 1. ✅ Backend Altyapısı (core-service)
+- Logolar artık dist içindeki geçici klasör yerine /opt/clixer/uploads kalıcı klasörüne kaydediliyor.
+- NODE_ENV=production kontrolü ile development ve production yolları ayrıldı.
+
+### 2. ✅ Nginx Regex Önceliği (Critical Fix)
+- location ^~ /uploads/ kuralı ile resim regex kurallarının (~* \.(png|jpg|...)) logo isteklerini ezmesi engellendi.
+- Bu sayede build sonrası silinen dist/uploads klasörü yerine her zaman kalıcı klasördeki logolar servis ediliyor.
+
+### 3. ✅ Sıfır Veri Kaybı Build
+- 
+pm run build komutu dist klasörünü silse bile logolar kalıcı klasörde olduğu için WhiteLabel ayarları bozulmuyor.
+
+---
+## 📅 v4.26 - 11 Ocak 2026
+
+**Kusursuz Kurulum ve Güncelleme Scriptleri (WhiteLabel Persistent Storage)**
+
+### 1. ✅ install-ubuntu.sh Güncellendi
+- Yeni kurulumlarda /opt/clixer/uploads klasörü otomatik oluşturuluyor.
+- Gerekli www-data izinleri ve 755 yetkileri otomatik atanıyor.
+
+### 2. ✅ update-whitelabel.sh Güncellendi
+- Mevcut müşterilerde dist/uploads içindeki eski logolar otomatik olarak yeni kalıcı klasöre taşınıyor.
+- Build öncesi yedekleme/geri yükleme gibi karmaşık ve riskli mantıklar kaldırılarak sistem sadeleştirildi.
+
+### 3. ✅ README-PRODUCTION.md Güncellendi
+- Nginx yapılandırma örnekleri ^~ kuralı ve /opt/clixer/uploads/ yolu ile güncellendi.
+- "Mixed Content" ve "Logo Silinme" sorunlarını önleyen adımlar standart hale getirildi.
+
+---
