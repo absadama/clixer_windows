@@ -308,11 +308,14 @@ export default function AnalysisPage() {
     setLoadingDesign(true)
     try {
       // Tüm filtreleri al (tarih, bölge, mağaza, tip, cross-filter)
-      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedGroupId, groups, crossFilters, stores } = useFilterStore.getState()
+      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedGroupId, groups, crossFilters, stores, isLoaded } = useFilterStore.getState()
       
       // Request body oluştur (POST kullanacağız - URL uzunluğu limiti nedeniyle)
       // storeIds dizisi 400+ eleman içerebilir, URL'de göndermek 8KB limitini aşar
       const requestBody: Record<string, any> = {}
+      
+      // Filtreler henüz yüklenmediyse master-data filtreleri olmadan çek
+      const canSendMasterFilters = isLoaded && stores.length > 0;
       
       // "Tüm Zamanlar" seçiliyse allTime=true gönder
       if (datePreset === 'all') {
@@ -322,27 +325,30 @@ export default function AnalysisPage() {
         if (endDate) requestBody.endDate = endDate
       }
       
-      if (selectedRegionId) requestBody.regionId = selectedRegionId
-      // Mağaza filtresi: Tüm mağazalar seçiliyse filtre GÖNDERİLMEZ ("tüm mağazalar" demektir)
-      const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
-      
-      // DEBUG: Mağaza filtresi gönderme durumunu logla
-      console.log('[ANALYSIS_DEBUG] loadDesignDetail', {
-        storesCount: stores.length,
-        selectedCount: selectedStoreIds.length,
-        allStoresSelected,
-        willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
-        storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
-      })
-      
-      if (selectedStoreIds.length > 0 && !allStoresSelected) {
-        requestBody.storeIds = selectedStoreIds.join(',')
-      }
-      
-      // Sahiplik grubu filtresi (dinamik)
-      if (selectedGroupId) {
-        const group = groups.find(g => g.id === selectedGroupId)
-        if (group) requestBody.storeType = group.code
+      if (canSendMasterFilters) {
+        if (selectedRegionId) requestBody.regionId = selectedRegionId
+        
+        // Mağaza filtresi: Tüm mağazalar seçiliyse filtre GÖNDERİLMEZ ("tüm mağazalar" demektir)
+        const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+        
+        // DEBUG: Mağaza filtresi gönderme durumunu logla
+        console.log('[ANALYSIS_DEBUG] loadDesignDetail', {
+          storesCount: stores.length,
+          selectedCount: selectedStoreIds.length,
+          allStoresSelected,
+          willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
+          storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
+        })
+        
+        if (selectedStoreIds.length > 0 && !allStoresSelected) {
+          requestBody.storeIds = selectedStoreIds.join(',')
+        }
+        
+        // Sahiplik grubu filtresi (dinamik)
+        if (selectedGroupId) {
+          const group = groups.find(g => g.id === selectedGroupId)
+          if (group) requestBody.storeType = group.code
+        }
       }
       
       // Cross-Filter parametreleri

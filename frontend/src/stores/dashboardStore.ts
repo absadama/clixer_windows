@@ -121,11 +121,15 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     set({ isLoading: true })
     try {
       // Tüm filtreleri al (tarih, bölge, mağaza, tip)
-      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedGroupId, groups, stores } = useFilterStore.getState()
+      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedGroupId, groups, stores, isLoaded } = useFilterStore.getState()
       
       // Request body oluştur (POST kullanacağız - URL uzunluğu limiti nedeniyle)
       // storeIds dizisi 400+ eleman içerebilir, URL'de göndermek 8KB limitini aşar
       const requestBody: Record<string, any> = {}
+      
+      // Filtreler henüz yüklenmediyse dashboard'u master-data filtreleri olmadan çek
+      // Bu, 401 hatalarında veya yavaş internette dashboard'un boş/eksik gelmesini önler
+      const canSendMasterFilters = isLoaded && stores.length > 0;
       
       // "Tüm Zamanlar" seçiliyse allTime=true gönder
       if (datePreset === 'all') {
@@ -135,28 +139,22 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         if (endDate) requestBody.endDate = endDate
       }
       
-      if (selectedRegionId) requestBody.regionId = selectedRegionId
-      // Mağaza filtresi: Tüm mağazalar seçiliyse (stores.length === selectedStoreIds.length) filtre GÖNDERİLMEZ
-      // Bu "tüm mağazalar" demektir ve backend'de RLS dışında ek filtre uygulanmaz
-      const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
-      
-      // DEBUG: Mağaza filtresi gönderme durumunu logla
-      console.log('[STORE_DEBUG] fetchDashboardData', {
-        storesCount: stores.length,
-        selectedCount: selectedStoreIds.length,
-        allStoresSelected,
-        willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
-        storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
-      })
-      
-      if (selectedStoreIds.length > 0 && !allStoresSelected) {
-        requestBody.storeIds = selectedStoreIds.join(',')
-      }
-      
-      // Sahiplik grubu filtresi (dinamik)
-      if (selectedGroupId) {
-        const group = groups.find(g => g.id === selectedGroupId)
-        if (group) requestBody.storeType = group.code
+      if (canSendMasterFilters) {
+        if (selectedRegionId) requestBody.regionId = selectedRegionId
+        
+        // Mağaza filtresi: Tüm mağazalar seçiliyse (stores.length === selectedStoreIds.length) filtre GÖNDERİLMEZ
+        // Bu "tüm mağazalar" demektir ve backend'de RLS dışında ek filtre uygulanmaz
+        const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+        
+        if (selectedStoreIds.length > 0 && !allStoresSelected) {
+          requestBody.storeIds = selectedStoreIds.join(',')
+        }
+        
+        // Sahiplik grubu filtresi (dinamik)
+        if (selectedGroupId) {
+          const group = groups.find(g => g.id === selectedGroupId)
+          if (group) requestBody.storeType = group.code
+        }
       }
       
       // POST kullan (URL limit aşımını önlemek için)

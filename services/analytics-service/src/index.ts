@@ -1625,7 +1625,8 @@ async function executeMetric(
         const regionCodeResult = await db.query('SELECT code FROM regions WHERE id = $1', [regionId]);
         const regionCode = regionCodeResult.rows[0]?.code || regionId;
         
-        whereConditions.push(`${regionColumn} = '${regionCode}'`);
+        // Case-insensitive karşılaştırma için lower() kullanıyoruz
+        whereConditions.push(`lower(${regionColumn}) = lower('${regionCode}')`);
         logger.debug('Region filter applied (UUID to code)', { regionId, regionCode, regionColumn });
       }
     }
@@ -1673,7 +1674,8 @@ async function executeMetric(
       const datasetResult = await db.query('SELECT group_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.group_column) {
         const groupColumn = datasetResult.rows[0].group_column;
-        whereConditions.push(`${groupColumn} = '${storeType}'`);
+        // Case-insensitive karşılaştırma için lower() kullanıyoruz
+        whereConditions.push(`lower(${groupColumn}) = lower('${storeType}')`);
         logger.debug('Store type filter applied', { storeType, groupColumn });
       }
     }
