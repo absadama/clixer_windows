@@ -66,6 +66,16 @@ export default function FilterBar({
   const [showDateDropdown, setShowDateDropdown] = useState(false)
   const [showTypeDropdown, setShowTypeDropdown] = useState(false)
   const [storeSearchQuery, setStoreSearchQuery] = useState('')
+  
+  // Yerel seçim state'i - Kararma ve donmayı önlemek için kritik!
+  const [localStoreIds, setLocalStoreIds] = useState<string[]>([])
+
+  // Dropdown açıldığında mevcut seçimleri yerel state'e kopyala
+  useEffect(() => {
+    if (showStoreDropdown) {
+      setLocalStoreIds(selectedStoreIds)
+    }
+  }, [showStoreDropdown, selectedStoreIds])
 
   // Filtreleri yükle
   useEffect(() => {
@@ -310,7 +320,7 @@ export default function FilterBar({
                 {/* Hızlı seçim butonları */}
                 <div className="flex gap-2 mt-2">
                   <button
-                    onClick={selectAllStores}
+                    onClick={() => setLocalStoreIds(filteredStores.map(s => s.id))}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -322,7 +332,7 @@ export default function FilterBar({
                     Tümünü Seç
                   </button>
                   <button
-                    onClick={() => setStores([])}
+                    onClick={() => setLocalStoreIds([])}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -345,7 +355,7 @@ export default function FilterBar({
                   </div>
                 ) : (
                   searchedStores.map((store) => {
-                    const isSelected = selectedStoreIds.includes(store.id)
+                    const isSelected = localStoreIds.includes(store.id)
                     
                     return (
                       <div key={store.id}>
@@ -379,9 +389,9 @@ export default function FilterBar({
                             checked={isSelected}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setStores([...selectedStoreIds, store.id])
+                                setLocalStoreIds([...localStoreIds, store.id])
                               } else {
-                                setStores(selectedStoreIds.filter(id => id !== store.id))
+                                setLocalStoreIds(localStoreIds.filter(id => id !== store.id))
                               }
                             }}
                             className="sr-only"
@@ -428,17 +438,31 @@ export default function FilterBar({
                 isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
               )}>
                 <span className={clsx('text-xs', isDark ? 'text-gray-500' : 'text-gray-500')}>
-                  {selectedStoreIds.length} / {filteredStores.length} seçili
+                  {localStoreIds.length} / {filteredStores.length} seçili
                 </span>
-                <button
-                  onClick={() => setShowStoreDropdown(false)}
-                  className={clsx(
-                    'px-5 py-2 text-sm font-medium rounded-lg transition-all',
-                    'bg-emerald-500 text-white hover:bg-emerald-600'
-                  )}
-                >
-                  Uygula
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowStoreDropdown(false)}
+                    className={clsx(
+                      'px-4 py-2 text-sm font-medium rounded-lg transition-all',
+                      isDark ? 'bg-[#21262d] text-gray-300' : 'bg-white border border-gray-200 text-gray-600'
+                    )}
+                  >
+                    İptal
+                  </button>
+                  <button
+                    onClick={() => {
+                      setStores(localStoreIds)
+                      setShowStoreDropdown(false)
+                    }}
+                    className={clsx(
+                      'px-5 py-2 text-sm font-medium rounded-lg transition-all',
+                      'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20'
+                    )}
+                  >
+                    Uygula
+                  </button>
+                </div>
               </div>
             </div>
           )}
