@@ -143,21 +143,24 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       // isLoaded kontrolü bazen master veriler yavaş yüklendiğinde filtrelerin gitmesini engelliyor
       if (selectedRegionId) requestBody.regionId = selectedRegionId
       
-      const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
-      if (selectedStoreIds.length > 0 && !allStoresSelected) {
-        requestBody.storeIds = selectedStoreIds.join(',')
-      }
-      
-      // DEBUG: Sahiplik grubu kontrolü
+      // Sahiplik grubu filtresi - ClickHouse'daki BranchType kolonuna direkt filtre uygular
+      // NOT: Grup seçiliyken storeIds GÖNDERİLMEZ çünkü:
+      // - Tarihsel doğruluk için ClickHouse'daki gerçek BranchType değerine güveniyoruz
+      // - Bir mağaza geçmişte FR, şimdi TDUN olabilir - her dönem kendi grubuyla raporlanmalı
       if (selectedGroupId) {
         const group = groups.find(g => g.id === selectedGroupId)
         console.log('[STORE_DEBUG] Ownership group check:', { selectedGroupId, foundGroup: group?.code, allGroups: groups.map(g => g.code) })
         if (group) {
           requestBody.storeType = group.code
         } else {
-          // Fallback: Eğer grup nesnesi bulunamazsa ama bir ID varsa, 
-          // belki ID'nin kendisi koddur (bazı eski kayıtlarda öyle olabilir)
           requestBody.storeType = selectedGroupId
+        }
+        // Grup seçiliyken storeIds gönderme - ClickHouse BranchType'a göre filtreleyecek
+      } else {
+        // Grup seçili DEĞİLSE, mağaza filtresi uygula (manuel mağaza seçimi için)
+        const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+        if (selectedStoreIds.length > 0 && !allStoresSelected) {
+          requestBody.storeIds = selectedStoreIds.join(',')
         }
       }
       

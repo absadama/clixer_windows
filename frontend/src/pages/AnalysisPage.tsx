@@ -328,26 +328,30 @@ export default function AnalysisPage() {
       if (canSendMasterFilters) {
         if (selectedRegionId) requestBody.regionId = selectedRegionId
         
-        // Mağaza filtresi: Tüm mağazalar seçiliyse filtre GÖNDERİLMEZ ("tüm mağazalar" demektir)
-        const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
-        
-        // DEBUG: Mağaza filtresi gönderme durumunu logla
-        console.log('[ANALYSIS_DEBUG] loadDesignDetail', {
-          storesCount: stores.length,
-          selectedCount: selectedStoreIds.length,
-          allStoresSelected,
-          willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
-          storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
-        })
-        
-        if (selectedStoreIds.length > 0 && !allStoresSelected) {
-          requestBody.storeIds = selectedStoreIds.join(',')
-        }
-        
-        // Sahiplik grubu filtresi (dinamik)
+        // Sahiplik grubu filtresi - ClickHouse'daki BranchType kolonuna direkt filtre uygular
+        // NOT: Grup seçiliyken storeIds GÖNDERİLMEZ çünkü:
+        // - Tarihsel doğruluk için ClickHouse'daki gerçek BranchType değerine güveniyoruz
+        // - Bir mağaza geçmişte FR, şimdi TDUN olabilir - her dönem kendi grubuyla raporlanmalı
         if (selectedGroupId) {
           const group = groups.find(g => g.id === selectedGroupId)
           if (group) requestBody.storeType = group.code
+          // Grup seçiliyken storeIds gönderme - ClickHouse BranchType'a göre filtreleyecek
+        } else {
+          // Grup seçili DEĞİLSE, mağaza filtresi uygula (manuel mağaza seçimi için)
+          const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+          
+          // DEBUG: Mağaza filtresi gönderme durumunu logla
+          console.log('[ANALYSIS_DEBUG] loadDesignDetail', {
+            storesCount: stores.length,
+            selectedCount: selectedStoreIds.length,
+            allStoresSelected,
+            willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
+            storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
+          })
+          
+          if (selectedStoreIds.length > 0 && !allStoresSelected) {
+            requestBody.storeIds = selectedStoreIds.join(',')
+          }
         }
       }
       
