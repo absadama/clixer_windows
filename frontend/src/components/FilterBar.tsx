@@ -120,18 +120,11 @@ export default function FilterBar({
       )
     }
     
-    // Seçili olanları üste al - Sadece arama yoksa sırala (UI stabilitesi için)
-    if (!storeSearchQuery.trim()) {
-      result.sort((a, b) => {
-        const aSelected = selectedStoreIds.includes(a.id) ? 0 : 1
-        const bSelected = selectedStoreIds.includes(b.id) ? 0 : 1
-        if (aSelected !== bSelected) return aSelected - bSelected
-        return (a.name || '').localeCompare(b.name || '', 'tr')
-      })
-    }
+    // Her zaman alfabetik sırala (UI stabilitesi için seçili olanları üste taşımayı kaldırdık)
+    result.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'tr'))
     
     return result
-  }, [filteredStores, storeSearchQuery, selectedStoreIds])
+  }, [filteredStores, storeSearchQuery]) // selectedStoreIds bağımlılığını kaldırdık!
 
   // Seçili mağaza sayısı özeti
   const storeSelectionText = () => {
@@ -344,34 +337,24 @@ export default function FilterBar({
               </div>
 
               {/* Store List */}
-              <div className="max-h-72 overflow-y-auto">
+              <div className="max-h-72 overflow-y-auto custom-scrollbar">
                 {searchedStores.length === 0 ? (
                   <div className={clsx('p-6 text-center', isDark ? 'text-gray-500' : 'text-gray-400')}>
                     <Store size={32} className="mx-auto mb-2 opacity-50" />
                     <p className="text-sm">Mağaza bulunamadı</p>
                   </div>
                 ) : (
-                  searchedStores.map((store, index) => {
+                  searchedStores.map((store) => {
                     const isSelected = selectedStoreIds.includes(store.id)
-                    const showDivider = index > 0 && 
-                      selectedStoreIds.includes(searchedStores[index - 1].id) !== isSelected
                     
                     return (
                       <div key={store.id}>
-                        {showDivider && (
-                          <div className={clsx(
-                            'px-4 py-1.5 text-xs font-medium',
-                            isDark ? 'bg-[#14171c] text-gray-500' : 'bg-gray-50 text-gray-500'
-                          )}>
-                            Diğer Mağazalar ({filteredStores.length - selectedStoreIds.length})
-                          </div>
-                        )}
                         <label
                           className={clsx(
-                            'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all',
+                            'flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors',
                             isSelected 
                               ? isDark 
-                                ? 'bg-emerald-500/15 border-l-2 border-emerald-500' 
+                                ? 'bg-emerald-500/10 border-l-2 border-emerald-500' 
                                 : 'bg-emerald-50 border-l-2 border-emerald-500'
                               : isDark 
                                 ? 'hover:bg-[#21262d] border-l-2 border-transparent' 
