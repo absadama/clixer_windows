@@ -107,6 +107,7 @@ export default function FilterBar({
   const selectedDatePreset = DATE_PRESETS.find(p => p.id === datePreset)
 
   // Arama ve sıralama ile filtrelenmiş mağazalar
+  // NOT: selectedStoreIds dependency'si KALDIRILDI - liste kaymasını önlemek için!
   const searchedStores = useMemo(() => {
     let result = [...filteredStores]
     
@@ -120,16 +121,11 @@ export default function FilterBar({
       )
     }
     
-    // Seçili olanları üste al
-    result.sort((a, b) => {
-      const aSelected = selectedStoreIds.includes(a.id) ? 0 : 1
-      const bSelected = selectedStoreIds.includes(b.id) ? 0 : 1
-      if (aSelected !== bSelected) return aSelected - bSelected
-      return a.name.localeCompare(b.name, 'tr')
-    })
+    // Sadece alfabetik sırala - seçim yapıldığında liste KAYMAZ!
+    result.sort((a, b) => a.name.localeCompare(b.name, 'tr'))
     
     return result
-  }, [filteredStores, storeSearchQuery, selectedStoreIds])
+  }, [filteredStores, storeSearchQuery])
 
   // Seçili mağaza sayısı özeti
   const storeSelectionText = () => {
@@ -349,21 +345,11 @@ export default function FilterBar({
                     <p className="text-sm">Mağaza bulunamadı</p>
                   </div>
                 ) : (
-                  searchedStores.map((store, index) => {
+                  searchedStores.map((store) => {
                     const isSelected = selectedStoreIds.includes(store.id)
-                    const showDivider = index > 0 && 
-                      selectedStoreIds.includes(searchedStores[index - 1].id) !== isSelected
                     
                     return (
                       <div key={store.id}>
-                        {showDivider && (
-                          <div className={clsx(
-                            'px-4 py-1.5 text-xs font-medium',
-                            isDark ? 'bg-[#14171c] text-gray-500' : 'bg-gray-50 text-gray-500'
-                          )}>
-                            Diğer Mağazalar ({filteredStores.length - selectedStoreIds.length})
-                          </div>
-                        )}
                         <label
                           className={clsx(
                             'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all',
