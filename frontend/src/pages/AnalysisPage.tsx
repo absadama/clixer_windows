@@ -192,7 +192,7 @@ export default function AnalysisPage() {
   const { theme, isDark, currentTheme } = useTheme()
   const { accessToken, user } = useAuthStore()
   const { 
-    startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType,
+    startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedGroupId, groups,
     crossFilters, drillDown, 
     addCrossFilter, removeCrossFilter, clearCrossFilters,
     openDrillDown, closeDrillDown, setDrillDownData, setDrillDownLoading
@@ -275,7 +275,7 @@ export default function AnalysisPage() {
       loadDesignDetail(selectedDesign.id)
     }
   // storeIdsKey: useMemo ile hesaplanan stabil string - mağaza değişikliklerini doğru yakalar
-  }, [startDate, endDate, selectedRegionId, storeIdsKey, selectedStoreType])
+  }, [startDate, endDate, selectedRegionId, storeIdsKey, selectedGroupId])
   
   // Drill-Down verisi çek
   const fetchDrillDownData = async (metricId: string, field: string, value: string | number) => {
@@ -308,7 +308,7 @@ export default function AnalysisPage() {
     setLoadingDesign(true)
     try {
       // Tüm filtreleri al (tarih, bölge, mağaza, tip, cross-filter)
-      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType, crossFilters, stores } = useFilterStore.getState()
+      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedGroupId, groups, crossFilters, stores } = useFilterStore.getState()
       
       // Request body oluştur (POST kullanacağız - URL uzunluğu limiti nedeniyle)
       // storeIds dizisi 400+ eleman içerebilir, URL'de göndermek 8KB limitini aşar
@@ -338,7 +338,12 @@ export default function AnalysisPage() {
       if (selectedStoreIds.length > 0 && !allStoresSelected) {
         requestBody.storeIds = selectedStoreIds.join(',')
       }
-      if (selectedStoreType !== 'ALL') requestBody.storeType = selectedStoreType
+      
+      // Sahiplik grubu filtresi (dinamik)
+      if (selectedGroupId) {
+        const group = groups.find(g => g.id === selectedGroupId)
+        if (group) requestBody.storeType = group.code
+      }
       
       // Cross-Filter parametreleri
       if (crossFilters.length > 0) {

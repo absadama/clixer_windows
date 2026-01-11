@@ -28,11 +28,17 @@ export interface Region {
   name: string
 }
 
+export interface OwnershipGroup {
+  id: string
+  code: string
+  name: string
+}
+
 export interface Store {
   id: string
   code: string
   name: string
-  storeType: 'MERKEZ' | 'FRANCHISE'
+  ownershipGroup?: string // MERKEZ, FRANCHISE veya dinamik grup kodu
   regionId?: string
   regionName?: string
   city?: string
@@ -61,12 +67,13 @@ export interface DrillDown {
 interface FilterState {
   // Veriler
   regions: Region[]
+  groups: OwnershipGroup[]
   stores: Store[]
   
   // Seçimler
   selectedRegionId: string | null  // null = tümü
   selectedStoreIds: string[]       // boş = tümü
-  selectedStoreType: 'ALL' | 'MERKEZ' | 'FRANCHISE'
+  selectedGroupId: string | null   // null = tümü
   
   // Tarih
   datePreset: DatePreset
@@ -87,7 +94,7 @@ interface FilterState {
   loadFilters: (accessToken: string) => Promise<void>
   setRegion: (regionId: string | null) => void
   setStores: (storeIds: string[]) => void
-  setStoreType: (type: 'ALL' | 'MERKEZ' | 'FRANCHISE') => void
+  setGroup: (groupId: string | null) => void
   setDatePreset: (preset: DatePreset) => void
   setCustomDates: (start: string, end: string) => void
   selectAllStores: () => void
@@ -130,10 +137,11 @@ const startOfYear = (date: Date) => new Date(date.getFullYear(), 0, 1)
 export const useFilterStore = create<FilterState>((set, get) => ({
   // Başlangıç değerleri
   regions: [],
+  groups: [],
   stores: [],
   selectedRegionId: null,
   selectedStoreIds: [],
-  selectedStoreType: 'ALL',
+  selectedGroupId: null,
   datePreset: 'thisMonth',
   startDate: formatDate(startOfMonth(today())),
   endDate: formatDate(today()),
@@ -162,36 +170,44 @@ export const useFilterStore = create<FilterState>((set, get) => ({
     set({ isLoading: true })
     
     try {
-      // Bölgeleri çek
-      const regionsRes = await fetch(`${API_BASE}/core/regions`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      })
-      const regionsData = regionsRes.ok ? await regionsRes.json() : { data: [] }
-      
-      // Mağazaları çek
-      const storesRes = await fetch(`${API_BASE}/core/stores`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      })
-      const storesData = storesRes.ok ? await storesRes.json() : { data: [] }
+      // Paralel olarak tüm master verileri çek
+      const [regionsRes, storesRes, groupsRes] = await Promise.all([
+        fetch(`${API_BASE}/core/regions`, { headers: { 'Authorization': `Bearer ${accessToken}` } }),
+        fetch(`${API_BASE}/core/stores`, { headers: { 'Authorization': `Bearer ${accessToken}` } }),
+        fetch(`${API_BASE}/core/ownership-groups`, { headers: { 'Authorization': `Bearer ${accessToken}` } })
+      ])
+
+      const [regionsData, storesData, groupsData] = await Promise.all([
+        regionsRes.ok ? regionsRes.json() : { data: [] },
+        storesRes.ok ? storesRes.json() : { data: [] },
+        groupsRes.ok ? groupsRes.json() : { data: [] }
+      ])
       
       const regions = (regionsData.data || []).map((r: any) => ({
         id: r.id,
         code: r.code,
         name: r.name
       }))
+
+      const groups = (groupsData.data || []).map((g: any) => ({
+        id: g.id,
+        code: g.code,
+        name: g.name
+      }))
       
       const stores = (storesData.data || []).map((s: any) => ({
         id: s.id,
         code: s.code,
         name: s.name,
-        storeType: s.store_type || 'MERKEZ',
+        ownershipGroup: s.ownership_group, // store_type yerine ownership_group kullanıyoruz
         regionId: s.region_id,
         regionName: s.region_name,
         city: s.city
       }))
       
       set({ 
-        regions, 
+        regions,
+        groups,
         stores, 
         isLoading: false, 
         isLoaded: true,
@@ -207,10 +223,9 @@ export const useFilterStore = create<FilterState>((set, get) => ({
   // Bölge seç
   setRegion: (regionId: string | null) => {
     set({ selectedRegionId: regionId })
-    // Bölge seçildiğinde o bölgenin mağazalarını seç
-    if (regionId) {
-      get().selectRegionStores(regionId)
-    }
+    // Seçim sonrası mağazaları güncelle
+    const filtered = get().getFilteredStores()
+    set({ selectedStoreIds: filtered.map(s => s.id) })
   },
 
   // Mağazaları seç
@@ -218,10 +233,10 @@ export const useFilterStore = create<FilterState>((set, get) => ({
     set({ selectedStoreIds: storeIds })
   },
 
-  // Mağaza tipi seç
-  setStoreType: (type: 'ALL' | 'MERKEZ' | 'FRANCHISE') => {
-    set({ selectedStoreType: type })
-    // Tip değiştiğinde filtrelenmiş mağazaları güncelle
+  // Grup seç (Merkez/Franchise/TDUN vb.)
+  setGroup: (groupId: string | null) => {
+    set({ selectedGroupId: groupId })
+    // Seçim sonrası mağazaları güncelle
     const filtered = get().getFilteredStores()
     set({ selectedStoreIds: filtered.map(s => s.id) })
   },
@@ -292,26 +307,29 @@ export const useFilterStore = create<FilterState>((set, get) => ({
     const { stores } = get()
     set({ 
       selectedRegionId: null,
-      selectedStoreType: 'ALL',
+      selectedGroupId: null,
       selectedStoreIds: stores.map(s => s.id)
     })
   },
 
   // Bölge mağazalarını seç
   selectRegionStores: (regionId: string) => {
-    const { stores, selectedStoreType } = get()
+    const { stores, selectedGroupId } = get()
     let filtered = stores.filter(s => s.regionId === regionId)
     
-    if (selectedStoreType !== 'ALL') {
-      filtered = filtered.filter(s => s.storeType === selectedStoreType)
+    if (selectedGroupId) {
+      const group = get().groups.find(g => g.id === selectedGroupId)
+      if (group) {
+        filtered = filtered.filter(s => s.ownershipGroup === group.code)
+      }
     }
     
     set({ selectedStoreIds: filtered.map(s => s.id) })
   },
 
-  // Filtrelenmiş mağazaları getir
+  // Filtrelenmiş mağazaları getir (Bölge ve Grup kesişimi)
   getFilteredStores: () => {
-    const { stores, selectedRegionId, selectedStoreType } = get()
+    const { stores, regions, groups, selectedRegionId, selectedGroupId } = get()
     
     let filtered = stores
     
@@ -319,8 +337,11 @@ export const useFilterStore = create<FilterState>((set, get) => ({
       filtered = filtered.filter(s => s.regionId === selectedRegionId)
     }
     
-    if (selectedStoreType !== 'ALL') {
-      filtered = filtered.filter(s => s.storeType === selectedStoreType)
+    if (selectedGroupId) {
+      const group = groups.find(g => g.id === selectedGroupId)
+      if (group) {
+        filtered = filtered.filter(s => s.ownershipGroup === group.code)
+      }
     }
     
     return filtered
@@ -338,7 +359,7 @@ export const useFilterStore = create<FilterState>((set, get) => ({
     set({
       selectedRegionId: null,
       selectedStoreIds: stores.map(s => s.id),
-      selectedStoreType: 'ALL',
+      selectedGroupId: null,
       datePreset: 'thisMonth',
       startDate: formatDate(startOfMonth(today())),
       endDate: formatDate(today()),

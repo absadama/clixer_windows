@@ -42,17 +42,18 @@ export default function FilterBar({
   const { accessToken } = useAuthStore()
   const {
     regions,
+    groups,
     stores,
     selectedRegionId,
     selectedStoreIds,
-    selectedStoreType,
+    selectedGroupId,
     datePreset,
     startDate,
     endDate,
     loadFilters,
     setRegion,
     setStores,
-    setStoreType,
+    setGroup,
     setDatePreset,
     setCustomDates,
     selectAllStores,
@@ -75,6 +76,34 @@ export default function FilterBar({
 
   const filteredStores = getFilteredStores()
   const selectedRegion = regions.find(r => r.id === selectedRegionId)
+  
+  // Dinamik olarak kullanılabilir grupları belirle (seçili bölgeye göre)
+  const availableGroups = useMemo(() => {
+    if (!selectedRegionId) return groups;
+    
+    // Seçili bölgedeki mağazaların grup kodlarını bul
+    const regionStores = stores.filter(s => s.regionId === selectedRegionId);
+    const regionGroupCodes = new Set(regionStores.map(s => s.ownershipGroup).filter(Boolean));
+    
+    // Sadece bu kodlara sahip grupları döndür
+    return groups.filter(g => regionGroupCodes.has(g.code));
+  }, [groups, stores, selectedRegionId]);
+
+  // Dinamik olarak kullanılabilir bölgeleri belirle (seçili gruba göre)
+  const availableRegions = useMemo(() => {
+    if (!selectedGroupId) return regions;
+    
+    // Seçili gruptaki mağazaların bölge ID'lerini bul
+    const group = groups.find(g => g.id === selectedGroupId);
+    if (!group) return regions;
+    
+    const groupStores = stores.filter(s => s.ownershipGroup === group.code);
+    const groupRegionIds = new Set(groupStores.map(s => s.regionId).filter(Boolean));
+    
+    // Sadece bu ID'lere sahip bölgeleri döndür
+    return regions.filter(r => groupRegionIds.has(r.id));
+  }, [regions, groups, stores, selectedGroupId]);
+
   const selectedDatePreset = DATE_PRESETS.find(p => p.id === datePreset)
 
   // Arama ve sıralama ile filtrelenmiş mağazalar
@@ -158,7 +187,7 @@ export default function FilterBar({
                 Tüm Bölgeler
                 {!selectedRegionId && <Check size={14} className="ml-auto" />}
               </button>
-              {regions.map(region => (
+              {availableRegions.map(region => (
                 <button
                   key={region.id}
                   onClick={() => { setRegion(region.id); setShowRegionDropdown(false) }}
@@ -178,20 +207,20 @@ export default function FilterBar({
         </div>
       )}
 
-      {/* Tip Seçimi (Merkez/Franchise) */}
-      {showTypeFilter && (
+      {/* Grup Seçimi (Dinamik Sahiplik Grubu) */}
+      {showTypeFilter && groups.length > 0 && (
         <div className="relative">
           <button
             onClick={() => setShowTypeDropdown(!showTypeDropdown)}
             className={clsx(
               'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all',
-              selectedStoreType !== 'ALL'
+              selectedGroupId
                 ? 'bg-purple-500/10 text-purple-600 border border-purple-500/30'
                 : theme.buttonSecondary
             )}
           >
             <Building size={16} />
-            {selectedStoreType === 'ALL' ? 'Tümü' : selectedStoreType === 'MERKEZ' ? 'Merkez' : 'Franchise'}
+            {selectedGroupId ? groups.find(g => g.id === selectedGroupId)?.name : 'Tüm Gruplar'}
             <ChevronDown size={14} />
           </button>
 
@@ -201,23 +230,31 @@ export default function FilterBar({
               theme.cardBg,
               isDark ? 'border-slate-700' : 'border-slate-200'
             )}>
-              {[
-                { id: 'ALL', label: 'Tümü', icon: Building2 },
-                { id: 'MERKEZ', label: 'Merkez', icon: Building },
-                { id: 'FRANCHISE', label: 'Franchise', icon: Store }
-              ].map(type => (
+              <button
+                onClick={() => { setGroup(null); setShowTypeDropdown(false) }}
+                className={clsx(
+                  'w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors',
+                  !selectedGroupId ? 'bg-purple-500/10 text-purple-600' : theme.contentText,
+                  'hover:bg-slate-100 dark:hover:bg-slate-800'
+                )}
+              >
+                <Building2 size={16} />
+                Tüm Gruplar
+                {!selectedGroupId && <Check size={14} className="ml-auto" />}
+              </button>
+              {availableGroups.map(group => (
                 <button
-                  key={type.id}
-                  onClick={() => { setStoreType(type.id as any); setShowTypeDropdown(false) }}
+                  key={group.id}
+                  onClick={() => { setGroup(group.id); setShowTypeDropdown(false) }}
                   className={clsx(
                     'w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors',
-                    selectedStoreType === type.id ? 'bg-purple-500/10 text-purple-600' : theme.contentText,
+                    selectedGroupId === group.id ? 'bg-purple-500/10 text-purple-600' : theme.contentText,
                     'hover:bg-slate-100 dark:hover:bg-slate-800'
                   )}
                 >
-                  <type.icon size={16} />
-                  {type.label}
-                  {selectedStoreType === type.id && <Check size={14} className="ml-auto" />}
+                  <Building size={16} />
+                  {group.name}
+                  {selectedGroupId === group.id && <Check size={14} className="ml-auto" />}
                 </button>
               ))}
             </div>
@@ -378,11 +415,11 @@ export default function FilterBar({
                               </span>
                               <span className={clsx(
                                 'text-xs px-1.5 py-0.5 rounded',
-                                store.storeType === 'MERKEZ' 
+                                store.ownershipGroup === 'MERKEZ' 
                                   ? isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-700'
                                   : isDark ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-700'
                               )}>
-                                {store.storeType === 'MERKEZ' ? 'Merkez' : 'Franchise'}
+                                {store.ownershipGroup || 'Belirtilmemiş'}
                               </span>
                             </div>
                             <div className={clsx(

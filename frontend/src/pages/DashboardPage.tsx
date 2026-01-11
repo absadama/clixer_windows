@@ -100,7 +100,7 @@ const useWindowSize = () => {
 export default function DashboardPage() {
   const { designs, currentDesign, widgets, isLoading, lastUpdated, fetchDesigns, selectDesign, fetchDashboardData } = useDashboardStore()
   const { accessToken, user } = useAuthStore()
-  const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType } = useFilterStore()
+  const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedGroupId, groups } = useFilterStore()
   const [showDesignSelector, setShowDesignSelector] = useState(false)
   
   // Mağaza seçimlerini stabil string'e çevir - useEffect dependency için
@@ -156,7 +156,7 @@ export default function DashboardPage() {
       return () => clearTimeout(timeoutId)
     }
   // storeIdsKey: useMemo ile hesaplanan stabil string - mağaza değişikliklerini doğru yakalar
-  }, [startDate, endDate, selectedRegionId, storeIdsKey, selectedStoreType, currentDesign?.id, fetchDashboardData, accessToken])
+  }, [startDate, endDate, selectedRegionId, storeIdsKey, selectedGroupId, currentDesign?.id, fetchDashboardData, accessToken])
 
   useEffect(() => {
     // URL'den designId parametresini oku

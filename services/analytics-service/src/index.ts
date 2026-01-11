@@ -1620,8 +1620,13 @@ async function executeMetric(
       const datasetResult = await db.query('SELECT region_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.region_column) {
         const regionColumn = datasetResult.rows[0].region_column;
-        whereConditions.push(`${regionColumn} = '${regionId}'`);
-        logger.debug('Region filter applied', { regionId, regionColumn });
+        
+        // Frontend'den gelen regionId UUID'sini code değerine çevir
+        const regionCodeResult = await db.query('SELECT code FROM regions WHERE id = $1', [regionId]);
+        const regionCode = regionCodeResult.rows[0]?.code || regionId;
+        
+        whereConditions.push(`${regionColumn} = '${regionCode}'`);
+        logger.debug('Region filter applied (UUID to code)', { regionId, regionCode, regionColumn });
       }
     }
     

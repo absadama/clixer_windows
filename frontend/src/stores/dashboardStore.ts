@@ -121,7 +121,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     set({ isLoading: true })
     try {
       // Tüm filtreleri al (tarih, bölge, mağaza, tip)
-      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType, stores } = useFilterStore.getState()
+      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedGroupId, groups, stores } = useFilterStore.getState()
       
       // Request body oluştur (POST kullanacağız - URL uzunluğu limiti nedeniyle)
       // storeIds dizisi 400+ eleman içerebilir, URL'de göndermek 8KB limitini aşar
@@ -152,7 +152,12 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       if (selectedStoreIds.length > 0 && !allStoresSelected) {
         requestBody.storeIds = selectedStoreIds.join(',')
       }
-      if (selectedStoreType !== 'ALL') requestBody.storeType = selectedStoreType
+      
+      // Sahiplik grubu filtresi (dinamik)
+      if (selectedGroupId) {
+        const group = groups.find(g => g.id === selectedGroupId)
+        if (group) requestBody.storeType = group.code
+      }
       
       // POST kullan (URL limit aşımını önlemek için)
       const response = await api.post(`/analytics/dashboard/${designId}/full`, requestBody)
