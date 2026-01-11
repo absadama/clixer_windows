@@ -114,19 +114,21 @@ export default function FilterBar({
     if (storeSearchQuery.trim()) {
       const query = storeSearchQuery.toLowerCase().trim()
       result = result.filter(store => 
-        store.name.toLowerCase().includes(query) ||
-        store.city?.toLowerCase().includes(query) ||
-        store.code?.toLowerCase().includes(query)
+        (store.name || '').toLowerCase().includes(query) ||
+        (store.city || '').toLowerCase().includes(query) ||
+        (store.code || '').toLowerCase().includes(query)
       )
     }
     
-    // Seçili olanları üste al
-    result.sort((a, b) => {
-      const aSelected = selectedStoreIds.includes(a.id) ? 0 : 1
-      const bSelected = selectedStoreIds.includes(b.id) ? 0 : 1
-      if (aSelected !== bSelected) return aSelected - bSelected
-      return a.name.localeCompare(b.name, 'tr')
-    })
+    // Seçili olanları üste al - Sadece arama yoksa sırala (UI stabilitesi için)
+    if (!storeSearchQuery.trim()) {
+      result.sort((a, b) => {
+        const aSelected = selectedStoreIds.includes(a.id) ? 0 : 1
+        const bSelected = selectedStoreIds.includes(b.id) ? 0 : 1
+        if (aSelected !== bSelected) return aSelected - bSelected
+        return (a.name || '').localeCompare(b.name || '', 'tr')
+      })
+    }
     
     return result
   }, [filteredStores, storeSearchQuery, selectedStoreIds])
