@@ -148,9 +148,17 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         requestBody.storeIds = selectedStoreIds.join(',')
       }
       
+      // DEBUG: Sahiplik grubu kontrolü
       if (selectedGroupId) {
         const group = groups.find(g => g.id === selectedGroupId)
-        if (group) requestBody.storeType = group.code
+        console.log('[STORE_DEBUG] Ownership group check:', { selectedGroupId, foundGroup: group?.code, allGroups: groups.map(g => g.code) })
+        if (group) {
+          requestBody.storeType = group.code
+        } else {
+          // Fallback: Eğer grup nesnesi bulunamazsa ama bir ID varsa, 
+          // belki ID'nin kendisi koddur (bazı eski kayıtlarda öyle olabilir)
+          requestBody.storeType = selectedGroupId
+        }
       }
       
       // POST kullan (URL limit aşımını önlemek için)

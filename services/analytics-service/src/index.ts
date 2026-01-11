@@ -1674,9 +1674,9 @@ async function executeMetric(
       const datasetResult = await db.query('SELECT group_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.group_column) {
         const groupColumn = datasetResult.rows[0].group_column;
-        // Case-insensitive karşılaştırma için lower() kullanıyoruz
-        whereConditions.push(`lower(${groupColumn}) = lower('${storeType}')`);
-        logger.debug('Store type filter applied', { storeType, groupColumn });
+        // Case-insensitive ve boşluk duyarsız karşılaştırma için trim(lower()) kullanıyoruz
+        whereConditions.push(`trim(lower(${groupColumn})) = trim(lower('${storeType}'))`);
+        logger.debug('Store type filter applied (trim/lower)', { storeType, groupColumn });
       }
     }
     
