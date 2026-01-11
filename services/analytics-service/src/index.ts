@@ -1369,26 +1369,33 @@ async function executeMetric(
   const cacheDateStart = parameters.startDate as string || '';
   const cacheDateEnd = parameters.endDate as string || '';
   const dateHash = cacheDateStart && cacheDateEnd ? `${cacheDateStart}_${cacheDateEnd}` : 'nodate';
-  // StoreIds parametresini özel olarak cache key'e ekle (hash collision önlemek için)
-  const storeIdsParam = parameters.storeIds as string || '';
-  // StoreIds için MD5 hash kullan - base64 substring collision sorunu çözüldü
+  
+  // Parametreler için güvenli hash (MD5) - Base64 substring collision (32 char) sorunu çözüldü
   const crypto = require('crypto');
+  
+  const storeIdsParam = parameters.storeIds as string || '';
   const storeHash = storeIdsParam 
-    ? crypto.createHash('md5').update(storeIdsParam).digest('hex').substring(0, 16) 
+    ? crypto.createHash('md5').update(storeIdsParam).digest('hex')
     : 'all';
+    
   const otherParams = { ...parameters };
   delete otherParams.startDate;
   delete otherParams.endDate;
   delete otherParams.storeIds;
+  
+  // Tüm parametreleri içeren tam MD5 hash - Collision riskini sıfıra indirir
   const paramHash = Object.keys(otherParams).length > 0 
-    ? Buffer.from(JSON.stringify(otherParams)).toString('base64').substring(0, 32)
+    ? crypto.createHash('md5').update(JSON.stringify(otherParams)).digest('hex')
     : 'default';
+    
   const cacheKey = `metric:${metricId}:${rlsHash}:${dateHash}:${storeHash}:${paramHash}`;
 
-    // Cache'ten dene
-  const cachedResult = await cache.get<MetricResult>(cacheKey);
-  if (cachedResult) {
-    return { ...cachedResult, cached: true };
+  // Cache'ten dene (refresh parametresi varsa atla)
+  if (!parameters.refresh && !parameters._refresh) {
+    const cachedResult = await cache.get<MetricResult>(cacheKey);
+    if (cachedResult) {
+      return { ...cachedResult, cached: true };
+    }
   }
 
   // Dataset yoksa hata
@@ -2962,11 +2969,12 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
     const userFilterValue = (req.user as any).filterValue || 'all';
     const cacheKey = `dashboard:full:${designId}:${req.user!.tenantId}:${userFilterLevel}:${userFilterValue}:${JSON.stringify(parameters)}`;
 
-    // DEBUG: Cache key kontrolü
-    // Cache check
-    const cachedData = await cache.get(cacheKey);
-    if (cachedData) {
-      return res.json({ success: true, data: cachedData, cached: true });
+    // Cache check (refresh varsa atla)
+    if (!parameters.refresh && !parameters._refresh && !req.query.refresh) {
+      const cachedData = await cache.get(cacheKey);
+      if (cachedData) {
+        return res.json({ success: true, data: cachedData, cached: true });
+      }
     }
 
     // Design bilgisini al
