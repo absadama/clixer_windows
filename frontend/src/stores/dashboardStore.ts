@@ -139,22 +139,18 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         if (endDate) requestBody.endDate = endDate
       }
       
-      if (canSendMasterFilters) {
-        if (selectedRegionId) requestBody.regionId = selectedRegionId
-        
-        // Mağaza filtresi: Tüm mağazalar seçiliyse (stores.length === selectedStoreIds.length) filtre GÖNDERİLMEZ
-        // Bu "tüm mağazalar" demektir ve backend'de RLS dışında ek filtre uygulanmaz
-        const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
-        
-        if (selectedStoreIds.length > 0 && !allStoresSelected) {
-          requestBody.storeIds = selectedStoreIds.join(',')
-        }
-        
-        // Sahiplik grubu filtresi (dinamik)
-        if (selectedGroupId) {
-          const group = groups.find(g => g.id === selectedGroupId)
-          if (group) requestBody.storeType = group.code
-        }
+      // Filtreler yüklenmiş olsun veya olmasın, eğer kullanıcı bir seçim yaptıysa gönder
+      // isLoaded kontrolü bazen master veriler yavaş yüklendiğinde filtrelerin gitmesini engelliyor
+      if (selectedRegionId) requestBody.regionId = selectedRegionId
+      
+      const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+      if (selectedStoreIds.length > 0 && !allStoresSelected) {
+        requestBody.storeIds = selectedStoreIds.join(',')
+      }
+      
+      if (selectedGroupId) {
+        const group = groups.find(g => g.id === selectedGroupId)
+        if (group) requestBody.storeType = group.code
       }
       
       // POST kullan (URL limit aşımını önlemek için)

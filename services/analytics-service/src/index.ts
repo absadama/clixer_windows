@@ -1598,7 +1598,7 @@ async function executeMetric(
     
     // "Tüm Zamanlar" seçiliyse tarih filtresi UYGULAMA
     if (allTime) {
-      logger.debug('All time selected - no date filter applied');
+      logger.debug('All-time mode active, bypassing date filters');
     } else if (startDate && endDate && dateColumn) {
       // YYYY-MM-DD formatı kontrolü
       const datePattern = /^\d{4}-\d{2}-\d{2}$/;
