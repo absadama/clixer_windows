@@ -29,6 +29,57 @@ Kod değişikliği yap → Kullanıcıya söyle → BEKLE
 
 ---
 
+## 🔴🔴🔴 DOKUNMA! BÖLGE/GRUP/MAĞAZA FİLTRE SİSTEMİ 🔴🔴🔴
+
+> **KULLANICI AÇIKÇA İSTEMEDİKÇE BU ALANLARA ASLA DOKUNMA!**
+
+### STABİL VERSİYON: v4.26-stable-magaza
+
+**Tarih:** 12 Ocak 2026
+
+### Korunan Dosyalar ve Alanlar:
+
+| Dosya | Korunan Alan | Açıklama |
+|-------|--------------|----------|
+| `frontend/src/components/FilterBar.tsx` | Tüm dosya | Bölge/Grup/Mağaza seçici UI |
+| `frontend/src/stores/filterStore.ts` | Tüm dosya | Filtre state yönetimi |
+| `frontend/src/pages/DashboardPage.tsx` | Filtre entegrasyonu | Mağaza/Bölge/Grup filtre kullanımı |
+| `frontend/src/pages/AnalysisPage.tsx` | Filtre entegrasyonu | Mağaza/Bölge/Grup filtre kullanımı |
+| `services/analytics-service/src/index.ts` | storeIds, regionIds, groupIds işleme | Backend filtre mantığı |
+
+### NEDEN BU KURAL?
+
+v4.27 - v4.42 arasında yapılan değişiklikler:
+1. ❌ Bölge ve Grup seçimi bozuldu
+2. ❌ Dinamik ekran çalışma prensibi bozuldu
+3. ❌ Bölge/Grup/Mağaza ekosistemi çalışmaz hale geldi
+4. ❌ Mağaza seçimi UI'ı bozuldu
+5. ❌ Tüm bu değişiklikler geri alındı (v4.26'ya dönüldü)
+
+### KULLANICI TALİMATI:
+
+> "Ben işlem yapmanı isteyene kadar buralara dokunma."
+
+### ASLA YAPMA:
+
+1. ❌ FilterBar.tsx'e dokunma
+2. ❌ filterStore.ts'e dokunma
+3. ❌ Mağaza/Bölge/Grup filtre mantığını değiştirme
+4. ❌ storeIds/regionIds/groupIds parametrelerini değiştirme
+5. ❌ Filtre UI bileşenlerini "iyileştirme" adı altında değiştirme
+
+### NE ZAMAN DOKUNABİLİRSİN?
+
+**SADECE** kullanıcı şunlardan birini açıkça söylediğinde:
+- "Bölge filtresini değiştir"
+- "Mağaza seçiciyi güncelle"
+- "Filtre sistemini düzelt"
+- "FilterBar'a özellik ekle"
+
+**Aksi halde:** Bu dosyalara ve mantıklara ASLA DOKUNMA!
+
+---
+
 ## 🔴🔴🔴 GIT PUSH ZORUNLU KURALI 🔴🔴🔴
 
 > **"YEDEK AL", "GITHUB'A GÖNDER", "COMMIT ET" DENDİĞİNDE MUTLAKA 3 KOMUT ÇALIŞTIRILACAK VE SONUÇ GÖSTERİLECEK!**
