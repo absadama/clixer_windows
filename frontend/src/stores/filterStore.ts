@@ -17,6 +17,7 @@ export const DATE_PRESETS = [
   { id: 'thisMonth', label: 'Bu Ay', days: -1 }, // Özel hesaplama
   { id: 'lastMonth', label: 'Geçen Ay', days: -2 },
   { id: 'thisYear', label: 'Bu Yıl', days: -3 },
+  { id: 'lastYear', label: 'Geçen Yıl', days: -4 },
   { id: 'custom', label: 'Özel Tarih', days: -99 },
 ] as const
 
@@ -140,6 +141,7 @@ const daysAgo = (days: number) => {
 const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1)
 const endOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() + 1, 0)
 const startOfYear = (date: Date) => new Date(date.getFullYear(), 0, 1)
+const endOfYear = (date: Date) => new Date(date.getFullYear(), 11, 31)
 
 export const useFilterStore = create<FilterState>((set, get) => ({
   // Başlangıç değerleri
@@ -306,6 +308,12 @@ export const useFilterStore = create<FilterState>((set, get) => ({
         break
       case 'thisYear':
         start = startOfYear(today())
+        break
+      case 'lastYear':
+        const lastYearDate = new Date()
+        lastYearDate.setFullYear(lastYearDate.getFullYear() - 1)
+        start = startOfYear(lastYearDate)
+        end = endOfYear(lastYearDate)
         break
       case 'custom':
         // Custom için mevcut tarihleri koru
