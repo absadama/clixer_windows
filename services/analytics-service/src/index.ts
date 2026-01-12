@@ -1376,14 +1376,26 @@ async function executeMetric(
   const storeHash = storeIdsParam 
     ? crypto.createHash('md5').update(storeIdsParam).digest('hex').substring(0, 16) 
     : 'all';
+  // RegionIds parametresini cache key'e ekle (çoklu bölge seçimi desteği)
+  const regionIdsParam = parameters.regionIds as string || '';
+  const regionHash = regionIdsParam 
+    ? crypto.createHash('md5').update(regionIdsParam).digest('hex').substring(0, 16) 
+    : 'all';
+  // GroupIds parametresini cache key'e ekle (çoklu grup seçimi desteği)
+  const groupIdsParam = parameters.groupIds as string || '';
+  const groupHash = groupIdsParam 
+    ? crypto.createHash('md5').update(groupIdsParam).digest('hex').substring(0, 16) 
+    : 'all';
   const otherParams = { ...parameters };
   delete otherParams.startDate;
   delete otherParams.endDate;
   delete otherParams.storeIds;
+  delete otherParams.regionIds;
+  delete otherParams.groupIds;
   const paramHash = Object.keys(otherParams).length > 0 
     ? Buffer.from(JSON.stringify(otherParams)).toString('base64').substring(0, 32)
     : 'default';
-  const cacheKey = `metric:${metricId}:${rlsHash}:${dateHash}:${storeHash}:${paramHash}`;
+  const cacheKey = `metric:${metricId}:${rlsHash}:${dateHash}:${storeHash}:${regionHash}:${groupHash}:${paramHash}`;
 
     // Cache'ten dene
   const cachedResult = await cache.get<MetricResult>(cacheKey);
@@ -1613,15 +1625,21 @@ async function executeMetric(
       whereConditions.push(`toDate(${dateColumn}) = '${todayStr}'`);
     }
     
-    // Bölge filtresi (FilterBar'dan gelen regionId)
-    const regionId = parameters.regionId as string;
-    if (regionId && metric.dataset_id) {
+    // Bölge filtresi (FilterBar'dan gelen regionIds - çoklu seçim desteği)
+    // regionIds: "1,7,3" formatında gelir (regions.code değerleri)
+    // ClickHouse'da MainRegionID Int32 olduğu için direkt kullanılır
+    const regionIds = parameters.regionIds as string;
+    if (regionIds && metric.dataset_id) {
       // Dataset'ten region_column'u al
       const datasetResult = await db.query('SELECT region_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.region_column) {
         const regionColumn = datasetResult.rows[0].region_column;
-        whereConditions.push(`${regionColumn} = '${regionId}'`);
-        logger.debug('Region filter applied', { regionId, regionColumn });
+        // Virgülle ayrılmış bölge kodlarını parse et
+        const regionCodeList = regionIds.split(',').map(s => s.trim()).filter(s => s).join(',');
+        if (regionCodeList) {
+          whereConditions.push(`${regionColumn} IN (${regionCodeList})`);
+          logger.debug('Region filter applied (multi-select)', { regionIds, regionColumn });
+        }
       }
     }
     
@@ -1661,15 +1679,34 @@ async function executeMetric(
       }
     }
     
-    // Sahiplik tipi filtresi (MERKEZ/FRANCHISE)
+    // Grup filtresi (FilterBar'dan gelen groupIds - çoklu seçim desteği)
+    // groupIds: "FR,MERKEZ,TDUN" formatında gelir (BranchType değerleri)
+    // ClickHouse'da BranchType String olduğu için tırnaklı kullanılır
+    const groupIds = parameters.groupIds as string;
+    if (groupIds && metric.dataset_id) {
+      // Dataset'ten group_column'u al (BranchType için)
+      const datasetResult = await db.query('SELECT group_column FROM datasets WHERE id = $1', [metric.dataset_id]);
+      if (datasetResult.rows[0]?.group_column) {
+        const groupColumn = datasetResult.rows[0].group_column;
+        // Virgülle ayrılmış grup değerlerini parse et ve tırnak içine al (String kolon)
+        const groupValues = groupIds.split(',').map(s => s.trim()).filter(s => s);
+        if (groupValues.length > 0) {
+          const groupValueList = groupValues.map(v => `'${v}'`).join(',');
+          whereConditions.push(`${groupColumn} IN (${groupValueList})`);
+          logger.debug('Group filter applied (multi-select)', { groupIds, groupColumn });
+        }
+      }
+    }
+    
+    // Eski storeType parametresi için geriye uyumluluk (tek seçim)
     const storeType = parameters.storeType as string;
-    if (storeType && storeType !== 'ALL' && metric.dataset_id) {
+    if (storeType && storeType !== 'ALL' && !groupIds && metric.dataset_id) {
       // Dataset'ten group_column'u al (sahiplik grubu)
       const datasetResult = await db.query('SELECT group_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.group_column) {
         const groupColumn = datasetResult.rows[0].group_column;
         whereConditions.push(`${groupColumn} = '${storeType}'`);
-        logger.debug('Store type filter applied', { storeType, groupColumn });
+        logger.debug('Store type filter applied (legacy)', { storeType, groupColumn });
       }
     }
     
@@ -1870,10 +1907,12 @@ async function executeMetric(
         // Dataset'teki store_column'u kullanarak mağaza bazlı LFL hesapla
         const lflStoreColumn = metric.store_column || null;
         
+        // LFL filtre koşullarını topla (store, region, group)
+        let lflFilterParts: string[] = [];
+        
         // Mağaza filtresi oluştur (storeIds varsa)
-        let lflStoreFilter = '';
-        const storeIds = parameters.storeIds as string;
-        if (storeIds && metric.dataset_id && lflStoreColumn) {
+        const lflStoreIds = parameters.storeIds as string;
+        if (lflStoreIds && metric.dataset_id && lflStoreColumn) {
           // Dataset'ten store_column'u al
           const datasetResult = await db.query<{ store_column: string }>(
             'SELECT store_column FROM datasets WHERE id = $1',
@@ -1881,7 +1920,7 @@ async function executeMetric(
           );
           if (datasetResult.rows[0]?.store_column) {
             const storeColumn = datasetResult.rows[0].store_column;
-            const storeUUIDs = storeIds.split(',').map(s => s.trim());
+            const storeUUIDs = lflStoreIds.split(',').map(s => s.trim());
             
             // UUID'leri BranchID'lere çevir
             const storeCodesResult = await db.query<{ code: string }>(
@@ -1891,7 +1930,7 @@ async function executeMetric(
             
             if (storeCodesResult.rows.length > 0) {
               const storeCodes = storeCodesResult.rows.map(r => r.code);
-              lflStoreFilter = `AND ${storeColumn} IN (${storeCodes.join(',')})`;
+              lflFilterParts.push(`${storeColumn} IN (${storeCodes.join(',')})`);
               logger.debug('LFL store filter applied', { 
                 storeUUIDs: storeUUIDs.length, 
                 storeCodes: storeCodes.length 
@@ -1899,6 +1938,46 @@ async function executeMetric(
             }
           }
         }
+        
+        // Bölge filtresi oluştur (regionIds varsa)
+        const lflRegionIds = parameters.regionIds as string;
+        if (lflRegionIds && metric.dataset_id) {
+          const datasetResult = await db.query<{ region_column: string }>(
+            'SELECT region_column FROM datasets WHERE id = $1',
+            [metric.dataset_id]
+          );
+          if (datasetResult.rows[0]?.region_column) {
+            const regionColumn = datasetResult.rows[0].region_column;
+            const regionCodeList = lflRegionIds.split(',').map(s => s.trim()).filter(s => s).join(',');
+            if (regionCodeList) {
+              lflFilterParts.push(`${regionColumn} IN (${regionCodeList})`);
+              logger.debug('LFL region filter applied', { lflRegionIds, regionColumn });
+            }
+          }
+        }
+        
+        // Grup filtresi oluştur (groupIds varsa)
+        const lflGroupIds = parameters.groupIds as string;
+        if (lflGroupIds && metric.dataset_id) {
+          const datasetResult = await db.query<{ group_column: string }>(
+            'SELECT group_column FROM datasets WHERE id = $1',
+            [metric.dataset_id]
+          );
+          if (datasetResult.rows[0]?.group_column) {
+            const groupColumn = datasetResult.rows[0].group_column;
+            const groupValues = lflGroupIds.split(',').map(s => s.trim()).filter(s => s);
+            if (groupValues.length > 0) {
+              const groupValueList = groupValues.map(v => `'${v}'`).join(',');
+              lflFilterParts.push(`${groupColumn} IN (${groupValueList})`);
+              logger.debug('LFL group filter applied', { lflGroupIds, groupColumn });
+            }
+          }
+        }
+        
+        // Tüm LFL filtrelerini birleştir
+        const lflStoreFilter = lflFilterParts.length > 0 
+          ? 'AND ' + lflFilterParts.join(' AND ') 
+          : '';
         
         const lflResult = await calculateLFL(
           tableName,
