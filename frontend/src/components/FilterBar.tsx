@@ -66,16 +66,6 @@ export default function FilterBar({
   const [showDateDropdown, setShowDateDropdown] = useState(false)
   const [showTypeDropdown, setShowTypeDropdown] = useState(false)
   const [storeSearchQuery, setStoreSearchQuery] = useState('')
-  
-  // LOCAL STATE: Mağaza seçimlerini burada tutalım, her tıklamada global state güncellenmesin
-  const [localSelectedStoreIds, setLocalSelectedStoreIds] = useState<string[]>([])
-  
-  // Dropdown açıldığında global state'i local'e kopyala
-  useEffect(() => {
-    if (showStoreDropdown) {
-      setLocalSelectedStoreIds(selectedStoreIds)
-    }
-  }, [showStoreDropdown, selectedStoreIds])
 
   // Filtreleri yükle
   useEffect(() => {
@@ -321,7 +311,7 @@ export default function FilterBar({
                 {/* Hızlı seçim butonları */}
                 <div className="flex gap-2 mt-2">
                   <button
-                    onClick={() => setLocalSelectedStoreIds(filteredStores.map(s => s.id))}
+                    onClick={selectAllStores}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -333,7 +323,7 @@ export default function FilterBar({
                     Tümünü Seç
                   </button>
                   <button
-                    onClick={() => setLocalSelectedStoreIds([])}
+                    onClick={() => setStores([])}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -356,7 +346,7 @@ export default function FilterBar({
                   </div>
                 ) : (
                   searchedStores.map((store) => {
-                    const isSelected = localSelectedStoreIds.includes(store.id)
+                    const isSelected = selectedStoreIds.includes(store.id)
                     
                     return (
                       <div key={store.id}>
@@ -387,12 +377,12 @@ export default function FilterBar({
                           </div>
                           <input
                             type="checkbox"
-                            checked={localSelectedStoreIds.includes(store.id)}
+                            checked={isSelected}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setLocalSelectedStoreIds(prev => [...prev, store.id])
+                                setStores([...selectedStoreIds, store.id])
                               } else {
-                                setLocalSelectedStoreIds(prev => prev.filter(id => id !== store.id))
+                                setStores(selectedStoreIds.filter(id => id !== store.id))
                               }
                             }}
                             className="sr-only"
@@ -439,13 +429,10 @@ export default function FilterBar({
                 isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
               )}>
                 <span className={clsx('text-xs', isDark ? 'text-gray-500' : 'text-gray-500')}>
-                  {localSelectedStoreIds.length} / {filteredStores.length} seçili
+                  {selectedStoreIds.length} / {filteredStores.length} seçili
                 </span>
                 <button
-                  onClick={() => {
-                    setStores(localSelectedStoreIds)
-                    setShowStoreDropdown(false)
-                  }}
+                  onClick={() => setShowStoreDropdown(false)}
                   className={clsx(
                     'px-5 py-2 text-sm font-medium rounded-lg transition-all',
                     'bg-emerald-500 text-white hover:bg-emerald-600'
