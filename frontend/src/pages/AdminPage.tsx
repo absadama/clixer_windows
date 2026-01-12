@@ -193,6 +193,7 @@ export default function AdminPage() {
   // Kullanıcı atama filtreleri
   const [storeFilterRegion, setStoreFilterRegion] = useState<string>('')
   const [storeFilterType, setStoreFilterType] = useState<string>('')
+  const [storeSearchTerm, setStoreSearchTerm] = useState<string>('')
   
   // Master Veriler States
   const [masterTab, setMasterTab] = useState<'stores' | 'regions' | 'groups'>('stores')
@@ -1120,6 +1121,7 @@ export default function AdminPage() {
         position_code: userDetail.position_code || 'VIEWER',
         stores: (userDetail.stores || []).map((s: any) => ({ store_id: s.store_id, store_name: s.store_name }))
       })
+      setStoreSearchTerm('')
       setShowUserModal(true)
     } catch (err) {
       console.error('Kullanıcı detayı yüklenemedi:', err)
@@ -1134,6 +1136,7 @@ export default function AdminPage() {
         stores: [],
         filter_value: ''
       })
+      setStoreSearchTerm('')
       setShowUserModal(true)
     }
   }
@@ -2498,7 +2501,7 @@ export default function AdminPage() {
                 </div>
               </div>
               <button 
-                onClick={() => { setEditingUser(null); setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '' }); setShowUserModal(true) }}
+                onClick={() => { setEditingUser(null); setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '' }); setStoreSearchTerm(''); setShowUserModal(true) }}
                 className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
               >
                 <Plus size={16} /> Kullanıcı Ekle
@@ -2560,7 +2563,17 @@ export default function AdminPage() {
                         </span>
                       </td>
                       <td className={clsx('px-6 py-4 text-sm', theme.contentTextMuted)}>
-                        {user.store_count > 0 ? `${user.store_count} mağaza` : 'Atanmamış'}
+                        {user.filter_value ? (
+                          <span className={clsx('px-2 py-1 rounded-lg text-xs font-medium', isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700')}>
+                            🔐 {availableStores.find(s => s.store_id === user.filter_value)?.store_name || `Kod: ${user.filter_value}`}
+                          </span>
+                        ) : user.store_count > 0 ? (
+                          <span className={clsx('px-2 py-1 rounded-lg text-xs', isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-700')}>
+                            {user.store_count} mağaza
+                          </span>
+                        ) : (
+                          <span className={clsx('text-xs', theme.contentTextMuted)}>Atanmamış</span>
+                        )}
                       </td>
                       <td className={clsx('px-6 py-4 text-sm', theme.contentTextMuted)}>
                         {new Date(user.created_at).toLocaleDateString('tr-TR')}
@@ -2680,19 +2693,97 @@ export default function AdminPage() {
                       
                       {/* Pozisyona göre farklı dropdown */}
                       {positions.find(p => p.code === userForm.position_code)?.filter_level === 'store' ? (
-                        // Mağaza seçimi - store listesinden
-                        <select
-                          value={userForm.filter_value}
-                          onChange={(e) => setUserForm({ ...userForm, filter_value: e.target.value })}
-                          className={clsx('w-full px-4 py-3 rounded-xl text-sm', theme.inputBg, theme.inputText)}
-                        >
-                          <option value="">-- Mağaza Seç --</option>
-                          {availableStores.map((store) => (
-                            <option key={store.store_id} value={store.store_id}>
-                              {store.store_name} ({store.store_id}) - {store.store_type || ''} • {store.region_name || ''}
-                            </option>
-                          ))}
-                        </select>
+                        // Mağaza seçimi - arama özellikli
+                        <div className="space-y-2">
+                          {/* Arama input'u */}
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={storeSearchTerm}
+                              onChange={(e) => setStoreSearchTerm(e.target.value)}
+                              placeholder="🔍 Mağaza ara... (isim veya kod)"
+                              className={clsx('w-full px-4 py-2 rounded-xl text-sm border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                            />
+                            {storeSearchTerm && (
+                              <button
+                                type="button"
+                                onClick={() => setStoreSearchTerm('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          
+                          {/* Seçili mağaza gösterimi */}
+                          {userForm.filter_value && (
+                            <div className={clsx('flex items-center justify-between px-3 py-2 rounded-lg', isDark ? 'bg-emerald-500/20' : 'bg-emerald-100')}>
+                              <span className={clsx('text-sm font-medium', isDark ? 'text-emerald-400' : 'text-emerald-700')}>
+                                ✅ {availableStores.find(s => s.store_id === userForm.filter_value)?.store_name || userForm.filter_value}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setUserForm({ ...userForm, filter_value: '' })}
+                                className={clsx('text-xs px-2 py-1 rounded', isDark ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-100 text-rose-600')}
+                              >
+                                Kaldır
+                              </button>
+                            </div>
+                          )}
+                          
+                          {/* Mağaza listesi (scroll) */}
+                          <div className={clsx('max-h-60 overflow-y-auto rounded-xl border', theme.inputBorder)}>
+                            {availableStores
+                              .filter(store => {
+                                if (!storeSearchTerm) return true
+                                const search = storeSearchTerm.toLowerCase()
+                                return (
+                                  store.store_name?.toLowerCase().includes(search) ||
+                                  store.store_id?.toLowerCase().includes(search) ||
+                                  store.region_name?.toLowerCase().includes(search)
+                                )
+                              })
+                              .slice(0, 100) // İlk 100 sonuç
+                              .map((store) => (
+                                <div
+                                  key={store.store_id}
+                                  onClick={() => setUserForm({ ...userForm, filter_value: store.store_id })}
+                                  className={clsx(
+                                    'px-4 py-2 cursor-pointer border-b last:border-b-0 transition-colors',
+                                    userForm.filter_value === store.store_id 
+                                      ? (isDark ? 'bg-emerald-500/20' : 'bg-emerald-100') 
+                                      : (isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'),
+                                    theme.inputBorder
+                                  )}
+                                >
+                                  <div className={clsx('text-sm font-medium', theme.contentText)}>
+                                    {store.store_name} <span className="text-xs opacity-60">({store.store_id})</span>
+                                  </div>
+                                  <div className={clsx('text-xs', theme.contentTextMuted)}>
+                                    {store.store_type || ''} • {store.region_name || ''}
+                                  </div>
+                                </div>
+                              ))
+                            }
+                            {availableStores.filter(store => {
+                              if (!storeSearchTerm) return true
+                              const search = storeSearchTerm.toLowerCase()
+                              return (
+                                store.store_name?.toLowerCase().includes(search) ||
+                                store.store_id?.toLowerCase().includes(search)
+                              )
+                            }).length === 0 && (
+                              <div className={clsx('px-4 py-3 text-center text-sm', theme.contentTextMuted)}>
+                                Mağaza bulunamadı
+                              </div>
+                            )}
+                            {availableStores.length > 100 && !storeSearchTerm && (
+                              <div className={clsx('px-4 py-2 text-center text-xs', theme.contentTextMuted)}>
+                                📋 {availableStores.length} mağaza mevcut. Aramayı kullanarak filtreleyin.
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       ) : positions.find(p => p.code === userForm.position_code)?.filter_level === 'region' ? (
                         // Bölge seçimi - region listesinden
                         <select
