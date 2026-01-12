@@ -739,14 +739,14 @@ export default function FilterBar({
       )}
 
       {/* Dropdown kapatma overlay */}
-      {(showRegionDropdown || showStoreDropdown || showDateDropdown || showTypeDropdown) && (
+      {(showRegionDropdown || showGroupDropdown || showStoreDropdown || showDateDropdown) && (
         <div 
           className="fixed inset-0 z-40" 
           onClick={() => {
             setShowRegionDropdown(false)
+            setShowGroupDropdown(false)
             setShowStoreDropdown(false)
             setShowDateDropdown(false)
-            setShowTypeDropdown(false)
           }}
         />
       )}
