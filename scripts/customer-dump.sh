@@ -102,10 +102,13 @@ echo ""
 echo -e "Dosyalar:"
 ls -lh "$DUMP_DIR"
 echo ""
+SERVER_IP=$(hostname -I | awk '{print $1}')
+CURRENT_USER=$(whoami)
+
 echo -e "${YELLOW}📥 Windows'a indirmek için:${NC}"
-echo -e "   scp root@$(hostname -I | awk '{print $1}'):$DUMP_DIR/customer_dump.tar.gz C:\\projeler\\clixer_windows-main\\customer_dump\\"
+echo -e "   scp ${CURRENT_USER}@${SERVER_IP}:$DUMP_DIR/customer_dump.tar.gz C:\\projeler\\clixer_windows-main\\customer_dump\\"
 echo ""
 echo -e "${YELLOW}Veya tek tek:${NC}"
-echo -e "   scp root@$(hostname -I | awk '{print $1}'):$DUMP_DIR/postgresql_full.sql C:\\projeler\\clixer_windows-main\\customer_dump\\"
-echo -e "   scp root@$(hostname -I | awk '{print $1}'):$DUMP_DIR/*.csv C:\\projeler\\clixer_windows-main\\customer_dump\\"
+echo -e "   scp ${CURRENT_USER}@${SERVER_IP}:$DUMP_DIR/postgresql_full.sql C:\\projeler\\clixer_windows-main\\customer_dump\\"
+echo -e "   scp ${CURRENT_USER}@${SERVER_IP}:$DUMP_DIR/*.csv C:\\projeler\\clixer_windows-main\\customer_dump\\"
 echo ""
