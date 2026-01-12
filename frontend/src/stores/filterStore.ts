@@ -353,20 +353,11 @@ export const useFilterStore = create<FilterState>((set, get) => ({
   },
 
   // Filtrelenmiş mağazaları getir
+  // KULLANICI İSTEĞİ: Mağaza dropdown'ı bölge/gruba göre FİLTRELENMEYECEK!
+  // Tüm mağazalar her zaman görünecek
   getFilteredStores: () => {
-    const { stores, selectedRegionId, selectedStoreType } = get()
-    
-    let filtered = stores
-    
-    if (selectedRegionId) {
-      filtered = filtered.filter(s => s.regionId === selectedRegionId)
-    }
-    
-    if (selectedStoreType !== 'ALL') {
-      filtered = filtered.filter(s => s.storeType === selectedStoreType)
-    }
-    
-    return filtered
+    const { stores } = get()
+    return stores
   },
 
   // Tarih aralığını getir

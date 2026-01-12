@@ -83,7 +83,8 @@ export default function FilterBar({
   const regionSelectionText = () => {
     if (selectedRegionIds.length === 0) return 'Tüm Bölgeler'
     if (selectedRegionIds.length === 1) {
-      const region = regions.find(r => r.id === selectedRegionIds[0])
+      // selectedRegionIds artık code değerleri içeriyor (UUID değil)
+      const region = regions.find(r => r.code === selectedRegionIds[0])
       return region?.name || '1 bölge'
     }
     return `${selectedRegionIds.length} bölge`
@@ -241,7 +242,9 @@ export default function FilterBar({
               {/* Region List */}
               <div className="max-h-64 overflow-y-auto">
                 {searchedRegions.map(region => {
-                  const isSelected = selectedRegionIds.includes(region.id)
+                  // KRİTİK: region.code kullan, region.id DEĞİL!
+                  // Backend MainRegionID (sayısal) bekliyor, regions.code = MainRegionID
+                  const isSelected = selectedRegionIds.includes(region.code)
                   return (
                     <label
                       key={region.id}
@@ -272,10 +275,11 @@ export default function FilterBar({
                         type="checkbox"
                         checked={isSelected}
                         onChange={(e) => {
+                          // KRİTİK: region.code kullan, region.id DEĞİL!
                           if (e.target.checked) {
-                            setRegions([...selectedRegionIds, region.id])
+                            setRegions([...selectedRegionIds, region.code])
                           } else {
-                            setRegions(selectedRegionIds.filter(id => id !== region.id))
+                            setRegions(selectedRegionIds.filter(code => code !== region.code))
                           }
                         }}
                         className="sr-only"
