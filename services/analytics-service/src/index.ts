@@ -1739,8 +1739,10 @@ async function executeMetric(
     }
 
     // LIMIT (grafik ve listeler için) - chart_config.limit varsa kullan
+    // limit: 0 = "Limitsiz" seçilmiş demek (0 falsy olduğu için || 100 hatalıydı!)
+    // limit > 0 = Kullanıcı belirli bir limit seçmiş (5, 10, 20, 50, 100)
     if (aggType === 'LIST' || metric.group_by_column) {
-      const configLimit = chartConfigParsed?.limit || 100;
+      const configLimit = chartConfigParsed?.limit > 0 ? chartConfigParsed.limit : 10000;
       sql += ` LIMIT ${configLimit}`;
     }
   }
