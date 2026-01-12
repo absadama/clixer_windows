@@ -192,15 +192,17 @@ export default function AnalysisPage() {
   const { theme, isDark, currentTheme } = useTheme()
   const { accessToken, user } = useAuthStore()
   const { 
-    startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType,
+    startDate, endDate, datePreset, selectedRegionIds, selectedGroupIds, selectedStoreIds,
     crossFilters, drillDown, 
     addCrossFilter, removeCrossFilter, clearCrossFilters,
     openDrillDown, closeDrillDown, setDrillDownData, setDrillDownLoading
   } = useFilterStore()
   
-  // Mağaza seçimlerini stabil string'e çevir - useEffect dependency için
-  // sort() ile sıralama yaparak aynı mağazaların farklı sırada seçilmesinde gereksiz fetch'i önle
+  // Seçimleri stabil string'e çevir - useEffect dependency için
+  // sort() ile sıralama yaparak aynı değerlerin farklı sırada seçilmesinde gereksiz fetch'i önle
   const storeIdsKey = useMemo(() => [...selectedStoreIds].sort().join(','), [selectedStoreIds])
+  const regionIdsKey = useMemo(() => [...selectedRegionIds].sort().join(','), [selectedRegionIds])
+  const groupIdsKey = useMemo(() => [...selectedGroupIds].sort().join(','), [selectedGroupIds])
   
   const [selectedReport, setSelectedReport] = useState<string | null>(null)
   const [selectedDesign, setSelectedDesign] = useState<SavedDesign | null>(null)
@@ -268,14 +270,20 @@ export default function AnalysisPage() {
     }
   }, [savedDesigns, selectedDesign])
 
-  // Filtreler değiştiğinde verileri yeniden yükle (tarih, bölge, mağaza, tip)
+  // Filtreler değiştiğinde verileri yeniden yükle (tarih, bölge, grup, mağaza)
   useEffect(() => {
     if (selectedDesign && accessToken) {
-      console.log('[AnalysisPage] Filters changed, refetching...', { startDate, endDate, storeCount: selectedStoreIds.length, storeIdsKey })
+      console.log('[AnalysisPage] Filters changed, refetching...', { 
+        startDate, 
+        endDate, 
+        regionCount: selectedRegionIds.length,
+        groupCount: selectedGroupIds.length,
+        storeCount: selectedStoreIds.length 
+      })
       loadDesignDetail(selectedDesign.id)
     }
-  // storeIdsKey: useMemo ile hesaplanan stabil string - mağaza değişikliklerini doğru yakalar
-  }, [startDate, endDate, selectedRegionId, storeIdsKey, selectedStoreType])
+  // storeIdsKey, regionIdsKey, groupIdsKey: useMemo ile hesaplanan stabil stringler
+  }, [startDate, endDate, regionIdsKey, groupIdsKey, storeIdsKey])
   
   // Drill-Down verisi çek
   const fetchDrillDownData = async (metricId: string, field: string, value: string | number) => {
@@ -307,8 +315,8 @@ export default function AnalysisPage() {
   const loadDesignDetail = async (designId: string) => {
     setLoadingDesign(true)
     try {
-      // Tüm filtreleri al (tarih, bölge, mağaza, tip, cross-filter)
-      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType, crossFilters, stores } = useFilterStore.getState()
+      // Tüm filtreleri al (tarih, bölge, grup, mağaza, cross-filter)
+      const { startDate, endDate, datePreset, selectedRegionIds, selectedGroupIds, selectedStoreIds, crossFilters, stores } = useFilterStore.getState()
       
       // Request body oluştur (POST kullanacağız - URL uzunluğu limiti nedeniyle)
       // storeIds dizisi 400+ eleman içerebilir, URL'de göndermek 8KB limitini aşar
@@ -322,23 +330,32 @@ export default function AnalysisPage() {
         if (endDate) requestBody.endDate = endDate
       }
       
-      if (selectedRegionId) requestBody.regionId = selectedRegionId
+      // Çoklu bölge seçimi
+      if (selectedRegionIds.length > 0) {
+        requestBody.regionIds = selectedRegionIds.join(',')
+      }
+      
+      // Çoklu grup seçimi
+      if (selectedGroupIds.length > 0) {
+        requestBody.groupIds = selectedGroupIds.join(',')
+      }
+      
       // Mağaza filtresi: Tüm mağazalar seçiliyse filtre GÖNDERİLMEZ ("tüm mağazalar" demektir)
       const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
       
-      // DEBUG: Mağaza filtresi gönderme durumunu logla
+      // DEBUG: Filtreler logla
       console.log('[ANALYSIS_DEBUG] loadDesignDetail', {
+        regionCount: selectedRegionIds.length,
+        groupCount: selectedGroupIds.length,
         storesCount: stores.length,
         selectedCount: selectedStoreIds.length,
         allStoresSelected,
-        willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
-        storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
+        willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected
       })
       
       if (selectedStoreIds.length > 0 && !allStoresSelected) {
         requestBody.storeIds = selectedStoreIds.join(',')
       }
-      if (selectedStoreType !== 'ALL') requestBody.storeType = selectedStoreType
       
       // Cross-Filter parametreleri
       if (crossFilters.length > 0) {

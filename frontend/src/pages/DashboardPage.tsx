@@ -100,12 +100,14 @@ const useWindowSize = () => {
 export default function DashboardPage() {
   const { designs, currentDesign, widgets, isLoading, lastUpdated, fetchDesigns, selectDesign, fetchDashboardData } = useDashboardStore()
   const { accessToken, user } = useAuthStore()
-  const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType } = useFilterStore()
+  const { startDate, endDate, datePreset, selectedRegionIds, selectedGroupIds, selectedStoreIds } = useFilterStore()
   const [showDesignSelector, setShowDesignSelector] = useState(false)
   
-  // Mağaza seçimlerini stabil string'e çevir - useEffect dependency için
-  // sort() ile sıralama yaparak aynı mağazaların farklı sırada seçilmesinde gereksiz fetch'i önle
+  // Seçimleri stabil string'e çevir - useEffect dependency için
+  // sort() ile sıralama yaparak aynı değerlerin farklı sırada seçilmesinde gereksiz fetch'i önle
   const storeIdsKey = useMemo(() => [...selectedStoreIds].sort().join(','), [selectedStoreIds])
+  const regionIdsKey = useMemo(() => [...selectedRegionIds].sort().join(','), [selectedRegionIds])
+  const groupIdsKey = useMemo(() => [...selectedGroupIds].sort().join(','), [selectedGroupIds])
   const { theme, isDark, currentTheme } = useTheme()
   const { width } = useWindowSize()
   
@@ -149,14 +151,20 @@ export default function DashboardPage() {
   useEffect(() => {
     if (currentDesign && accessToken) {
       const timeoutId = setTimeout(() => {
-        console.log('[DashboardPage] Filters changed, refetching...', { startDate, endDate, storeCount: selectedStoreIds.length, storeIdsKey })
+        console.log('[DashboardPage] Filters changed, refetching...', { 
+          startDate, 
+          endDate, 
+          regionCount: selectedRegionIds.length, 
+          groupCount: selectedGroupIds.length,
+          storeCount: selectedStoreIds.length 
+        })
         fetchDashboardData(currentDesign.id)
-      }, 300) // 300ms debounce - kullanıcı mağaza seçmeyi bitirene kadar bekle
+      }, 300) // 300ms debounce - kullanıcı seçmeyi bitirene kadar bekle
       
       return () => clearTimeout(timeoutId)
     }
-  // storeIdsKey: useMemo ile hesaplanan stabil string - mağaza değişikliklerini doğru yakalar
-  }, [startDate, endDate, selectedRegionId, storeIdsKey, selectedStoreType, currentDesign?.id, fetchDashboardData, accessToken])
+  // useMemo ile hesaplanan stabil key'ler - değişiklikleri doğru yakalar
+  }, [startDate, endDate, regionIdsKey, groupIdsKey, storeIdsKey, currentDesign?.id, fetchDashboardData, accessToken])
 
   useEffect(() => {
     // URL'den designId parametresini oku

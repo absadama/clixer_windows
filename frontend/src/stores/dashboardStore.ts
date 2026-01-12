@@ -120,8 +120,17 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   fetchDashboardData: async (designId: string) => {
     set({ isLoading: true })
     try {
-      // Tüm filtreleri al (tarih, bölge, mağaza, tip)
-      const { startDate, endDate, datePreset, selectedRegionId, selectedStoreIds, selectedStoreType, stores } = useFilterStore.getState()
+      // Tüm filtreleri al (tarih, bölge, grup, mağaza)
+      const { 
+        startDate, 
+        endDate, 
+        datePreset, 
+        selectedRegionIds,  // Çoklu bölge seçimi
+        selectedGroupIds,   // Çoklu grup seçimi
+        selectedStoreIds, 
+        stores,
+        groups
+      } = useFilterStore.getState()
       
       // Request body oluştur (POST kullanacağız - URL uzunluğu limiti nedeniyle)
       // storeIds dizisi 400+ eleman içerebilir, URL'de göndermek 8KB limitini aşar
@@ -135,24 +144,37 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         if (endDate) requestBody.endDate = endDate
       }
       
-      if (selectedRegionId) requestBody.regionId = selectedRegionId
+      // Bölge filtresi (çoklu seçim): Tüm bölgeler seçiliyse veya hiçbiri seçili değilse filtre GÖNDERİLMEZ
+      if (selectedRegionIds.length > 0) {
+        // regions.code değerlerini gönder (MainRegionID ile eşleşiyor)
+        requestBody.regionIds = selectedRegionIds.join(',')
+      }
+      
+      // Grup filtresi (çoklu seçim): Tüm gruplar seçiliyse veya hiçbiri seçili değilse filtre GÖNDERİLMEZ
+      if (selectedGroupIds.length > 0) {
+        // groups.code değerlerini gönder (BranchType ile eşleşiyor)
+        requestBody.groupIds = selectedGroupIds.join(',')
+      }
+      
       // Mağaza filtresi: Tüm mağazalar seçiliyse (stores.length === selectedStoreIds.length) filtre GÖNDERİLMEZ
       // Bu "tüm mağazalar" demektir ve backend'de RLS dışında ek filtre uygulanmaz
       const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
       
-      // DEBUG: Mağaza filtresi gönderme durumunu logla
+      // DEBUG: Filtre gönderme durumunu logla
       console.log('[STORE_DEBUG] fetchDashboardData', {
+        regionsCount: selectedRegionIds.length,
+        groupsCount: selectedGroupIds.length,
         storesCount: stores.length,
         selectedCount: selectedStoreIds.length,
         allStoresSelected,
-        willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected,
+        regionIdsToSend: selectedRegionIds.length > 0 ? selectedRegionIds.join(',') : 'NONE',
+        groupIdsToSend: selectedGroupIds.length > 0 ? selectedGroupIds.join(',') : 'NONE',
         storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
       })
       
       if (selectedStoreIds.length > 0 && !allStoresSelected) {
         requestBody.storeIds = selectedStoreIds.join(',')
       }
-      if (selectedStoreType !== 'ALL') requestBody.storeType = selectedStoreType
       
       // POST kullan (URL limit aşımını önlemek için)
       const response = await api.post(`/analytics/dashboard/${designId}/full`, requestBody)

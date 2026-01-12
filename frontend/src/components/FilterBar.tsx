@@ -42,17 +42,18 @@ export default function FilterBar({
   const { accessToken } = useAuthStore()
   const {
     regions,
+    groups,
     stores,
-    selectedRegionId,
+    selectedRegionIds,
+    selectedGroupIds,
     selectedStoreIds,
-    selectedStoreType,
     datePreset,
     startDate,
     endDate,
     loadFilters,
-    setRegion,
+    setRegions,
+    setGroups,
     setStores,
-    setStoreType,
     setDatePreset,
     setCustomDates,
     selectAllStores,
@@ -61,10 +62,12 @@ export default function FilterBar({
   } = useFilterStore()
 
   const [showRegionDropdown, setShowRegionDropdown] = useState(false)
+  const [showGroupDropdown, setShowGroupDropdown] = useState(false)
   const [showStoreDropdown, setShowStoreDropdown] = useState(false)
   const [showDateDropdown, setShowDateDropdown] = useState(false)
-  const [showTypeDropdown, setShowTypeDropdown] = useState(false)
   const [storeSearchQuery, setStoreSearchQuery] = useState('')
+  const [regionSearchQuery, setRegionSearchQuery] = useState('')
+  const [groupSearchQuery, setGroupSearchQuery] = useState('')
 
   // Filtreleri yükle
   useEffect(() => {
@@ -74,8 +77,41 @@ export default function FilterBar({
   }, [accessToken, isLoaded, loadFilters])
 
   const filteredStores = getFilteredStores()
-  const selectedRegion = regions.find(r => r.id === selectedRegionId)
   const selectedDatePreset = DATE_PRESETS.find(p => p.id === datePreset)
+
+  // Bölge seçim özeti
+  const regionSelectionText = () => {
+    if (selectedRegionIds.length === 0) return 'Tüm Bölgeler'
+    if (selectedRegionIds.length === 1) {
+      const region = regions.find(r => r.id === selectedRegionIds[0])
+      return region?.name || '1 bölge'
+    }
+    return `${selectedRegionIds.length} bölge`
+  }
+
+  // Grup seçim özeti
+  const groupSelectionText = () => {
+    if (selectedGroupIds.length === 0) return 'Tüm Gruplar'
+    if (selectedGroupIds.length === 1) {
+      const group = groups.find(g => g.id === selectedGroupIds[0])
+      return group?.name || '1 grup'
+    }
+    return `${selectedGroupIds.length} grup`
+  }
+
+  // Filtrelenmiş bölgeler (arama için)
+  const searchedRegions = useMemo(() => {
+    if (!regionSearchQuery.trim()) return regions
+    const query = regionSearchQuery.toLowerCase().trim()
+    return regions.filter(r => r.name.toLowerCase().includes(query) || r.code.toLowerCase().includes(query))
+  }, [regions, regionSearchQuery])
+
+  // Filtrelenmiş gruplar (arama için)
+  const searchedGroups = useMemo(() => {
+    if (!groupSearchQuery.trim()) return groups
+    const query = groupSearchQuery.toLowerCase().trim()
+    return groups.filter(g => g.name.toLowerCase().includes(query) || g.code.toLowerCase().includes(query))
+  }, [groups, groupSearchQuery])
 
   // Arama ve sıralama ile filtrelenmiş mağazalar
   const searchedStores = useMemo(() => {
@@ -123,103 +159,318 @@ export default function FilterBar({
         <span className="text-sm font-medium">Filtreler:</span>
       </div>
 
-      {/* Bölge Seçimi */}
+      {/* Bölge Seçimi - Çoklu Seçim */}
       {showRegionFilter && regions.length > 0 && (
         <div className="relative">
           <button
-            onClick={() => setShowRegionDropdown(!showRegionDropdown)}
+            onClick={() => { setShowRegionDropdown(!showRegionDropdown); setRegionSearchQuery('') }}
             className={clsx(
               'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all',
-              selectedRegionId
+              selectedRegionIds.length > 0
                 ? 'bg-blue-500/10 text-blue-600 border border-blue-500/30'
                 : theme.buttonSecondary
             )}
           >
             <MapPin size={16} />
-            {selectedRegion?.name || 'Tüm Bölgeler'}
+            {regionSelectionText()}
             <ChevronDown size={14} />
           </button>
 
           {showRegionDropdown && (
             <div className={clsx(
-              'absolute top-full left-0 mt-2 w-56 rounded-xl shadow-xl z-50 border overflow-hidden',
-              theme.cardBg,
-              isDark ? 'border-slate-700' : 'border-slate-200'
+              'absolute top-full left-0 mt-2 w-72 rounded-xl shadow-2xl z-50 border overflow-hidden',
+              isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
             )}>
-              <button
-                onClick={() => { setRegion(null); selectAllStores(); setShowRegionDropdown(false) }}
-                className={clsx(
-                  'w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors',
-                  !selectedRegionId ? 'bg-blue-500/10 text-blue-600' : theme.contentText,
-                  'hover:bg-slate-100 dark:hover:bg-slate-800'
-                )}
-              >
-                <Building2 size={16} />
-                Tüm Bölgeler
-                {!selectedRegionId && <Check size={14} className="ml-auto" />}
-              </button>
-              {regions.map(region => (
-                <button
-                  key={region.id}
-                  onClick={() => { setRegion(region.id); setShowRegionDropdown(false) }}
-                  className={clsx(
-                    'w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors',
-                    selectedRegionId === region.id ? 'bg-blue-500/10 text-blue-600' : theme.contentText,
-                    'hover:bg-slate-100 dark:hover:bg-slate-800'
+              {/* Header - Search */}
+              <div className={clsx(
+                'p-3 border-b',
+                isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+              )}>
+                <div className={clsx(
+                  'flex items-center gap-2 px-3 py-2 rounded-lg',
+                  isDark ? 'bg-[#21262d]' : 'bg-white border border-gray-200'
+                )}>
+                  <Search size={16} className={isDark ? 'text-gray-400' : 'text-gray-500'} />
+                  <input
+                    type="text"
+                    placeholder="Bölge ara..."
+                    value={regionSearchQuery}
+                    onChange={(e) => setRegionSearchQuery(e.target.value)}
+                    className={clsx(
+                      'flex-1 bg-transparent text-sm outline-none',
+                      isDark ? 'text-gray-200 placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'
+                    )}
+                    autoFocus
+                  />
+                  {regionSearchQuery && (
+                    <button onClick={() => setRegionSearchQuery('')} className="text-gray-400 hover:text-gray-300">
+                      <X size={14} />
+                    </button>
                   )}
+                </div>
+                
+                {/* Hızlı seçim butonları */}
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => setRegions(regions.map(r => r.id))}
+                    className={clsx(
+                      'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+                      isDark 
+                        ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' 
+                        : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                    )}
+                  >
+                    <CheckSquare size={12} />
+                    Tümünü Seç
+                  </button>
+                  <button
+                    onClick={() => setRegions([])}
+                    className={clsx(
+                      'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+                      isDark 
+                        ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' 
+                        : 'bg-red-50 text-red-600 hover:bg-red-100'
+                    )}
+                  >
+                    <Square size={12} />
+                    Temizle
+                  </button>
+                </div>
+              </div>
+
+              {/* Region List */}
+              <div className="max-h-64 overflow-y-auto">
+                {searchedRegions.map(region => {
+                  const isSelected = selectedRegionIds.includes(region.id)
+                  return (
+                    <label
+                      key={region.id}
+                      className={clsx(
+                        'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all',
+                        isSelected 
+                          ? isDark 
+                            ? 'bg-blue-500/15 border-l-2 border-blue-500' 
+                            : 'bg-blue-50 border-l-2 border-blue-500'
+                          : isDark 
+                            ? 'hover:bg-[#21262d] border-l-2 border-transparent' 
+                            : 'hover:bg-gray-50 border-l-2 border-transparent'
+                      )}
+                    >
+                      <div 
+                        className={clsx(
+                          'w-5 h-5 rounded flex items-center justify-center transition-all',
+                          isSelected 
+                            ? 'bg-blue-500 text-white' 
+                            : isDark 
+                              ? 'border-2 border-gray-600' 
+                              : 'border-2 border-gray-300'
+                        )}
+                      >
+                        {isSelected && <Check size={12} strokeWidth={3} />}
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setRegions([...selectedRegionIds, region.id])
+                          } else {
+                            setRegions(selectedRegionIds.filter(id => id !== region.id))
+                          }
+                        }}
+                        className="sr-only"
+                      />
+                      <div className="flex-1">
+                        <span className={clsx(
+                          'text-sm font-medium',
+                          isSelected ? 'text-blue-600 dark:text-blue-400' : isDark ? 'text-gray-200' : 'text-gray-800'
+                        )}>
+                          {region.name}
+                        </span>
+                        <span className={clsx('text-xs ml-2', isDark ? 'text-gray-500' : 'text-gray-400')}>
+                          #{region.code}
+                        </span>
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+
+              {/* Footer */}
+              <div className={clsx(
+                'p-3 border-t flex items-center justify-between',
+                isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+              )}>
+                <span className={clsx('text-xs', isDark ? 'text-gray-500' : 'text-gray-500')}>
+                  {selectedRegionIds.length} / {regions.length} seçili
+                </span>
+                <button
+                  onClick={() => setShowRegionDropdown(false)}
+                  className="px-5 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-all"
                 >
-                  <MapPin size={16} />
-                  {region.name}
-                  {selectedRegionId === region.id && <Check size={14} className="ml-auto" />}
+                  Uygula
                 </button>
-              ))}
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Tip Seçimi (Merkez/Franchise) */}
-      {showTypeFilter && (
+      {/* Grup Seçimi - Dinamik Çoklu Seçim (ownership_groups tablosundan) */}
+      {showTypeFilter && groups.length > 0 && (
         <div className="relative">
           <button
-            onClick={() => setShowTypeDropdown(!showTypeDropdown)}
+            onClick={() => { setShowGroupDropdown(!showGroupDropdown); setGroupSearchQuery('') }}
             className={clsx(
               'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all',
-              selectedStoreType !== 'ALL'
+              selectedGroupIds.length > 0
                 ? 'bg-purple-500/10 text-purple-600 border border-purple-500/30'
                 : theme.buttonSecondary
             )}
           >
             <Building size={16} />
-            {selectedStoreType === 'ALL' ? 'Tümü' : selectedStoreType === 'MERKEZ' ? 'Merkez' : 'Franchise'}
+            {groupSelectionText()}
             <ChevronDown size={14} />
           </button>
 
-          {showTypeDropdown && (
+          {showGroupDropdown && (
             <div className={clsx(
-              'absolute top-full left-0 mt-2 w-44 rounded-xl shadow-xl z-50 border overflow-hidden',
-              theme.cardBg,
-              isDark ? 'border-slate-700' : 'border-slate-200'
+              'absolute top-full left-0 mt-2 w-72 rounded-xl shadow-2xl z-50 border overflow-hidden',
+              isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
             )}>
-              {[
-                { id: 'ALL', label: 'Tümü', icon: Building2 },
-                { id: 'MERKEZ', label: 'Merkez', icon: Building },
-                { id: 'FRANCHISE', label: 'Franchise', icon: Store }
-              ].map(type => (
-                <button
-                  key={type.id}
-                  onClick={() => { setStoreType(type.id as any); setShowTypeDropdown(false) }}
-                  className={clsx(
-                    'w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors',
-                    selectedStoreType === type.id ? 'bg-purple-500/10 text-purple-600' : theme.contentText,
-                    'hover:bg-slate-100 dark:hover:bg-slate-800'
+              {/* Header - Search */}
+              <div className={clsx(
+                'p-3 border-b',
+                isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+              )}>
+                <div className={clsx(
+                  'flex items-center gap-2 px-3 py-2 rounded-lg',
+                  isDark ? 'bg-[#21262d]' : 'bg-white border border-gray-200'
+                )}>
+                  <Search size={16} className={isDark ? 'text-gray-400' : 'text-gray-500'} />
+                  <input
+                    type="text"
+                    placeholder="Grup ara..."
+                    value={groupSearchQuery}
+                    onChange={(e) => setGroupSearchQuery(e.target.value)}
+                    className={clsx(
+                      'flex-1 bg-transparent text-sm outline-none',
+                      isDark ? 'text-gray-200 placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'
+                    )}
+                    autoFocus
+                  />
+                  {groupSearchQuery && (
+                    <button onClick={() => setGroupSearchQuery('')} className="text-gray-400 hover:text-gray-300">
+                      <X size={14} />
+                    </button>
                   )}
+                </div>
+                
+                {/* Hızlı seçim butonları */}
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => setGroups(groups.map(g => g.code))}
+                    className={clsx(
+                      'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+                      isDark 
+                        ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30' 
+                        : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
+                    )}
+                  >
+                    <CheckSquare size={12} />
+                    Tümünü Seç
+                  </button>
+                  <button
+                    onClick={() => setGroups([])}
+                    className={clsx(
+                      'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+                      isDark 
+                        ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' 
+                        : 'bg-red-50 text-red-600 hover:bg-red-100'
+                    )}
+                  >
+                    <Square size={12} />
+                    Temizle
+                  </button>
+                </div>
+              </div>
+
+              {/* Group List */}
+              <div className="max-h-64 overflow-y-auto">
+                {searchedGroups.map(group => {
+                  const isSelected = selectedGroupIds.includes(group.code)
+                  return (
+                    <label
+                      key={group.id}
+                      className={clsx(
+                        'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all',
+                        isSelected 
+                          ? isDark 
+                            ? 'bg-purple-500/15 border-l-2 border-purple-500' 
+                            : 'bg-purple-50 border-l-2 border-purple-500'
+                          : isDark 
+                            ? 'hover:bg-[#21262d] border-l-2 border-transparent' 
+                            : 'hover:bg-gray-50 border-l-2 border-transparent'
+                      )}
+                    >
+                      <div 
+                        className={clsx(
+                          'w-5 h-5 rounded flex items-center justify-center transition-all',
+                          isSelected 
+                            ? 'bg-purple-500 text-white' 
+                            : isDark 
+                              ? 'border-2 border-gray-600' 
+                              : 'border-2 border-gray-300'
+                        )}
+                      >
+                        {isSelected && <Check size={12} strokeWidth={3} />}
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setGroups([...selectedGroupIds, group.code])
+                          } else {
+                            setGroups(selectedGroupIds.filter(code => code !== group.code))
+                          }
+                        }}
+                        className="sr-only"
+                      />
+                      <div className="flex-1 flex items-center gap-2">
+                        {group.color && (
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: group.color }}
+                          />
+                        )}
+                        <span className={clsx(
+                          'text-sm font-medium',
+                          isSelected ? 'text-purple-600 dark:text-purple-400' : isDark ? 'text-gray-200' : 'text-gray-800'
+                        )}>
+                          {group.name}
+                        </span>
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+
+              {/* Footer */}
+              <div className={clsx(
+                'p-3 border-t flex items-center justify-between',
+                isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+              )}>
+                <span className={clsx('text-xs', isDark ? 'text-gray-500' : 'text-gray-500')}>
+                  {selectedGroupIds.length} / {groups.length} seçili
+                </span>
+                <button
+                  onClick={() => setShowGroupDropdown(false)}
+                  className="px-5 py-2 text-sm font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-all"
                 >
-                  <type.icon size={16} />
-                  {type.label}
-                  {selectedStoreType === type.id && <Check size={14} className="ml-auto" />}
+                  Uygula
                 </button>
-              ))}
+              </div>
             </div>
           )}
         </div>

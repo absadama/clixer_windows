@@ -28,6 +28,13 @@ export interface Region {
   name: string
 }
 
+export interface Group {
+  id: string
+  code: string
+  name: string
+  color?: string
+}
+
 export interface Store {
   id: string
   code: string
@@ -61,12 +68,17 @@ export interface DrillDown {
 interface FilterState {
   // Veriler
   regions: Region[]
+  groups: Group[]
   stores: Store[]
   
-  // Seçimler
-  selectedRegionId: string | null  // null = tümü
+  // Seçimler - Çoklu Seçim Desteği
+  selectedRegionIds: string[]      // boş = tümü (çoklu seçim)
+  selectedGroupIds: string[]       // boş = tümü (çoklu seçim)
   selectedStoreIds: string[]       // boş = tümü
-  selectedStoreType: 'ALL' | 'MERKEZ' | 'FRANCHISE'
+  
+  // Eski tekli seçim (geriye uyumluluk için korunuyor)
+  selectedRegionId: string | null  // null = tümü (deprecated, selectedRegionIds kullan)
+  selectedStoreType: 'ALL' | 'MERKEZ' | 'FRANCHISE'  // deprecated, selectedGroupIds kullan
   
   // Tarih
   datePreset: DatePreset
@@ -86,6 +98,8 @@ interface FilterState {
   // Actions
   loadFilters: (accessToken: string) => Promise<void>
   setRegion: (regionId: string | null) => void
+  setRegions: (regionIds: string[]) => void  // Çoklu bölge seçimi
+  setGroups: (groupIds: string[]) => void    // Çoklu grup seçimi
   setStores: (storeIds: string[]) => void
   setStoreType: (type: 'ALL' | 'MERKEZ' | 'FRANCHISE') => void
   setDatePreset: (preset: DatePreset) => void
@@ -130,10 +144,13 @@ const startOfYear = (date: Date) => new Date(date.getFullYear(), 0, 1)
 export const useFilterStore = create<FilterState>((set, get) => ({
   // Başlangıç değerleri
   regions: [],
+  groups: [],
   stores: [],
-  selectedRegionId: null,
+  selectedRegionIds: [],
+  selectedGroupIds: [],
+  selectedRegionId: null,  // deprecated - geriye uyumluluk
   selectedStoreIds: [],
-  selectedStoreType: 'ALL',
+  selectedStoreType: 'ALL',  // deprecated - geriye uyumluluk
   datePreset: 'thisMonth',
   startDate: formatDate(startOfMonth(today())),
   endDate: formatDate(today()),
@@ -168,6 +185,12 @@ export const useFilterStore = create<FilterState>((set, get) => ({
       })
       const regionsData = regionsRes.ok ? await regionsRes.json() : { data: [] }
       
+      // Grupları çek (ownership_groups tablosundan)
+      const groupsRes = await fetch(`${API_BASE}/core/ownership-groups`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+      const groupsData = groupsRes.ok ? await groupsRes.json() : { data: [] }
+      
       // Mağazaları çek
       const storesRes = await fetch(`${API_BASE}/core/stores`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -178,6 +201,13 @@ export const useFilterStore = create<FilterState>((set, get) => ({
         id: r.id,
         code: r.code,
         name: r.name
+      }))
+      
+      const groups = (groupsData.data || []).map((g: any) => ({
+        id: g.id,
+        code: g.code,
+        name: g.name,
+        color: g.color
       }))
       
       const stores = (storesData.data || []).map((s: any) => ({
@@ -191,12 +221,15 @@ export const useFilterStore = create<FilterState>((set, get) => ({
       }))
       
       set({ 
-        regions, 
+        regions,
+        groups,
         stores, 
         isLoading: false, 
         isLoaded: true,
-        // Varsayılan: tüm mağazalar seçili
-        selectedStoreIds: stores.map((s: Store) => s.id)
+        // Varsayılan: tüm mağazalar seçili, bölge ve grup boş (tümü)
+        selectedStoreIds: stores.map((s: Store) => s.id),
+        selectedRegionIds: [],
+        selectedGroupIds: []
       })
     } catch (error) {
       console.error('[FILTER] Load error:', error)
@@ -204,13 +237,23 @@ export const useFilterStore = create<FilterState>((set, get) => ({
     }
   },
 
-  // Bölge seç
+  // Bölge seç (tekli - deprecated)
   setRegion: (regionId: string | null) => {
     set({ selectedRegionId: regionId })
     // Bölge seçildiğinde o bölgenin mağazalarını seç
     if (regionId) {
       get().selectRegionStores(regionId)
     }
+  },
+
+  // Bölgeleri seç (çoklu seçim)
+  setRegions: (regionIds: string[]) => {
+    set({ selectedRegionIds: regionIds })
+  },
+
+  // Grupları seç (çoklu seçim)
+  setGroups: (groupIds: string[]) => {
+    set({ selectedGroupIds: groupIds })
   },
 
   // Mağazaları seç
@@ -337,6 +380,8 @@ export const useFilterStore = create<FilterState>((set, get) => ({
     const { stores } = get()
     set({
       selectedRegionId: null,
+      selectedRegionIds: [],
+      selectedGroupIds: [],
       selectedStoreIds: stores.map(s => s.id),
       selectedStoreType: 'ALL',
       datePreset: 'thisMonth',
