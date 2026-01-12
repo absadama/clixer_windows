@@ -1478,9 +1478,11 @@ async function executeMetric(
       }
     }
     
-    // LIMIT yoksa ekle
+    // LIMIT yoksa ekle - SQL modunda da chart_config.limit'e bak
+    // limit: 0 = "Limitsiz" seçilmiş demek
     if (!sql.toLowerCase().includes('limit')) {
-      sql += ' LIMIT 100';
+      const sqlModeLimit = chartConfigParsed?.limit > 0 ? chartConfigParsed.limit : 10000;
+      sql += ` LIMIT ${sqlModeLimit}`;
     }
   } else {
     // Normal mod - Dinamik SQL oluştur
