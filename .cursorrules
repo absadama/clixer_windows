@@ -9332,3 +9332,135 @@ sudo git reset --hard origin/master  # Zorla senkronize et!
 - [ ] F5 sonrası seçimler sıfırlanıyor mu? (evet olmalı)
 
 ---
+
+## 🔐 RLS (Row-Level Security) KURULUM VE TEST KILAVUZU (v4.28 - 12 Ocak 2026)
+
+### ✅ İLK MÜŞTERİ TESTİ BAŞARILI - Tavuk Dünyası (12 Ocak 2026)
+
+Test Kullanıcısı: `sbtemaworld@tavukdunyasi.com` (415 nolu mağaza)
+- Dashboard değeri: 61.865 Visitor
+- ClickHouse sorgusu: 61.865 Visitor
+- **Sonuç: BİREBİR EŞLEŞTİ! RLS ÇALIŞIYOR! ✅**
+
+### RLS Nedir?
+
+Kullanıcının pozisyonuna göre sadece yetkili olduğu verileri görmesini sağlayan güvenlik mekanizması.
+
+### RLS Akışı
+
+```
+Kullanıcı Login → JWT Token (filterLevel + filterValue) → Backend → ClickHouse WHERE Koşulu
+```
+
+### Pozisyon → filter_level Eşleşmesi
+
+| Pozisyon | filter_level | Görünen Veri |
+|----------|--------------|--------------|
+| GENERAL_MANAGER | none | TÜM mağazalar |
+| DIRECTOR | group | Sadece kendi grubu (MERKEZ/FRANCHISE) |
+| REGIONAL_MANAGER | region | Sadece kendi bölgesi |
+| STORE_MANAGER | store | Sadece kendi mağazası |
+| ANALYST | none | TÜM mağazalar |
+| VIEWER | store | Sadece kendi mağazası |
+
+### ✅ Yeni Kurulumda RLS Otomatik Çalışır
+
+Init script (`docker/init-scripts/postgres/00-schema-and-seed.sql`) pozisyonları **doğru `filter_level` değerleriyle** oluşturur:
+
+```sql
+INSERT INTO public.positions (code, name, filter_level, hierarchy_level, can_see_all_stores) VALUES
+('GENERAL_MANAGER', 'Genel Mudur', 'none', 1, true),
+('DIRECTOR', 'Direktor', 'group', 2, false),
+('REGIONAL_MANAGER', 'Bolge Muduru', 'region', 3, false),
+('STORE_MANAGER', 'Magaza Muduru', 'store', 4, false),
+('ANALYST', 'Analist', 'none', 5, true),
+('VIEWER', 'Izleyici', 'store', 6, false)
+```
+
+**Sonuç:** Yeni müşteri kurulumunda UPDATE'e gerek YOK!
+
+### RLS Çalışması İçin Gerekli Adımlar
+
+| Adım | Yapılacak | Nerede |
+|------|-----------|--------|
+| 1 | Dataset'e `store_column` tanımla | Veri Bağlantıları → Dataset → RLS Kolonu |
+| 2 | `stores` tablosuna mağazaları import et | Admin Panel → Master Veriler → Dataset'ten Import |
+| 3 | Kullanıcıya `filter_value` ata | Admin Panel → Kullanıcılar → RLS Filtre Değeri |
+
+### Kritik Eşleşme: stores.code = ClickHouse BranchID
+
+```
+PostgreSQL stores.code: 1, 2, 3, 415...
+ClickHouse BranchID:    1, 2, 3, 415...
+→ BİREBİR EŞLEŞMELİ!
+```
+
+### RLS Test Prosedürü
+
+**1. Pozisyon filter_level kontrolü:**
+```bash
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+SELECT code, name, filter_level FROM positions ORDER BY hierarchy_level;"
+```
+
+**2. Dataset RLS kolon kontrolü:**
+```bash
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+SELECT name, store_column, region_column, group_column FROM datasets;"
+```
+
+**3. stores.code ↔ ClickHouse BranchID eşleşme kontrolü:**
+```bash
+# PostgreSQL
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+SELECT code FROM stores ORDER BY code::int LIMIT 10;"
+
+# ClickHouse
+curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025" \
+  --data "SELECT DISTINCT BranchID FROM clixer_analytics.TABLO_ADI ORDER BY BranchID LIMIT 10"
+```
+
+**4. Test kullanıcısının RLS ayarlarını kontrol et:**
+```bash
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+SELECT u.email, u.filter_value, p.filter_level 
+FROM users u 
+LEFT JOIN positions p ON u.position_code = p.code 
+WHERE u.filter_value IS NOT NULL;"
+```
+
+**5. ClickHouse'dan beklenen değeri al:**
+```bash
+curl -s "http://localhost:8123/?user=clixer&password=clixer_click_2025" \
+  --data "SELECT sum(Visitor) FROM clixer_analytics.TABLO_ADI WHERE BranchID = 415 AND toYear(ReportDay) = 2025"
+```
+
+**6. Dashboard değeri ile karşılaştır:**
+- Test kullanıcısıyla login ol
+- Dashboard'daki değer = ClickHouse sorgu sonucu olmalı
+
+### Mevcut Müşteride filter_level Düzeltme (Eski Kurulumlar İçin)
+
+Eğer eski kurulumda tüm pozisyonlar `filter_level = 'none'` ise:
+
+```bash
+sudo docker exec clixer_postgres psql -U clixer -d clixer -c "
+UPDATE positions SET filter_level = 'none' WHERE code = 'GENERAL_MANAGER';
+UPDATE positions SET filter_level = 'group' WHERE code = 'DIRECTOR';
+UPDATE positions SET filter_level = 'region' WHERE code = 'REGIONAL_MANAGER';
+UPDATE positions SET filter_level = 'store' WHERE code = 'STORE_MANAGER';
+UPDATE positions SET filter_level = 'none' WHERE code = 'ANALYST';
+UPDATE positions SET filter_level = 'store' WHERE code = 'VIEWER';"
+```
+
+### RLS Başarı Kriterleri
+
+| Kontrol | Beklenen |
+|---------|----------|
+| `positions.filter_level` doğru | ✅ store/region/group/none |
+| `datasets.store_column` tanımlı | ✅ BranchID vb. |
+| `stores.code` = ClickHouse ID | ✅ Birebir eşleşme |
+| `users.filter_value` atanmış | ✅ Mağaza kodu (örn: '415') |
+| Dashboard değeri = ClickHouse sorgusu | ✅ Aynı sayı |
+
+---
