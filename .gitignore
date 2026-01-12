@@ -28,6 +28,10 @@ npm-debug.log*
 backups/
 backupapp/
 
+# Customer database dumps (contains sensitive data)
+customer_dump/
+!customer_dump/README.md
+
 # Docker volumes (local data)
 docker/postgres_data/
 docker/clickhouse_data/
