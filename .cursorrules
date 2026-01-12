@@ -9135,3 +9135,200 @@ pm run build komutu dist klasörünü silse bile logolar kalıcı klasörde oldu
 - "Mixed Content" ve "Logo Silinme" sorunlarını önleyen adımlar standart hale getirildi.
 
 ---
+
+## 📅 v4.27 - 12 Ocak 2026
+
+**Bölge/Grup/Mağaza Multi-Select Filtre Sistemi - STABİL!**
+
+### ✅ TAMAMLANAN ÖZELLİKLER
+
+1. ✅ **Bölge Multi-Select** - Birden fazla bölge seçilebilir
+2. ✅ **Grup Multi-Select** - Birden fazla grup seçilebilir (MERKEZ/FRANCHISE)
+3. ✅ **Mağaza Multi-Select** - Birden fazla mağaza seçilebilir
+4. ✅ **Local State Pattern** - Seçimler dropdown açıkken local state'te tutulur, "Uygula" butonuyla global store güncellenir
+5. ✅ **API Çağrısı Optimizasyonu** - Her seçimde değil, sadece "Uygula" sonrası API çağrısı yapılır
+
+### 🔴 KRİTİK HATA VE ÇÖZÜM: MAĞAZA DROPDOWN KAPANMA SORUNU
+
+**Belirti:** Mağaza dropdown açılıyor, scroll yapılabiliyor, ama bir mağaza seçildiğinde dropdown hemen kapanıyordu. 10+ mağaza seçildiğinde liste hiç açılmıyordu.
+
+**Kök Neden:** 
+1. Checkbox'ların `id` attribute'u yoktu
+2. Label'ların `htmlFor` attribute'u yoktu
+3. Bu nedenle label'a tıklamak hidden checkbox'ı tetiklemiyordu
+4. Her seçimde Zustand store güncellenip, tüm component re-render oluyordu
+
+**ÇÖZÜM (v4.27):**
+
+```typescript
+// FilterBar.tsx - DOĞRU YAPI
+
+// 1. Local state ile seçimleri tut (Zustand'a hemen yazmayı engeller)
+const [localSelectedStoreIds, setLocalSelectedStoreIds] = useState<string[]>(selectedStoreIds)
+
+// 2. Dropdown kapanınca global store'u güncelle
+const handleCloseStoreDropdown = () => {
+  setShowStoreDropdown(false)
+  if (JSON.stringify(localSelectedStoreIds.sort()) !== JSON.stringify(selectedStoreIds.sort())) {
+    setStores(localSelectedStoreIds) // BU SATIR API'Yİ TETİKLER
+  }
+}
+
+// 3. Mağaza listesinde INPUT KULLANMA! Direkt DIV onClick ile çalış:
+<div
+  onClick={(e) => {
+    e.stopPropagation()
+    if (isSelected) {
+      setLocalSelectedStoreIds(localSelectedStoreIds.filter(id => id !== store.id))
+    } else {
+      setLocalSelectedStoreIds([...localSelectedStoreIds, store.id])
+    }
+  }}
+>
+  {/* Custom Checkbox (görsel) */}
+  <div className={clsx('w-5 h-5 rounded...', isSelected ? 'bg-emerald-500' : 'border-2')}>
+    {isSelected && <Check size={12} />}
+  </div>
+  {/* Mağaza bilgisi */}
+</div>
+```
+
+### 🛡️ ASLA YAPMA! (Bu Hataları Tekrarlama)
+
+| Yanlış | Doğru |
+|--------|-------|
+| `<input type="checkbox" className="sr-only" />` + `<label>` | Direkt `<div onClick={...}>` kullan |
+| Her checkbox'ta Zustand store güncelle | Local state kullan, "Uygula"da global'e yaz |
+| `label` + `htmlFor` olmadan `input` | Görsel checkbox için `div` kullan |
+| Dropdown içinde API çağrısı | Dropdown kapanınca çağır |
+
+### 📋 FİLTRE SİSTEMİ MİMARİSİ
+
+```
+Kullanıcı Seçimi → Local State (dropdown açık) → "Uygula" → Zustand Store → API Çağrısı
+                                                              ↓
+                                              DashboardPage useEffect tetiklenir
+                                                              ↓
+                                              fetchDashboardData(filtreler ile)
+```
+
+### 🔧 Debug Komutları (Console'da)
+
+```javascript
+// Dropdown açıkken DOM kontrolü
+document.querySelector('[class*="max-h-72"]')?.getBoundingClientRect()
+// top: -110 ise → Dropdown ekran dışında, SORUNLU!
+// top: 250+ ise → Dropdown görünür, NORMAL
+
+// Checkbox kontrolü (eski hatalı yapıda)
+document.querySelectorAll('input[type="checkbox"]').forEach((cb, i) => {
+  if (i < 3) console.log(i, 'id:', cb.id) // id boş ise = HATA!
+})
+
+// z-index kontrolü
+Array.from(document.querySelectorAll('[class*="z-50"]')).forEach((el, i) => {
+  console.log(i, el.getBoundingClientRect())
+})
+```
+
+### Değiştirilen Dosyalar
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `frontend/src/components/FilterBar.tsx` | Local state pattern, custom div checkbox |
+| `frontend/src/stores/filterStore.ts` | Multi-select region/group arrays |
+| `frontend/src/pages/DashboardPage.tsx` | Debounce 300ms, filter keys |
+
+### ⚠️ ÖNEMLİ: GIT BRANCH UYARISI
+
+**Windows:** `master` branch'ını kullan
+**Ubuntu (Müşteri):** `origin/master` ile senkronize ol
+
+```bash
+# Windows'ta push
+git push origin master
+
+# Ubuntu'da pull (doğru yol)
+cd /opt/clixer
+sudo git fetch origin
+sudo git reset --hard origin/master  # Zorla senkronize et!
+```
+
+**ASLA YAPMA:**
+- ❌ `git pull origin main` - Bu branch YOK!
+- ❌ `git push origin main` - Windows'ta hata verir
+
+---
+
+## 🔴🔴🔴 FİLTRE SİSTEMİ CHECKBOX KURALLARI (KRİTİK!)
+
+### MUTLAK KURAL: Multi-select dropdown'larda HTML checkbox KULLANMA!
+
+**Neden?**
+1. `sr-only` (screen-reader only) checkbox'lar React re-render'da sorun çıkarır
+2. `label` + `htmlFor` ilişkisi düzgün kurulmazsa tıklama çalışmaz
+3. Zustand state güncellemesi UI'ı bozabilir
+
+**Doğru Yöntem:**
+
+```typescript
+// ✅ DOĞRU - Görsel div checkbox
+{items.map(item => {
+  const isSelected = localSelectedIds.includes(item.id)
+  return (
+    <div
+      key={item.id}
+      onClick={(e) => {
+        e.stopPropagation()
+        if (isSelected) {
+          setLocalSelectedIds(prev => prev.filter(id => id !== item.id))
+        } else {
+          setLocalSelectedIds(prev => [...prev, item.id])
+        }
+      }}
+      className="flex items-center cursor-pointer"
+    >
+      {/* Görsel checkbox */}
+      <div className={isSelected ? 'bg-emerald-500' : 'border-2 border-gray-300'}>
+        {isSelected && <Check size={12} />}
+      </div>
+      <span>{item.name}</span>
+    </div>
+  )
+})}
+```
+
+```typescript
+// ❌ YANLIŞ - HTML checkbox + label
+{items.map(item => (
+  <label key={item.id}>
+    <input 
+      type="checkbox" 
+      className="sr-only"  // ← SORUN KAYNAĞI!
+      checked={selectedIds.includes(item.id)}
+      onChange={() => ...}
+    />
+    <span>{item.name}</span>
+  </label>
+))}
+```
+
+### Multi-Select Dropdown Akış Şeması
+
+```
+1. Dropdown açılır → showDropdown = true
+2. Kullanıcı öğe seçer → localSelectedIds güncellenir (HIZLI!)
+3. Daha fazla seçim yapılır → localSelectedIds büyür
+4. "Uygula" butonuna basılır → globalStore güncellenir → API çağrısı
+5. Dropdown kapanır → showDropdown = false
+```
+
+### Test Checklist
+
+- [ ] 10+ öğe seçilebiliyor mu?
+- [ ] Seçim sırasında dropdown kapanmıyor mu?
+- [ ] Scroll çalışıyor mu?
+- [ ] "Uygula" sonrası veri değişiyor mu?
+- [ ] F5 sonrası seçimler sıfırlanıyor mu? (evet olmalı)
+
+---
