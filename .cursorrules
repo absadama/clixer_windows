@@ -84,6 +84,24 @@ v4.27 - v4.42 arasında yapılan değişiklikler:
 
 > **"YEDEK AL", "GITHUB'A GÖNDER", "COMMIT ET" DENDİĞİNDE MUTLAKA 3 KOMUT ÇALIŞTIRILACAK VE SONUÇ GÖSTERİLECEK!**
 
+### 🏷️ OTOMATİK TAG KURALI
+
+**Kullanıcı özel bir tag belirtmediyse, tag formatı otomatik olarak:**
+```
+YILAYGÜNSAATDAKİKA
+```
+
+**Örnek:**
+- 12 Ocak 2026, 23:15 → `v2601122315`
+- 5 Şubat 2026, 09:30 → `v2602050930`
+
+**PowerShell'de tag oluşturma:**
+```powershell
+$tag = "v" + (Get-Date -Format "yyMMddHHmm")
+git tag $tag
+git push origin $tag
+```
+
 ### Zorunlu Akış:
 ```bash
 # 1. Tüm değişiklikleri stage et
@@ -94,6 +112,11 @@ git commit -m "feat/fix: Yapılan değişikliğin açıklaması"
 
 # 3. MUTLAKA PUSH ET!
 git push origin master
+
+# 4. TAG OLUŞTUR VE PUSH ET (kullanıcı özel tag vermemişse)
+$tag = "v" + (Get-Date -Format "yyMMddHHmm")
+git tag $tag
+git push origin $tag
 ```
 
 ### Kullanıcıya Gösterilecek:
