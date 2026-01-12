@@ -65,6 +65,27 @@ export default function FilterBar({
   const [showGroupDropdown, setShowGroupDropdown] = useState(false)
   const [showStoreDropdown, setShowStoreDropdown] = useState(false)
   const [showDateDropdown, setShowDateDropdown] = useState(false)
+  
+  // LOCAL STORE SEÇİMİ - Dropdown açıkken bu kullanılır, kapatılınca Zustand'a yazılır
+  const [localSelectedStoreIds, setLocalSelectedStoreIds] = useState<string[]>(selectedStoreIds)
+  
+  // Zustand store değiştiğinde local state'i senkronize et (sadece dropdown kapalıyken)
+  useEffect(() => {
+    if (!showStoreDropdown) {
+      setLocalSelectedStoreIds(selectedStoreIds)
+    }
+  }, [selectedStoreIds, showStoreDropdown])
+  
+  // Dropdown kapandığında store'u güncelle
+  const handleCloseStoreDropdown = () => {
+    setShowStoreDropdown(false)
+    // Sadece değişiklik varsa store'u güncelle
+    if (JSON.stringify(localSelectedStoreIds.sort()) !== JSON.stringify(selectedStoreIds.sort())) {
+      console.log('🔵 [FilterBar] Mağaza seçimleri kaydediliyor:', localSelectedStoreIds.length)
+      setStores(localSelectedStoreIds)
+    }
+  }
+  
   const [storeSearchQuery, setStoreSearchQuery] = useState('')
   const [regionSearchQuery, setRegionSearchQuery] = useState('')
   const [groupSearchQuery, setGroupSearchQuery] = useState('')
@@ -76,7 +97,8 @@ export default function FilterBar({
     }
   }, [accessToken, isLoaded, loadFilters])
 
-  const filteredStores = getFilteredStores()
+  // getFilteredStores'u useMemo ile sarmalayarak gereksiz re-render'ları önle
+  const filteredStores = useMemo(() => getFilteredStores(), [stores])
   const selectedDatePreset = DATE_PRESETS.find(p => p.id === datePreset)
 
   // Bölge seçim özeti
@@ -114,7 +136,7 @@ export default function FilterBar({
     return groups.filter(g => g.name.toLowerCase().includes(query) || g.code.toLowerCase().includes(query))
   }, [groups, groupSearchQuery])
 
-  // Arama ve sıralama ile filtrelenmiş mağazalar
+  // Arama ve sıralama ile filtrelenmiş mağazalar (LOCAL state kullan)
   const searchedStores = useMemo(() => {
     let result = [...filteredStores]
     
@@ -128,16 +150,16 @@ export default function FilterBar({
       )
     }
     
-    // Seçili olanları üste al
+    // Seçili olanları üste al (LOCAL state kullan)
     result.sort((a, b) => {
-      const aSelected = selectedStoreIds.includes(a.id) ? 0 : 1
-      const bSelected = selectedStoreIds.includes(b.id) ? 0 : 1
+      const aSelected = localSelectedStoreIds.includes(a.id) ? 0 : 1
+      const bSelected = localSelectedStoreIds.includes(b.id) ? 0 : 1
       if (aSelected !== bSelected) return aSelected - bSelected
       return a.name.localeCompare(b.name, 'tr')
     })
     
     return result
-  }, [filteredStores, storeSearchQuery, selectedStoreIds])
+  }, [filteredStores, storeSearchQuery, localSelectedStoreIds])
 
   // Seçili mağaza sayısı özeti
   const storeSelectionText = () => {
@@ -498,10 +520,13 @@ export default function FilterBar({
           </button>
 
           {showStoreDropdown && (
-            <div className={clsx(
-              'absolute top-full left-0 mt-2 w-96 rounded-xl shadow-2xl z-50 border overflow-hidden',
-              isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
-            )}>
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className={clsx(
+                'absolute top-full left-0 mt-2 w-96 rounded-xl shadow-2xl z-50 border overflow-hidden',
+                isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
+              )}
+            >
               {/* Header - Search */}
               <div className={clsx(
                 'p-3 border-b',
@@ -533,7 +558,7 @@ export default function FilterBar({
                 {/* Hızlı seçim butonları */}
                 <div className="flex gap-2 mt-2">
                   <button
-                    onClick={selectAllStores}
+                    onClick={() => setLocalSelectedStoreIds(filteredStores.map(s => s.id))}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -545,7 +570,7 @@ export default function FilterBar({
                     Tümünü Seç
                   </button>
                   <button
-                    onClick={() => setStores([])}
+                    onClick={() => setLocalSelectedStoreIds([])}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -560,7 +585,11 @@ export default function FilterBar({
               </div>
 
               {/* Store List */}
-              <div className="max-h-72 overflow-y-auto">
+              <div 
+                className="max-h-72 overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
                 {searchedStores.length === 0 ? (
                   <div className={clsx('p-6 text-center', isDark ? 'text-gray-500' : 'text-gray-400')}>
                     <Store size={32} className="mx-auto mb-2 opacity-50" />
@@ -568,9 +597,10 @@ export default function FilterBar({
                   </div>
                 ) : (
                   searchedStores.map((store, index) => {
-                    const isSelected = selectedStoreIds.includes(store.id)
+                    // LOCAL state kullan - Zustand store değil
+                    const isSelected = localSelectedStoreIds.includes(store.id)
                     const showDivider = index > 0 && 
-                      selectedStoreIds.includes(searchedStores[index - 1].id) !== isSelected
+                      localSelectedStoreIds.includes(searchedStores[index - 1].id) !== isSelected
                     
                     return (
                       <div key={store.id}>
@@ -583,6 +613,10 @@ export default function FilterBar({
                           </div>
                         )}
                         <label
+                          onClick={(e) => {
+                            console.log('🟡 [FilterBar] Label tıklandı:', store.name, 'showStoreDropdown:', showStoreDropdown)
+                            e.stopPropagation() // Overlay'e gitmesini engelle
+                          }}
                           className={clsx(
                             'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all',
                             isSelected 
@@ -607,18 +641,20 @@ export default function FilterBar({
                           >
                             {isSelected && <Check size={12} strokeWidth={3} />}
                           </div>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setStores([...selectedStoreIds, store.id])
-                              } else {
-                                setStores(selectedStoreIds.filter(id => id !== store.id))
-                              }
-                            }}
-                            className="sr-only"
-                          />
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          e.stopPropagation() // Event bubbling'i durdur
+                          // LOCAL state güncelle - store'a yazmıyoruz, dropdown kapanınca yazılacak
+                          if (e.target.checked) {
+                            setLocalSelectedStoreIds([...localSelectedStoreIds, store.id])
+                          } else {
+                            setLocalSelectedStoreIds(localSelectedStoreIds.filter(id => id !== store.id))
+                          }
+                        }}
+                        className="sr-only"
+                      />
                           
                           {/* Store Info */}
                           <div className="flex-1 min-w-0">
@@ -661,10 +697,10 @@ export default function FilterBar({
                 isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
               )}>
                 <span className={clsx('text-xs', isDark ? 'text-gray-500' : 'text-gray-500')}>
-                  {selectedStoreIds.length} / {filteredStores.length} seçili
+                  {localSelectedStoreIds.length} / {filteredStores.length} seçili
                 </span>
                 <button
-                  onClick={() => setShowStoreDropdown(false)}
+                  onClick={handleCloseStoreDropdown}
                   className={clsx(
                     'px-5 py-2 text-sm font-medium rounded-lg transition-all',
                     'bg-emerald-500 text-white hover:bg-emerald-600'
@@ -749,7 +785,12 @@ export default function FilterBar({
           onClick={() => {
             setShowRegionDropdown(false)
             setShowGroupDropdown(false)
-            setShowStoreDropdown(false)
+            // Store dropdown için özel handler kullan - seçimleri kaydet
+            if (showStoreDropdown) {
+              handleCloseStoreDropdown()
+            } else {
+              setShowStoreDropdown(false)
+            }
             setShowDateDropdown(false)
           }}
         />
