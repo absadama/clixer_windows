@@ -612,10 +612,16 @@ export default function FilterBar({
                             Diğer Mağazalar ({filteredStores.length - selectedStoreIds.length})
                           </div>
                         )}
-                        <label
+                        {/* Label yerine div kullan - tüm alanı tıklanabilir yap */}
+                        <div
                           onClick={(e) => {
-                            console.log('🟡 [FilterBar] Label tıklandı:', store.name, 'showStoreDropdown:', showStoreDropdown)
                             e.stopPropagation() // Overlay'e gitmesini engelle
+                            // Direkt state güncelle - checkbox'a bağımlılık yok
+                            if (isSelected) {
+                              setLocalSelectedStoreIds(localSelectedStoreIds.filter(id => id !== store.id))
+                            } else {
+                              setLocalSelectedStoreIds([...localSelectedStoreIds, store.id])
+                            }
                           }}
                           className={clsx(
                             'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all',
@@ -628,10 +634,10 @@ export default function FilterBar({
                                 : 'hover:bg-gray-50 border-l-2 border-transparent'
                           )}
                         >
-                          {/* Custom Checkbox */}
+                          {/* Custom Checkbox - Görsel */}
                           <div 
                             className={clsx(
-                              'w-5 h-5 rounded flex items-center justify-center transition-all',
+                              'w-5 h-5 rounded flex items-center justify-center transition-all flex-shrink-0',
                               isSelected 
                                 ? 'bg-emerald-500 text-white' 
                                 : isDark 
@@ -641,20 +647,6 @@ export default function FilterBar({
                           >
                             {isSelected && <Check size={12} strokeWidth={3} />}
                           </div>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(e) => {
-                          e.stopPropagation() // Event bubbling'i durdur
-                          // LOCAL state güncelle - store'a yazmıyoruz, dropdown kapanınca yazılacak
-                          if (e.target.checked) {
-                            setLocalSelectedStoreIds([...localSelectedStoreIds, store.id])
-                          } else {
-                            setLocalSelectedStoreIds(localSelectedStoreIds.filter(id => id !== store.id))
-                          }
-                        }}
-                        className="sr-only"
-                      />
                           
                           {/* Store Info */}
                           <div className="flex-1 min-w-0">
@@ -684,7 +676,7 @@ export default function FilterBar({
                               {store.code && <span className="ml-2 opacity-60">#{store.code}</span>}
                             </div>
                           </div>
-                        </label>
+                        </div>
                       </div>
                     )
                   })
