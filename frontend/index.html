@@ -21,8 +21,8 @@
     <!-- Apple Touch Icons - PWA için (JS ile cache-busting eklenir) -->
     <link rel="apple-touch-icon" sizes="192x192" id="apple-icon-192" href="/uploads/logo-192.png" />
     <link rel="apple-touch-icon" sizes="512x512" id="apple-icon-512" href="/uploads/logo-512.png" />
-    <!-- Fallback -->
-    <link rel="apple-touch-icon" href="/logo.png" />
+    <!-- Fallback - Aynı dinamik logoyu kullan -->
+    <link rel="apple-touch-icon" id="apple-icon-fallback" href="/uploads/logo-192.png" />
     
     <!-- PWA Cache-busting: Manifest ve icon'ları yenile -->
     <script>
@@ -31,11 +31,13 @@
         // Manifest cache-busting
         var manifestLink = document.getElementById('pwa-manifest');
         if (manifestLink) manifestLink.href = '/manifest.json?v=' + ts;
-        // Apple icon cache-busting
+        // Apple icon cache-busting (fallback dahil)
         var icon192 = document.getElementById('apple-icon-192');
         var icon512 = document.getElementById('apple-icon-512');
+        var iconFallback = document.getElementById('apple-icon-fallback');
         if (icon192) icon192.href = '/uploads/logo-192.png?v=' + ts;
         if (icon512) icon512.href = '/uploads/logo-512.png?v=' + ts;
+        if (iconFallback) iconFallback.href = '/uploads/logo-192.png?v=' + ts;
       })();
     </script>
     
