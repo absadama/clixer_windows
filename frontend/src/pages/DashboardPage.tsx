@@ -148,10 +148,10 @@ export default function DashboardPage() {
     
     return [...widgets].sort((a, b) => {
       // Store'da x ve y kullanılıyor (gridPosition'dan geliyor)
-      const aY = a.y ?? a.gridY ?? a.grid_y ?? 0
-      const bY = b.y ?? b.gridY ?? b.grid_y ?? 0
-      const aX = a.x ?? a.gridX ?? a.grid_x ?? 0
-      const bX = b.x ?? b.gridX ?? b.grid_x ?? 0
+      const aY = (a as any).y ?? 0
+      const bY = (b as any).y ?? 0
+      const aX = (a as any).x ?? 0
+      const bX = (b as any).x ?? 0
       
       // Önce Y koordinatına göre sırala (yukarıdan aşağıya)
       if (aY !== bY) return aY - bY
