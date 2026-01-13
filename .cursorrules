@@ -7921,7 +7921,7 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-13 | **v4.28** | **Mobil PWA İyileştirmeleri - Bottom Sheet, iOS Picker, Widget Sıralama, Grup Fix, Search** |
+| 2026-01-13 | **v4.28** | **Mobil PWA İyileştirmeleri - Bottom Sheet, iOS Picker, Widget Sıralama, Grup Fix, Search, PWA Logo Fix** |
 | 2026-01-11 | v4.24 | Sıralama Listesi UI Düzeltmesi - Trend hesaplaması için ana değer kolonu seçimi eklendi |
 | 2026-01-10 | v4.23 | Dinamik Tarih Etiketi & Göster/Gizle Toggle - Metrik kartlarında esnek period label |
 | 2026-01-10 | v4.22 | Frontend Build Logo Koruma - dist/uploads yedekleme, ETL Schedule Fix |
@@ -9507,6 +9507,7 @@ UPDATE positions SET filter_level = 'store' WHERE code = 'VIEWER';"
 | **Mobil Header** | `Layout.tsx` | Sol: hamburger, Orta: logo, Sağ: filtre ikonu |
 | **PWA Start URL** | `core-service` | `/dashboard` olarak değiştirildi |
 | **iOS Meta Tags** | `index.html` | Apple status bar, touch icon |
+| **PWA Logo Fix** | `index.html` | Fallback apple-touch-icon artık `/uploads/logo-192.png` kullanıyor |
 
 ### 🔴 KRİTİK DÜZELTMELER
 
