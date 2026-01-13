@@ -6,20 +6,38 @@
     <meta name="description" content="Clixer - Enterprise Analytics Platform" />
     <meta name="theme-color" content="#00CFDE" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" id="apple-title" content="Dinamo Analytics" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <!-- iOS PWA için siyah arka plan -->
+    <style>html, body { background-color: #000000; }</style>
     
     <!-- Favicon - Dinamik olarak JS ile güncellenir -->
     <link rel="icon" type="image/png" href="/logo.png" id="dynamic-favicon" />
     
-    <!-- PWA Manifest - Core Service'den dinamik gelir -->
-    <link rel="manifest" href="/manifest.json" />
+    <!-- PWA Manifest - Core Service'den dinamik gelir (cache-busting ile) -->
+    <link rel="manifest" id="pwa-manifest" href="/manifest.json" />
     
-    <!-- Apple Touch Icons - PWA için -->
-    <link rel="apple-touch-icon" sizes="192x192" href="/uploads/logo-192.png" />
-    <link rel="apple-touch-icon" sizes="512x512" href="/uploads/logo-512.png" />
+    <!-- Apple Touch Icons - PWA için (JS ile cache-busting eklenir) -->
+    <link rel="apple-touch-icon" sizes="192x192" id="apple-icon-192" href="/uploads/logo-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" id="apple-icon-512" href="/uploads/logo-512.png" />
     <!-- Fallback -->
     <link rel="apple-touch-icon" href="/logo.png" />
+    
+    <!-- PWA Cache-busting: Manifest ve icon'ları yenile -->
+    <script>
+      (function() {
+        var ts = Date.now();
+        // Manifest cache-busting
+        var manifestLink = document.getElementById('pwa-manifest');
+        if (manifestLink) manifestLink.href = '/manifest.json?v=' + ts;
+        // Apple icon cache-busting
+        var icon192 = document.getElementById('apple-icon-192');
+        var icon512 = document.getElementById('apple-icon-512');
+        if (icon192) icon192.href = '/uploads/logo-192.png?v=' + ts;
+        if (icon512) icon512.href = '/uploads/logo-512.png?v=' + ts;
+      })();
+    </script>
     
     <title id="dynamic-title">Clixer</title>
     
@@ -58,6 +76,9 @@
                 // Title güncelle ve localStorage'a kaydet
                 if (data.data.appName) {
                   document.title = data.data.appName;
+                  // Apple PWA title'ı da güncelle
+                  var appleTitle = document.getElementById('apple-title');
+                  if (appleTitle) appleTitle.content = data.data.appName;
                   try { localStorage.setItem('cachedAppName', data.data.appName); } catch(e) {}
                 }
               }

@@ -64,12 +64,12 @@ app.use(helmet({
   }
 }));
 
-// CORS - Production'da kısıtlı, development'ta localhost
+// CORS - Production'da kısıtlı, development'ta localhost ve network IP'leri
 const corsOrigins = process.env.CORS_ORIGIN 
-  ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+  ? (process.env.CORS_ORIGIN === '*' ? '*' : process.env.CORS_ORIGIN.split(',').map(o => o.trim()))
   : (process.env.NODE_ENV === 'production' 
       ? ['https://clixer.app', 'https://app.clixer.com'] 
-      : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173']);
+      : '*'); // Development modunda tüm originlere izin ver (mobil test için kritik)
 
 app.use(cors({
   origin: corsOrigins,

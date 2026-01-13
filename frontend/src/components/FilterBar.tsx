@@ -19,9 +19,26 @@ import {
   Store,
   Search,
   CheckSquare,
-  Square
+  Square,
+  SlidersHorizontal,
+  ChevronRight
 } from 'lucide-react'
 import clsx from 'clsx'
+import IOSPicker from './IOSPicker'
+
+// Mobile detection hook
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(false)
+  
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+  
+  return isMobile
+}
 
 interface FilterBarProps {
   showStoreFilter?: boolean
@@ -58,7 +75,9 @@ export default function FilterBar({
     setCustomDates,
     selectAllStores,
     getFilteredStores,
-    isLoaded
+    isLoaded,
+    isMobileFilterOpen,
+    setMobileFilterOpen
   } = useFilterStore()
 
   const [showRegionDropdown, setShowRegionDropdown] = useState(false)
@@ -172,6 +191,276 @@ export default function FilterBar({
     return `${selectedStoreIds.length} mağaza`
   }
 
+  // Mobil detection
+  const isMobile = useIsMobile()
+  
+  // Bottom Sheet artık filterStore'dan yönetiliyor: isMobileFilterOpen, setMobileFilterOpen
+  
+  // iOS Picker states (mobil için native hissi)
+  const [showRegionPicker, setShowRegionPicker] = useState(false)
+  const [showGroupPicker, setShowGroupPicker] = useState(false)
+  const [showStorePicker, setShowStorePicker] = useState(false)
+  
+  // Aktif filtre sayısını hesapla
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (selectedRegionIds.length > 0 && selectedRegionIds.length < regions.length) count++
+    if (selectedGroupIds.length > 0 && selectedGroupIds.length < groups.length) count++
+    if (selectedStoreIds.length > 0 && selectedStoreIds.length < stores.length) count++
+    if (datePreset !== 'all') count++
+    return count
+  }, [selectedRegionIds, selectedGroupIds, selectedStoreIds, datePreset, regions, groups, stores])
+
+  // Bottom Sheet'i kapat ve tüm dropdown'ları kapat
+  const closeBottomSheet = () => {
+    setMobileFilterOpen(false)
+    setShowRegionDropdown(false)
+    setShowGroupDropdown(false)
+    if (showStoreDropdown) handleCloseStoreDropdown()
+    setShowDateDropdown(false)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MOBİL BOTTOM SHEET UI
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (isMobile) {
+    return (
+      <>
+        {/* Mobil Filtre Trigger artık Layout.tsx header'ından tetikleniyor */}
+        
+        {/* Bottom Sheet Backdrop */}
+        {isMobileFilterOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 z-50 transition-opacity"
+            onClick={closeBottomSheet}
+          />
+        )}
+
+        {/* Bottom Sheet Panel */}
+        <div
+          className={clsx(
+            'fixed inset-x-0 bottom-0 z-50',
+            'transform transition-transform duration-300 ease-out',
+            isMobileFilterOpen ? 'translate-y-0' : 'translate-y-full'
+          )}
+        >
+          <div className={clsx(
+            'rounded-t-3xl shadow-2xl max-h-[85vh] overflow-hidden flex flex-col',
+            theme.cardBg
+          )}>
+            {/* Handle bar */}
+            <div className="flex justify-center pt-3 pb-2">
+              <div className={clsx('w-12 h-1.5 rounded-full', isDark ? 'bg-slate-600' : 'bg-slate-300')} />
+            </div>
+
+            {/* Header */}
+            <div className={clsx(
+              'flex items-center justify-between px-5 pb-3 border-b',
+              isDark ? 'border-slate-700' : 'border-slate-200'
+            )}>
+              <div className="flex items-center gap-2">
+                <Filter size={20} className="text-indigo-500" />
+                <h3 className={clsx('text-lg font-semibold', theme.contentText)}>Filtreler</h3>
+                {activeFilterCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600 text-xs font-medium">
+                    {activeFilterCount} aktif
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={closeBottomSheet}
+                className={clsx('p-2 rounded-full', isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100')}
+              >
+                <X size={20} className={theme.contentText} />
+              </button>
+            </div>
+
+            {/* Filtre içerikleri - Scrollable */}
+            {/* SIRALAMA: Tarih > Grup > Bölge > Mağaza (Kullanıcı talebi) */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              
+              {/* 1. Tarih Filtresi - EN ÜSTTE */}
+              {showDateFilter && (
+                <div className={clsx('p-4 rounded-xl', isDark ? 'bg-slate-800/50' : 'bg-slate-50')}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={18} className="text-orange-500" />
+                      <span className={clsx('font-medium', theme.contentText)}>Tarih</span>
+                    </div>
+                    <span className={clsx('text-sm', theme.contentTextMuted)}>
+                      {selectedDatePreset?.label}
+                      {datePreset === 'custom' && ` (${startDate} - ${endDate})`}
+                    </span>
+                  </div>
+                  {/* Tarih presetleri */}
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {DATE_PRESETS.filter(p => p.id !== 'custom').map(preset => (
+                      <button
+                        key={preset.id}
+                        onClick={() => setDatePreset(preset.id)}
+                        className={clsx(
+                          'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                          datePreset === preset.id
+                            ? 'bg-orange-500 text-white'
+                            : clsx(isDark ? 'bg-slate-700 text-slate-300' : 'bg-white text-slate-700 border border-slate-200')
+                        )}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Özel tarih seçimi */}
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setCustomDates(e.target.value, endDate)}
+                      className={clsx(
+                        'flex-1 px-3 py-2 rounded-lg text-sm',
+                        theme.inputBg, theme.inputText
+                      )}
+                    />
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setCustomDates(startDate, e.target.value)}
+                      className={clsx(
+                        'flex-1 px-3 py-2 rounded-lg text-sm',
+                        theme.inputBg, theme.inputText
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 2. Grup Filtresi - iOS Picker Style */}
+              {showTypeFilter && groups.length > 0 && (
+                <button
+                  onClick={() => setShowGroupPicker(true)}
+                  className={clsx(
+                    'w-full flex items-center justify-between p-4 rounded-xl active:scale-[0.98] transition-transform',
+                    isDark ? 'bg-slate-800/50' : 'bg-slate-50'
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-purple-500/20 flex items-center justify-center">
+                      <Building size={18} className="text-purple-500" />
+                    </div>
+                    <div className="text-left">
+                      <p className={clsx('text-sm font-medium', theme.contentText)}>Grup</p>
+                      <p className={clsx('text-xs', theme.contentTextMuted)}>{groupSelectionText()}</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={20} className={theme.contentTextMuted} />
+                </button>
+              )}
+
+              {/* 3. Bölge Filtresi - iOS Picker Style */}
+              {showRegionFilter && regions.length > 0 && (
+                <button
+                  onClick={() => setShowRegionPicker(true)}
+                  className={clsx(
+                    'w-full flex items-center justify-between p-4 rounded-xl active:scale-[0.98] transition-transform',
+                    isDark ? 'bg-slate-800/50' : 'bg-slate-50'
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                      <MapPin size={18} className="text-blue-500" />
+                    </div>
+                    <div className="text-left">
+                      <p className={clsx('text-sm font-medium', theme.contentText)}>Bölge</p>
+                      <p className={clsx('text-xs', theme.contentTextMuted)}>{regionSelectionText()}</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={20} className={theme.contentTextMuted} />
+                </button>
+              )}
+
+              {/* 4. Mağaza Filtresi - iOS Picker Style */}
+              {showStoreFilter && stores.length > 0 && (
+                <button
+                  onClick={() => setShowStorePicker(true)}
+                  className={clsx(
+                    'w-full flex items-center justify-between p-4 rounded-xl active:scale-[0.98] transition-transform',
+                    isDark ? 'bg-slate-800/50' : 'bg-slate-50'
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                      <Store size={18} className="text-emerald-500" />
+                    </div>
+                    <div className="text-left">
+                      <p className={clsx('text-sm font-medium', theme.contentText)}>Mağaza</p>
+                      <p className={clsx('text-xs', theme.contentTextMuted)}>{storeSelectionText()}</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={20} className={theme.contentTextMuted} />
+                </button>
+              )}
+
+            </div>
+
+            {/* Footer - Uygula butonu */}
+            <div className={clsx(
+              'p-4 border-t',
+              isDark ? 'border-slate-700' : 'border-slate-200'
+            )}>
+              <button
+                onClick={() => {
+                  // Mağaza seçimlerini kaydet
+                  if (JSON.stringify(localSelectedStoreIds.sort()) !== JSON.stringify(selectedStoreIds.sort())) {
+                    setStores(localSelectedStoreIds)
+                  }
+                  closeBottomSheet()
+                }}
+                className="w-full py-3 rounded-xl bg-indigo-600 text-white font-semibold text-base transition-colors active:bg-indigo-700"
+              >
+                Filtreleri Uygula
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* iOS Style Pickers */}
+        <IOSPicker
+          isOpen={showGroupPicker}
+          onClose={() => setShowGroupPicker(false)}
+          title="Grup Seçin"
+          options={groups.map(g => ({ id: g.code, label: g.name }))}
+          selectedIds={selectedGroupIds}
+          onSelect={(ids) => setGroups(ids)}
+          accentColor="#A855F7"
+        />
+
+        <IOSPicker
+          isOpen={showRegionPicker}
+          onClose={() => setShowRegionPicker(false)}
+          title="Bölge Seçin"
+          options={regions.map(r => ({ id: r.code, label: r.name }))}
+          selectedIds={selectedRegionIds}
+          onSelect={(ids) => setRegions(ids)}
+          accentColor="#3B82F6"
+        />
+
+        <IOSPicker
+          isOpen={showStorePicker}
+          onClose={() => setShowStorePicker(false)}
+          title="Mağaza Seçin"
+          options={filteredStores.map(s => ({ id: s.id, label: s.name, sublabel: s.city || '' }))}
+          selectedIds={selectedStoreIds}
+          onSelect={(ids) => setStores(ids)}
+          accentColor="#10B981"
+          showSearch={true}
+          searchPlaceholder="Mağaza ara..."
+        />
+      </>
+    )
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DESKTOP UI (Mevcut yapı korunuyor)
+  // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div className={clsx(
       'flex flex-wrap items-center gap-3 p-4 rounded-2xl mb-6',
@@ -728,17 +1017,20 @@ export default function FilterBar({
 
           {showDateDropdown && (
             <div className={clsx(
-              'absolute top-full right-0 mt-2 w-72 rounded-xl shadow-xl z-50 border overflow-hidden',
+              // Mobilde full-width, desktop'ta fixed width
+              'absolute top-full right-0 mt-2 w-[calc(100vw-32px)] sm:w-80 max-w-sm rounded-xl shadow-xl z-50 border overflow-hidden',
               theme.cardBg,
               isDark ? 'border-slate-700' : 'border-slate-200'
             )}>
-              <div className="grid grid-cols-2 gap-1 p-2">
+              {/* Tarih preset butonları - flex-wrap ile responsive */}
+              <div className="flex flex-wrap gap-1.5 p-2.5">
                 {DATE_PRESETS.filter(p => p.id !== 'custom').map(preset => (
                   <button
                     key={preset.id}
                     onClick={() => { setDatePreset(preset.id); setShowDateDropdown(false) }}
                     className={clsx(
-                      'px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                      // Mobilde daha küçük font ve padding
+                      'px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap',
                       datePreset === preset.id 
                         ? 'bg-indigo-500 text-white' 
                         : clsx(theme.contentText, 'hover:bg-slate-100 dark:hover:bg-slate-800')
@@ -750,7 +1042,8 @@ export default function FilterBar({
               </div>
               <div className="p-3 border-t">
                 <p className={clsx('text-xs font-medium mb-2', theme.contentTextMuted)}>Özel Tarih Aralığı</p>
-                <div className="flex gap-2">
+                {/* Mobilde alt alta, desktop'ta yan yana */}
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="date"
                     value={startDate}

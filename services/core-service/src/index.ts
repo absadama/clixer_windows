@@ -3780,19 +3780,22 @@ async function start() {
         const logo192Exists = fs.existsSync(path.join(UPLOAD_DIR, 'logo-192.png'));
         const logo512Exists = fs.existsSync(path.join(UPLOAD_DIR, 'logo-512.png'));
 
+        // Cache-busting için timestamp (logo değiştiğinde cache'i kır)
+        const cacheBuster = Date.now();
+        
         const icons = [];
         if (logo192Exists) {
-          icons.push({ src: '/uploads/logo-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' });
+          icons.push({ src: `/uploads/logo-192.png?v=${cacheBuster}`, sizes: '192x192', type: 'image/png', purpose: 'any maskable' });
         }
         if (logo512Exists) {
-          icons.push({ src: '/uploads/logo-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' });
+          icons.push({ src: `/uploads/logo-512.png?v=${cacheBuster}`, sizes: '512x512', type: 'image/png', purpose: 'any maskable' });
         }
 
         // Fallback to default logo
         if (icons.length === 0) {
           icons.push(
-            { src: '/logo.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-            { src: '/logo.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+            { src: `/logo.png?v=${cacheBuster}`, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+            { src: `/logo.png?v=${cacheBuster}`, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
           );
         }
 
@@ -3801,7 +3804,7 @@ async function start() {
           short_name: appName,
           description: `${appName} - Enterprise Analytics Platform`,
           icons,
-          start_url: '/',
+          start_url: '/dashboard', // PWA açıldığında Kokpit sayfası gelsin
           display: 'standalone',
           orientation: 'portrait-primary',
           theme_color: colors.theme,

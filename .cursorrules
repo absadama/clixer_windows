@@ -7921,7 +7921,8 @@ ETL Worker artık LDAP schedule'larını da kontrol ediyor:
 
 | Tarih | Versiyon | Açıklama |
 |-------|----------|----------|
-| 2026-01-11 | **v4.24** | **Sıralama Listesi UI Düzeltmesi - Trend hesaplaması için ana değer kolonu seçimi eklendi.** |
+| 2026-01-13 | **v4.28** | **Mobil PWA İyileştirmeleri - Bottom Sheet, iOS Picker, Widget Sıralama, Grup Fix, Search** |
+| 2026-01-11 | v4.24 | Sıralama Listesi UI Düzeltmesi - Trend hesaplaması için ana değer kolonu seçimi eklendi |
 | 2026-01-10 | v4.23 | Dinamik Tarih Etiketi & Göster/Gizle Toggle - Metrik kartlarında esnek period label |
 | 2026-01-10 | v4.22 | Frontend Build Logo Koruma - dist/uploads yedekleme, ETL Schedule Fix |
 | 2026-01-09 | v4.21 | Systemd Service Entegrasyonu - Production Kalıcılık, Otomatik Restart |
@@ -9485,5 +9486,123 @@ UPDATE positions SET filter_level = 'store' WHERE code = 'VIEWER';"
 | `stores.code` = ClickHouse ID | ✅ Birebir eşleşme |
 | `users.filter_value` atanmış | ✅ Mağaza kodu (örn: '415') |
 | Dashboard değeri = ClickHouse sorgusu | ✅ Aynı sayı |
+
+---
+
+## 📅 v4.28 - 13 Ocak 2026
+
+**Mobil PWA İyileştirmeleri - Bottom Sheet, iOS Picker, Widget Sıralama**
+
+### ✅ TAMAMLANAN ÖZELLİKLER
+
+| Özellik | Dosya | Açıklama |
+|---------|-------|----------|
+| **Widget Sıralama** | `DashboardPage.tsx` | `x,y` koordinatlarına göre sabit sıralama (tarih değişse bile) |
+| **Responsive Büyük Rakamlar** | `DashboardPage.tsx` | `formatCompactNumber` helper + responsive font |
+| **Kart Boyutları** | `DashboardPage.tsx` | Mobilde kompakt kartlar (6 kart görünür) |
+| **FilterBar Bottom Sheet** | `FilterBar.tsx` | Mobil filtre alt paneli (slide-up) |
+| **iOS Picker** | `IOSPicker.tsx` | Native hissi için picker wheel |
+| **Picker Search** | `IOSPicker.tsx` | Mağaza arama özelliği |
+| **Grup Seçimi Fix** | `FilterBar.tsx` | `g.id` → `g.code` (backend uyumu) |
+| **Mobil Header** | `Layout.tsx` | Sol: hamburger, Orta: logo, Sağ: filtre ikonu |
+| **PWA Start URL** | `core-service` | `/dashboard` olarak değiştirildi |
+| **iOS Meta Tags** | `index.html` | Apple status bar, touch icon |
+
+### 🔴 KRİTİK DÜZELTMELER
+
+#### 1. Widget Sıralama Sorunu
+**Belirti:** Tarih değişince widget'lar rastgele sıralanıyordu.
+
+**Kök Neden:** API response sırası tutarlı değildi.
+
+**Çözüm:** `useMemo` ile `x,y` koordinatlarına göre sabit sıralama:
+```typescript
+const sortedWidgets = useMemo(() => {
+  return [...widgets].sort((a, b) => {
+    if ((a.y ?? 0) !== (b.y ?? 0)) return (a.y ?? 0) - (b.y ?? 0)
+    return (a.x ?? 0) - (b.x ?? 0)
+  })
+}, [widgets])
+```
+
+#### 2. Grup Seçimi Kokpite Gitmiyor (Hep 0)
+**Belirti:** MERKEZ/FRANCHISE seçilince dashboard değerleri 0 geliyordu.
+
+**Kök Neden:** `IOSPicker` UUID gönderiyordu, backend `code` bekliyordu.
+
+**Çözüm:** 
+```typescript
+// ESKİ (HATALI)
+options={groups.map(g => ({ id: g.id, label: g.name }))}
+
+// YENİ (DOĞRU)
+options={groups.map(g => ({ id: g.code, label: g.name }))}
+```
+
+#### 3. Mağaza Aramada Search Yoktu
+**Belirti:** Çok sayıda mağazada arama yapılamıyordu.
+
+**Çözüm:** `IOSPicker`'a `showSearch` prop'u eklendi:
+```typescript
+<IOSPicker
+  showSearch={true}
+  searchPlaceholder="Mağaza ara..."
+/>
+```
+
+### 📱 MOBİL UI MİMARİSİ
+
+```
+┌─────────────────────────────────────────┐
+│  ☰      [LOGO]              🎚️          │  ← Sticky Header
+├─────────────────────────────────────────┤
+│                                         │
+│  ┌───────┐ ┌───────┐                   │
+│  │ KPI 1 │ │ KPI 2 │  ← 2'li grid      │
+│  └───────┘ └───────┘                   │
+│  ┌───────┐ ┌───────┐                   │
+│  │ KPI 3 │ │ KPI 4 │                   │
+│  └───────┘ └───────┘                   │
+│  ┌─────────────────────┐               │
+│  │     Grafik 1        │  ← Full-width │
+│  └─────────────────────┘               │
+│                                         │
+└─────────────────────────────────────────┘
+
+Filtre İkonu tıklanınca:
+┌─────────────────────────────────────────┐
+│             Bottom Sheet                │
+│  ─────────────────────────              │
+│  📅 Tarih Seçimi                        │
+│  👥 Grup Seçimi (iOS Picker)           │
+│  🗺️ Bölge Seçimi (iOS Picker)          │
+│  🏪 Mağaza Seçimi (iOS Picker + Search)│
+│                                         │
+│  [Uygula]                               │
+└─────────────────────────────────────────┘
+```
+
+### 📁 DEĞİŞTİRİLEN DOSYALAR
+
+| Dosya | Değişiklik |
+|-------|------------|
+| `frontend/src/pages/DashboardPage.tsx` | Widget sıralama, responsive font, kompakt kartlar |
+| `frontend/src/pages/AnalysisPage.tsx` | Tek grafik mobil layout |
+| `frontend/src/components/FilterBar.tsx` | Bottom Sheet, iOS Picker, grup code fix |
+| `frontend/src/components/IOSPicker.tsx` | Yeni component + search özelliği |
+| `frontend/src/components/Layout.tsx` | Mobil header düzeni |
+| `frontend/src/stores/filterStore.ts` | `isMobileFilterOpen` state |
+| `services/core-service/src/index.ts` | PWA start_url: `/dashboard` |
+| `frontend/index.html` | iOS meta tags, cache-busting |
+
+### 🧪 TEST CHECKLIST
+
+- [x] Widget sıralaması tarih değişince sabit kalıyor
+- [x] Grup seçimi (MERKEZ/FRANCHISE) dashboard'a yansıyor
+- [x] Mağaza seçiminde arama çalışıyor
+- [x] Bottom Sheet açılıp kapanıyor
+- [x] iOS Picker native hissi veriyor
+- [x] PWA masaüstüne eklendi → /dashboard açılıyor
+- [x] Mobil header: hamburger-logo-filtre düzeni
 
 ---

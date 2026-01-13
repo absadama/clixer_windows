@@ -1,8 +1,11 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { useAuthStore } from '../stores/authStore'
 
+const baseURL = import.meta.env.VITE_API_URL || '/api'
+console.log('[API] Initializing with baseURL:', baseURL)
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',

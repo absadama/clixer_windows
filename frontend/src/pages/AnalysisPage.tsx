@@ -479,12 +479,14 @@ export default function AnalysisPage() {
 
         {/* Widget'lar - Responsive Grid Layout */}
         {/* Mobil: 2 kolon flex/grid, Tablet: 12 kolon, Desktop: 24 kolon */}
+        {/* Tek widget varsa mobilde full-width ve tam yükseklik */}
         {!loadingDesign && designWidgets.length > 0 && (
           <div 
             className="relative gap-2 sm:gap-3 lg:gap-4 overflow-hidden"
             style={isMobile ? {
               display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
+              // Tek widget varsa tek sütun, yoksa 2 sütun
+              gridTemplateColumns: designWidgets.length === 1 ? '1fr' : 'repeat(2, 1fr)',
               gap: '8px',
             } : {
               display: 'grid',
@@ -594,7 +596,10 @@ export default function AnalysisPage() {
                   style={{ 
                     gridColumn: isMobile ? undefined : `${gridX + 1} / span ${gridW}`,
                     gridRow: isMobile ? undefined : `${rawY + 1} / span ${gridH}`,
-                    minHeight: isMobile ? '100px' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
+                    // Tek widget varsa mobilde daha yüksek (tam ekran hissi)
+                    minHeight: isMobile 
+                      ? (designWidgets.length === 1 ? '350px' : '100px') 
+                      : `${gridH * rowHeight + (gridH - 1) * gap}px`,
                     // Renk moduna göre stil
                     ...(isFullColorMode ? { 
                       // Gradient arka plan - yumuşak geçiş

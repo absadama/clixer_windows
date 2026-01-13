@@ -2,6 +2,7 @@ import { ReactNode, useState, createContext, useContext, useEffect, useCallback 
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useFilterStore } from '../stores/filterStore'
 import {
   LayoutDashboard,
   Palette,
@@ -24,6 +25,7 @@ import {
   Sun,
   Moon,
   Table2,
+  SlidersHorizontal,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { UserRole } from '../types'
@@ -264,6 +266,9 @@ export default function Layout({ children }: LayoutProps) {
     appLogo: storeAppLogo
   } = useSettingsStore()
   
+  // Mobil filtre kontrolü için
+  const { setMobileFilterOpen } = useFilterStore()
+  
   // Logo için localStorage öncelikli - flash önleme
   const getEffectiveLogo = (): string => {
     // 1. Store'dan gelen değer uploads ise kullan
@@ -451,16 +456,16 @@ export default function Layout({ children }: LayoutProps) {
             'sticky top-0 z-30 h-16 flex items-center justify-between px-4 lg:px-8 border-b backdrop-blur-xl',
             theme.headerBg
           )}>
-            {/* Mobile menu button */}
+            {/* Mobil: Sol - Hamburger */}
             <button 
               onClick={() => setSidebarOpen(true)}
               className={clsx('lg:hidden p-2 rounded-xl transition-colors', theme.buttonSecondary)}
             >
               <Menu className={clsx('h-6 w-6', theme.headerText)} />
-          </button>
+            </button>
 
-            {/* Mobile logo */}
-            <div className="flex items-center gap-2 lg:hidden">
+            {/* Mobil: Orta - Logo (absolute ile tam ortada) */}
+            <div className="absolute left-1/2 -translate-x-1/2 lg:hidden">
               <img 
                 src={appLogo} 
                 alt={appName || 'Clixer'} 
@@ -473,6 +478,16 @@ export default function Layout({ children }: LayoutProps) {
                 }}
               />
             </div>
+            
+            {/* Mobil: Sağ - Filtre İkonu (Sadece Dashboard/Analiz sayfalarında) */}
+            {(location.pathname === '/dashboard' || location.pathname === '/analysis' || location.pathname.startsWith('/analysis/')) && (
+              <button
+                onClick={() => setMobileFilterOpen(true)}
+                className={clsx('lg:hidden p-2 rounded-xl transition-colors ml-auto', theme.buttonSecondary)}
+              >
+                <SlidersHorizontal className={clsx('h-5 w-5', theme.headerText)} />
+              </button>
+            )}
 
             {/* Search bar - Desktop */}
             <div className="hidden lg:flex items-center flex-1 max-w-xl">
@@ -498,8 +513,8 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </div>
 
-            {/* Right side actions */}
-            <div className="flex items-center gap-2">
+            {/* Right side actions - Mobilde gizli */}
+            <div className="hidden lg:flex items-center gap-2">
               {/* Notifications */}
               <button className={clsx(
                 'relative p-2 rounded-xl transition-colors',
@@ -510,7 +525,7 @@ export default function Layout({ children }: LayoutProps) {
               </button>
 
               {/* Activity indicator */}
-              <div className={clsx('hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg', theme.success)}>
+              <div className={clsx('flex items-center gap-2 px-3 py-1.5 rounded-lg', theme.success)}>
                 <Activity className="h-4 w-4" />
                 <span className="text-xs font-medium">Canlı</span>
               </div>

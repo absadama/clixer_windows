@@ -96,6 +96,10 @@ interface FilterState {
   isLoading: boolean
   isLoaded: boolean
   
+  // Mobil UI
+  isMobileFilterOpen: boolean
+  setMobileFilterOpen: (open: boolean) => void
+  
   // Actions
   loadFilters: (accessToken: string) => Promise<void>
   setRegion: (regionId: string | null) => void
@@ -158,6 +162,10 @@ export const useFilterStore = create<FilterState>((set, get) => ({
   endDate: formatDate(today()),
   isLoading: false,
   isLoaded: false,
+  
+  // Mobil UI
+  isMobileFilterOpen: false,
+  setMobileFilterOpen: (open) => set({ isMobileFilterOpen: open }),
   
   // Cross-Filter başlangıç
   crossFilters: [],
