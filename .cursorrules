@@ -9691,3 +9691,125 @@ sudo bash scripts/start-all.sh
 5. ❌ Stabil müşteriye haber vermeden güncelleme yapma
 
 ---
+
+## 🔴🔴🔴 YENİ MÜŞTERİ KURULUM KONTROL LİSTESİ (v4.29 - 14 Ocak 2026)
+
+### MUTLAK KURAL: Her yeni kurulumda bu kontroller ZORUNLU!
+
+Bu bölüm, 14 Ocak 2026'daki ikinci müşteri kurulumunda yaşanan sorunlardan öğrenilen derslerle oluşturulmuştur.
+
+### 📋 KURULUM ÖNCESİ (Windows'ta)
+
+| # | Kontrol | Komut/Dosya |
+|---|---------|-------------|
+| 1 | SQL dosyalarından BOM karakterleri kaldırıldı mı? | `powershell -ExecutionPolicy Bypass -File scripts/fix-bom.ps1` |
+| 2 | Son değişiklikler GitHub'a push edildi mi? | `git status && git push origin master` |
+| 3 | `db-backup/postgresql_full.sql` temiz mi? (eski müşteri verisi yok) | Manuel kontrol |
+
+### 📋 KURULUM SIRASINDA (Ubuntu SSH)
+
+| # | Adım | Doğrulama |
+|---|------|-----------|
+| 1 | Docker container'lar başladı mı? | `sudo docker ps` - 3 container görünmeli |
+| 2 | PostgreSQL şeması oluşturuldu mu? | `\dt` komutuyla 20+ tablo görünmeli |
+| 3 | Kritik tablolar mevcut mu? | Aşağıdaki listeyi kontrol et |
+| 4 | Admin kullanıcı oluşturuldu mu? | `SELECT email FROM users` - admin@clixer |
+| 5 | Labels seed edildi mi? | `SELECT COUNT(*) FROM labels` - 16+ kayıt |
+
+### 📋 KRİTİK TABLOLAR (HEPSİ OLMALI!)
+
+```
+tenants, users, positions, regions, stores, ownership_groups,
+data_connections, datasets, etl_jobs, etl_schedules,
+designs, metrics, design_widgets, components,
+system_settings, audit_logs, notifications, user_stores,
+menu_permissions, design_permissions, labels, grid_designs,
+ldap_config, ldap_position_mappings, ldap_store_mappings, ldap_sync_logs,
+geographic_locations, store_finance_settings, etl_scheduler_logs
+```
+
+### 📋 KURULUM SONRASI TESTLER
+
+```bash
+# 1. Tüm servislerin durumu
+sudo bash /opt/clixer/scripts/status.sh
+
+# 2. Login testi
+curl -s -X POST http://localhost:4000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@clixer","password":"Admin1234!"}' | grep accessToken
+
+# 3. Core API testi (token ile)
+TOKEN=$(curl -s -X POST ... | grep -o '"accessToken":"[^"]*"' | cut -d'"' -f4)
+curl -s http://localhost:4000/api/core/logo-info -H "Authorization: Bearer $TOKEN"
+curl -s http://localhost:4000/api/core/labels/menu -H "Authorization: Bearer $TOKEN"
+curl -s http://localhost:4000/api/core/regions -H "Authorization: Bearer $TOKEN"
+
+# 4. Browser console temiz mi? (F12)
+# 500 hatası olmamalı!
+```
+
+### 🔴 BİLİNEN SORUNLAR VE ÇÖZÜMLERİ
+
+#### SORUN 1: "invalid byte sequence for encoding UTF8: 0xff"
+
+**Kök Neden:** Windows'ta kaydedilen SQL dosyaları UTF-8 BOM (Byte Order Mark) içeriyor.
+
+**Çözüm:**
+```powershell
+# Windows'ta (kurulum öncesi)
+powershell -ExecutionPolicy Bypass -File scripts/fix-bom.ps1
+git add . && git commit -m "fix: Remove BOM from SQL files" && git push origin master
+```
+
+#### SORUN 2: Docker init-scripts çalışmamış
+
+**Kök Neden:** Docker'ın `/docker-entrypoint-initdb.d` mekanizması **SADECE** volume ilk oluşturulduğunda çalışır. Sonraki restart'larda çalışmaz.
+
+**Belirtiler:**
+- `\dt` komutu sadece 0-2 tablo gösterir
+- API 500 hatası: "relation X does not exist"
+
+**Çözüm:**
+```bash
+# Manuel olarak init scripts çalıştır
+cd /opt/clixer/docker/init-scripts/postgres
+for f in *.sql; do
+  echo "Running $f..."
+  sudo docker exec -i clixer_postgres psql -U clixer -d clixer < "$f"
+done
+```
+
+#### SORUN 3: Eksik kolonlar
+
+**Kök Neden:** Schema güncellemesi yapılmış ama init-scripts güncellenmemiş.
+
+**Çözüm:**
+```bash
+# Eksik kolonları ekle
+sudo docker exec -i clixer_postgres psql -U clixer -d clixer << 'EOF'
+ALTER TABLE tablename ADD COLUMN IF NOT EXISTS column_name TYPE;
+EOF
+```
+
+### 📋 YENİ MÜŞTERİ EKLEME PROSEDÜRÜ
+
+```
+1. Windows'ta scripts/fix-bom.ps1 çalıştır
+2. GitHub'a push et
+3. Ubuntu sunucusuna SSH bağlan
+4. install-ubuntu.sh çalıştır VEYA manuel kurulum yap
+5. PostgreSQL tablolarını doğrula (20+ tablo)
+6. Admin login testi yap
+7. Browser console kontrol et (500 hata olmamalı)
+8. Müşteriyi stabil müşteriler listesine ekle
+```
+
+### 📋 STABIL MÜŞTERİLER GÜNCELLENDİ
+
+| Müşteri | Versiyon | Tarih | Durum |
+|---------|----------|-------|-------|
+| Tavuk Dünyası (TD) | v4.28 | 13 Ocak 2026 | STABİL ✅ |
+| Nisantasi FIX | v4.29 | 14 Ocak 2026 | KURULUM TAMAMLANDI ✅ |
+
+---

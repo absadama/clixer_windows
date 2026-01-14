@@ -164,11 +164,79 @@ docker-compose up -d postgres clickhouse redis
 log_info "Veritabanlarının hazır olması bekleniyor (30 saniye)..."
 sleep 30
 
-# PostgreSQL yedeğini yükle
-if [ -f "$CLIXER_DIR/db-backup/postgresql_full.sql" ]; then
-    log_info "PostgreSQL yedeği yükleniyor..."
-    docker exec -i clixer_postgres psql -U clixer -d clixer < $CLIXER_DIR/db-backup/postgresql_full.sql 2>/dev/null || true
+# ============================================
+# PostgreSQL Şema Kontrolü ve Kurulumu
+# ============================================
+log_info "PostgreSQL şema kontrolü yapılıyor..."
+
+# tenants tablosu var mı kontrol et (init-scripts çalışmış mı?)
+TABLES_EXIST=$(docker exec clixer_postgres psql -U clixer -d clixer -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tenants';" 2>/dev/null | tr -d ' ')
+
+if [ "$TABLES_EXIST" != "1" ]; then
+    log_warn "Tablolar bulunamadı! Init scripts çalışmamış olabilir."
+    log_info "PostgreSQL şeması manuel olarak yükleniyor..."
+    
+    # Ana şema dosyası
+    if [ -f "$CLIXER_DIR/docker/init-scripts/postgres/00-schema-and-seed.sql" ]; then
+        log_info "  → 00-schema-and-seed.sql yükleniyor..."
+        docker exec -i clixer_postgres psql -U clixer -d clixer < "$CLIXER_DIR/docker/init-scripts/postgres/00-schema-and-seed.sql" 2>&1 || {
+            log_error "Ana şema yüklenemedi! BOM encoding sorunu olabilir."
+            log_info "Lütfen Windows'ta scripts/fix-bom.ps1 çalıştırın ve tekrar deneyin."
+        }
+    fi
+    
+    # Labels tablosu
+    if [ -f "$CLIXER_DIR/docker/init-scripts/postgres/07-labels.sql" ]; then
+        log_info "  → 07-labels.sql yükleniyor..."
+        docker exec -i clixer_postgres psql -U clixer -d clixer < "$CLIXER_DIR/docker/init-scripts/postgres/07-labels.sql" 2>&1 || true
+    fi
+    
+    # Grid designs tablosu
+    if [ -f "$CLIXER_DIR/docker/init-scripts/postgres/08-grid-designs.sql" ]; then
+        log_info "  → 08-grid-designs.sql yükleniyor..."
+        docker exec -i clixer_postgres psql -U clixer -d clixer < "$CLIXER_DIR/docker/init-scripts/postgres/08-grid-designs.sql" 2>&1 || true
+    fi
+    
+    # Diğer init scriptleri (varsa)
+    for script in "$CLIXER_DIR/docker/init-scripts/postgres/"*.sql; do
+        BASENAME=$(basename "$script")
+        if [[ "$BASENAME" != "00-schema-and-seed.sql" && "$BASENAME" != "07-labels.sql" && "$BASENAME" != "08-grid-designs.sql" ]]; then
+            log_info "  → $BASENAME yükleniyor..."
+            docker exec -i clixer_postgres psql -U clixer -d clixer < "$script" 2>&1 || true
+        fi
+    done
+    
+    # Şema kontrolü tekrar
+    TABLES_AFTER=$(docker exec clixer_postgres psql -U clixer -d clixer -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')
+    log_info "Oluşturulan tablo sayısı: $TABLES_AFTER"
+else
+    log_info "PostgreSQL şeması zaten mevcut. (tenants tablosu bulundu)"
 fi
+
+# ============================================
+# Şema Doğrulama (Kritik Tablolar)
+# ============================================
+log_info "Kritik tabloları doğrulama..."
+
+CRITICAL_TABLES="tenants users positions regions stores system_settings metrics designs data_connections datasets etl_jobs etl_schedules labels grid_designs design_widgets menu_permissions ldap_config"
+
+MISSING_TABLES=""
+for table in $CRITICAL_TABLES; do
+    EXISTS=$(docker exec clixer_postgres psql -U clixer -d clixer -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$table';" 2>/dev/null | tr -d ' ')
+    if [ "$EXISTS" != "1" ]; then
+        MISSING_TABLES="$MISSING_TABLES $table"
+    fi
+done
+
+if [ -n "$MISSING_TABLES" ]; then
+    log_error "Eksik tablolar var:$MISSING_TABLES"
+    log_error "Kurulum tam değil! Lütfen manuel olarak tabloları oluşturun."
+else
+    log_info "✓ Tüm kritik tablolar mevcut."
+fi
+
+# ⚠️ NOT: db-backup/postgresql_full.sql dosyası eski müşteri verilerini içerebilir.
+# Yeni kurulumda kullanılMAMALI! Init scripts temiz şema oluşturur.
 
 # ============================================
 # 8. Node.js Servisleri
@@ -283,6 +351,15 @@ server {
     # Sıkıştırma
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+
+    # Uploads - Persistent Logo Storage (WhiteLabel)
+    # ^~ prefix ile regex location'lardan önce eşleşir
+    location ^~ /uploads/ {
+        alias /opt/clixer/uploads/;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+        add_header Access-Control-Allow-Origin "*";
+    }
 
     # Frontend - Static dosyalar (Production Build)
     location / {
