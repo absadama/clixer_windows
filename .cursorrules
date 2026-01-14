@@ -9607,3 +9607,87 @@ Filtre İkonu tıklanınca:
 - [x] Mobil header: hamburger-logo-filtre düzeni
 
 ---
+
+## 🔴🔴🔴 ÇOK MÜŞTERİ YÖNETİMİ - GIT STRATEJİSİ (KRİTİK!)
+
+### MUTLAK KURAL: Tek GitHub repo ile birden fazla müşteri yönetilir!
+
+**Stabil Müşteriler:**
+| Müşteri | Versiyon | Tarih | Durum |
+|---------|----------|-------|-------|
+| Tavuk Dünyası (TD) | v4.28 | 13 Ocak 2026 | STABİL ✅ |
+
+### Git'e GİTMEYEN (Müşteri Bazlı Güvenli):
+
+| Dosya/Klasör | Açıklama |
+|--------------|----------|
+| `.env` | Müşteri şifreleri, JWT secret |
+| `uploads/` | Müşteri logoları |
+| `node_modules/` | Bağımlılıklar |
+| Docker volumes | Veritabanı verileri |
+
+### Risk Matrisi
+
+| Risk | Açıklama | Önlem |
+|------|----------|-------|
+| Init Script Değişikliği | Yeni tablo/kolon eklendi | Mevcut müşteride `ALTER TABLE` ile manuel migration |
+| API Değişikliği | Endpoint parametresi değişti | Backward compatibility koru |
+| Frontend Değişikliği | UI değişikliği tüm müşterilere gider | Test et, sonra deploy |
+| Schema Uyumsuzluğu | Yeni müşteri farklı schema | Migration scripti hazırla |
+
+### Git Kuralları
+
+1. **Büyük değişiklik öncesi TAG oluştur:**
+   ```bash
+   git tag v4.28-stable-YYYYMMDD
+   git push origin v4.28-stable-YYYYMMDD
+   ```
+
+2. **Müşteri güncellemesi öncesi:**
+   - Önce TEST ortamında dene
+   - Başarılı ise müşteriye deploy
+   - Sorun çıkarsa eski tag'e dön
+
+3. **Database değişikliği yapılacaksa:**
+   ```sql
+   -- Her zaman IF NOT EXISTS / IF EXISTS kullan
+   ALTER TABLE users ADD COLUMN IF NOT EXISTS new_column VARCHAR(100);
+   CREATE TABLE IF NOT EXISTS new_table (...);
+   ```
+
+4. **Backward Compatibility:**
+   - Eski API parametrelerini KALDIRMA, yenisini EKLE
+   - Deprecated parametreleri logla ama desteklemeye devam et
+
+### Müşteri Deploy Prosedürü
+
+```
+1. Windows'ta değişiklik yap
+2. Lokal test et
+3. GitHub'a push et
+4. Önce yeni/test müşteride dene
+5. Stabil müşterilere SONRA deploy et
+6. Her deploy öncesi sunucuda backup al
+```
+
+### Acil Geri Alma (Rollback)
+
+```bash
+# Müşteri sunucusunda
+cd /opt/clixer
+sudo bash scripts/stop-all.sh
+git fetch origin
+git log --oneline -10  # Son commitleri gör
+git checkout <ESKI_COMMIT_HASH>
+sudo bash scripts/start-all.sh
+```
+
+### ASLA YAPMA!
+
+1. ❌ Test etmeden stabil müşteriye deploy etme
+2. ❌ Database schema değişikliğini migration scriptsiz yapma
+3. ❌ API endpoint'i tamamen kaldırma (deprecate et)
+4. ❌ Müşteri bazlı kodu if-else ile yönetme (tenant config kullan)
+5. ❌ Stabil müşteriye haber vermeden güncelleme yapma
+
+---
