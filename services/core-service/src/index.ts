@@ -2496,22 +2496,41 @@ app.post('/ldap/sync', authenticate, authorize(ROLES.ADMIN), async (req: Request
       
       await client.bind(config.bind_dn, password);
       
-      // Kullanıcıları ara
+      // Kullanıcıları ara (PAGED SEARCH - 1000+ kullanıcı için)
       const searchBase = config.user_search_base || config.base_dn;
+      const allSearchEntries: any[] = [];
+      const PAGE_SIZE = 500; // Her sayfada 500 kayıt
+      
+      logger.info('LDAP paged search başlıyor...', { searchBase, pageSize: PAGE_SIZE });
+      
       const { searchEntries } = await client.search(searchBase, {
         scope: 'sub',
         filter: config.user_filter || '(&(objectClass=user)(mail=*))',
-        attributes: ['sAMAccountName', 'mail', 'displayName', 'title', 'department', 'memberOf', 'distinguishedName']
+        attributes: ['sAMAccountName', 'mail', 'displayName', 'title', 'department', 'memberOf', 'distinguishedName'],
+        paged: {
+          pageSize: PAGE_SIZE
+        }
+      });
+      
+      // Tüm sonuçları topla
+      allSearchEntries.push(...searchEntries);
+      
+      logger.info('LDAP paged search tamamlandı', { 
+        totalUsers: allSearchEntries.length,
+        searchBase 
       });
       
       await client.unbind();
       
-      stats.found = searchEntries.length;
+      // searchEntries yerine allSearchEntries kullan (geriye uyumluluk için)
+      const finalSearchEntries = allSearchEntries;
+      
+      stats.found = finalSearchEntries.length;
       
       const ldapUserDns: string[] = [];
       
       // Her kullanıcı için
-      for (const entry of searchEntries) {
+      for (const entry of finalSearchEntries) {
         try {
           const email = entry.mail as string;
           const name = (entry.displayName || entry.sAMAccountName) as string;
@@ -3340,23 +3359,83 @@ async function performScheduledLDAPSync(tenantId: string, configId: string): Pro
       });
     });
 
-    // Kullanıcıları ara
+    // Kullanıcıları ara (PAGED SEARCH - 1000+ kullanıcı için)
     const ldapUsers: any[] = [];
-    await new Promise<void>((resolve, reject) => {
-      client.search(baseDn, {
-        filter: userFilter,
-        scope: 'sub',
-        attributes: ['sAMAccountName', 'mail', 'displayName', 'cn', 'memberOf', 'distinguishedName']
-      }, (err: any, searchRes: any) => {
-        if (err) return reject(err);
+    const PAGE_SIZE = 500;
+    
+    logger.info('LDAP paged search başlıyor (scheduled sync)...', { baseDn, pageSize: PAGE_SIZE });
+    
+    // Paged search için recursive fonksiyon
+    const searchPage = async (cookie: Buffer | null = null): Promise<void> => {
+      return new Promise<void>((resolve, reject) => {
+        const controls: any[] = [];
         
-        searchRes.on('searchEntry', (entry: any) => {
-          ldapUsers.push(entry.ppiParsed || entry.object);
+        // PagedResultsControl ekle
+        const pagedControl = new ldap.PagedResultsControl({
+          value: {
+            size: PAGE_SIZE,
+            cookie: cookie || Buffer.alloc(0)
+          }
         });
-        searchRes.on('end', () => resolve());
-        searchRes.on('error', reject);
+        controls.push(pagedControl);
+        
+        client.search(baseDn, {
+          filter: userFilter,
+          scope: 'sub',
+          attributes: ['sAMAccountName', 'mail', 'displayName', 'cn', 'memberOf', 'distinguishedName']
+        }, controls, (err: any, searchRes: any) => {
+          if (err) return reject(err);
+          
+          let nextCookie: Buffer | null = null;
+          
+          searchRes.on('searchEntry', (entry: any) => {
+            ldapUsers.push(entry.pojo || entry.object);
+          });
+          
+          searchRes.on('page', (result: any, pageCb: Function) => {
+            // Sonraki sayfa cookie'sini al
+            if (result && result.controls) {
+              for (const ctrl of result.controls) {
+                if (ctrl.type === '1.2.840.113556.1.4.319') { // PagedResultsControl OID
+                  nextCookie = ctrl.value?.cookie;
+                  break;
+                }
+              }
+            }
+            if (pageCb) pageCb();
+          });
+          
+          searchRes.on('end', async (result: any) => {
+            // Son sayfadaki cookie'yi de kontrol et
+            if (result && result.controls) {
+              for (const ctrl of result.controls) {
+                if (ctrl.type === '1.2.840.113556.1.4.319') {
+                  nextCookie = ctrl.value?.cookie;
+                  break;
+                }
+              }
+            }
+            
+            // Cookie varsa ve boş değilse devam et
+            if (nextCookie && nextCookie.length > 0) {
+              logger.info(`LDAP paged search devam ediyor...`, { currentCount: ldapUsers.length });
+              try {
+                await searchPage(nextCookie);
+                resolve();
+              } catch (e) {
+                reject(e);
+              }
+            } else {
+              resolve();
+            }
+          });
+          
+          searchRes.on('error', reject);
+        });
       });
-    });
+    };
+    
+    await searchPage();
 
     client.unbind();
 
