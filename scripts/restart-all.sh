@@ -23,9 +23,10 @@ echo "$(date): --- RESTART STARTED ---" >> $LOG_FILE
 echo -e "${YELLOW}[1/4] Stopping all services...${NC}"
 echo "$(date): Stopping services..." >> $LOG_FILE
 
-# Systemd servisleri varsa onları kullan, yoksa pkill dene
+# Sudo içinden çağrıldığında sudo komutları şifre isteyebilir. 
+# Zaten bu script sudo ile çalışıyor, içindeki sudo'ları kaldırıp doğrudan komut veriyoruz.
 if systemctl list-unit-files clixer-gateway.service >/dev/null 2>&1; then
-    sudo systemctl stop clixer-*.service >> $LOG_FILE 2>&1
+    systemctl stop clixer-analytics.service clixer-auth.service clixer-core.service clixer-data.service clixer-etl-worker.service clixer-gateway.service clixer-notification.service >> $LOG_FILE 2>&1
 else
     bash "$SCRIPT_DIR/stop-all.sh" >> $LOG_FILE 2>&1
 fi
@@ -34,17 +35,17 @@ sleep 5
 # 2. Force kill any remaining node processes (safety net)
 echo -e "${YELLOW}[2/4] Cleaning up remaining processes...${NC}"
 echo "$(date): Cleaning up processes..." >> $LOG_FILE
-sudo pkill -9 -f "node" || true
-sudo pkill -9 -f "ts-node" || true
-sudo pkill -9 -f "vite" || true
-sudo pkill -9 -f "clixer" || true
+pkill -9 -f "node" || true
+pkill -9 -f "ts-node" || true
+pkill -9 -f "vite" || true
+pkill -9 -f "clixer" || true
 
 # 3. Start all services
 echo -e "${YELLOW}[3/4] Starting all services...${NC}"
 echo "$(date): Starting services..." >> $LOG_FILE
 
 if systemctl list-unit-files clixer-gateway.service >/dev/null 2>&1; then
-    sudo systemctl start clixer-*.service >> $LOG_FILE 2>&1
+    systemctl start clixer-gateway.service clixer-auth.service clixer-core.service clixer-data.service clixer-analytics.service clixer-notification.service clixer-etl-worker.service >> $LOG_FILE 2>&1
 else
     bash "$SCRIPT_DIR/start-all.sh" >> $LOG_FILE 2>&1
 fi
