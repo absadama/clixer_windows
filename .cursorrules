@@ -9811,5 +9811,50 @@ EOF
 |---------|----------|-------|-------|
 | Tavuk Dünyası (TD) | v4.28 | 13 Ocak 2026 | STABİL ✅ |
 | Nisantasi FIX | v4.29 | 14 Ocak 2026 | KURULUM TAMAMLANDI ✅ |
+| Nişantaşı 03 | v4.30 | 15 Ocak 2026 | KURULUM + RESTART BUTONU ✅ |
+
+---
+
+## 🛠️ SİSTEM ACİL MÜDAHALE (RESTART) SİSTEMİ
+
+### 📋 ÖZELLİK ÖZETİ
+Müşterinin terminale girmeden, UI üzerinden tüm sistemi temizleyerek yeniden başlatabilmesini sağlayan mekanizma.
+
+### 🏗️ MİMARİ YAPI
+1. **Frontend:** `AdminPage.tsx` > Sistem Monitörü sekmesinde "Sistemi Yeniden Başlat" butonu.
+2. **Backend:** `Data Service` > `/admin/system/restart` endpoint'i.
+3. **Platform Bağımsızlık:** 
+   - **Windows:** `scripts/restart-local.ps1` (PowerShell) - Port temizliği + npm run dev.
+   - **Linux (Prod):** `scripts/restart-all.sh` (Bash) - `systemctl restart clixer-*`.
+
+### 🔴 KRİTİK GÜVENLİK (SUDOERS)
+Müşterinin şifre girmeden bu işlemi yapabilmesi için `/etc/sudoers.d/clixer` dosyasına şu kural eklenmelidir:
+```bash
+clixer ALL=(ALL) NOPASSWD: /opt/clixer/scripts/restart-all.sh
+```
+*Bu ayar `install-ubuntu.sh` içine dahil edilmiştir.*
+
+### 🛠️ SERVİS YÖNETİMİ (SYSTEMD)
+Linux (Production) ortamında tüm mikroservisler artık ayrı birer `systemd` ünitesi olarak çalışmalıdır:
+- `clixer-gateway.service`
+- `clixer-auth.service`
+- `clixer-core.service`
+- `clixer-data.service`
+- `clixer-analytics.service`
+- `clixer-notification.service`
+- `clixer-etl-worker.service`
+
+**Kurulum Komutu:**
+```bash
+sudo chmod +x /opt/clixer/scripts/setup-services.sh
+sudo /opt/clixer/scripts/setup-services.sh
+```
+
+### ⚠️ BİLİNEN SORUNLAR VE ÇÖZÜMLERİ
+- **502 Bad Gateway (Restart sırasında):** Bu normaldir, servisler kapanıp açılırken Nginx geçici olarak bağlantıyı kaybeder. 30-60 sn sonra düzelir.
+- **Restart İşleminin Yarıda Kalması:** Backend servisi kendini kapatırken restart komutunu da öldürmemesi için `spawn` ile `detached: true` modunda çalıştırılmalıdır.
+- **PowerShell $pid Çakışması:** Windows scriptlerinde `$pid` rezerve bir değişkendir, yerine `$foundPid` kullanılmalıdır.
+
+---
 
 ---
