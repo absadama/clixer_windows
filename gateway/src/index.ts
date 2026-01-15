@@ -229,7 +229,7 @@ const proxyOptions = (target: string): Options => ({
 // ============================================
 
 // Gateway health
-app.get('/health', (req: Request, res: Response) => {
+app.get(['/health', '/api/health'], (req: Request, res: Response) => {
   res.json({
     service: 'gateway',
     status: 'healthy',
