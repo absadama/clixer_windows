@@ -3,6 +3,8 @@ Description=Clixer Notification Service
 Documentation=https://github.com/absadama/clixer_windows
 After=network.target docker.service clixer-gateway.service
 Requires=docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -12,8 +14,6 @@ WorkingDirectory=/opt/clixer/services/notification-service
 ExecStart=/usr/bin/npm run dev
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=60
-StartLimitBurst=3
 
 # Logging
 StandardOutput=append:/opt/clixer/logs/notification.log
@@ -24,7 +24,7 @@ Environment=NODE_ENV=production
 Environment=PORT=4004
 
 # Process management
-KillMode=process
+KillMode=mixed
 TimeoutStopSec=30
 
 [Install]

@@ -3,6 +3,8 @@ Description=Clixer ETL Worker
 Documentation=https://github.com/absadama/clixer_windows
 After=network.target docker.service clixer-data.service
 Requires=docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -12,8 +14,6 @@ WorkingDirectory=/opt/clixer/services/etl-worker
 ExecStart=/usr/bin/npm run dev
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=60
-StartLimitBurst=3
 
 # Logging
 StandardOutput=append:/opt/clixer/logs/etl-worker.log
@@ -23,7 +23,7 @@ StandardError=append:/opt/clixer/logs/etl-worker-error.log
 Environment=NODE_ENV=production
 
 # Process management
-KillMode=process
+KillMode=mixed
 TimeoutStopSec=60
 
 [Install]

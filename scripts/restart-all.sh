@@ -34,9 +34,10 @@ sleep 5
 # 2. Force kill any remaining node processes (safety net)
 echo -e "${YELLOW}[2/4] Cleaning up remaining processes...${NC}"
 echo "$(date): Cleaning up processes..." >> $LOG_FILE
-pkill -f "clixer" || true
-pkill -f "ts-node" || true
-pkill -f "vite" || true
+sudo pkill -9 -f "node" || true
+sudo pkill -9 -f "ts-node" || true
+sudo pkill -9 -f "vite" || true
+sudo pkill -9 -f "clixer" || true
 
 # 3. Start all services
 echo -e "${YELLOW}[3/4] Starting all services...${NC}"
