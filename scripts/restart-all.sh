@@ -22,7 +22,13 @@ echo "$(date): --- RESTART STARTED ---" >> $LOG_FILE
 # 1. Stop all services
 echo -e "${YELLOW}[1/4] Stopping all services...${NC}"
 echo "$(date): Stopping services..." >> $LOG_FILE
-bash "$SCRIPT_DIR/stop-all.sh" >> $LOG_FILE 2>&1
+
+# Systemd servisleri varsa onları kullan, yoksa pkill dene
+if systemctl list-unit-files clixer-gateway.service >/dev/null 2>&1; then
+    sudo systemctl stop clixer-*.service >> $LOG_FILE 2>&1
+else
+    bash "$SCRIPT_DIR/stop-all.sh" >> $LOG_FILE 2>&1
+fi
 sleep 5
 
 # 2. Force kill any remaining node processes (safety net)
@@ -35,7 +41,12 @@ pkill -f "vite" || true
 # 3. Start all services
 echo -e "${YELLOW}[3/4] Starting all services...${NC}"
 echo "$(date): Starting services..." >> $LOG_FILE
-bash "$SCRIPT_DIR/start-all.sh" >> $LOG_FILE 2>&1
+
+if systemctl list-unit-files clixer-gateway.service >/dev/null 2>&1; then
+    sudo systemctl start clixer-*.service >> $LOG_FILE 2>&1
+else
+    bash "$SCRIPT_DIR/start-all.sh" >> $LOG_FILE 2>&1
+fi
 sleep 5
 
 # 4. Check status
