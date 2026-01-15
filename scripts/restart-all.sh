@@ -35,10 +35,11 @@ sleep 5
 # 2. Force kill any remaining node processes (safety net)
 echo -e "${YELLOW}[2/4] Cleaning up remaining processes...${NC}"
 echo "$(date): Cleaning up processes..." >> $LOG_FILE
-pkill -9 -f "node" || true
-pkill -9 -f "ts-node" || true
+# Sadece servislerimizi hedef alıyoruz, scriptin kendisini (clixer/scripts) vurmuyoruz.
+pkill -9 -f "node.*/services/" || true
+pkill -9 -f "node.*/gateway/" || true
+pkill -9 -f "ts-node-dev" || true
 pkill -9 -f "vite" || true
-pkill -9 -f "clixer" || true
 
 # 3. Start all services
 echo -e "${YELLOW}[3/4] Starting all services...${NC}"
