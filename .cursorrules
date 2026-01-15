@@ -9809,9 +9809,9 @@ EOF
 
 | Müşteri | Versiyon | Tarih | Durum |
 |---------|----------|-------|-------|
-| Tavuk Dünyası (TD) | v4.28 | 13 Ocak 2026 | STABİL ✅ |
-| Nisantasi FIX | v4.29 | 14 Ocak 2026 | KURULUM TAMAMLANDI ✅ |
-| Nişantaşı 03 | v4.30 | 15 Ocak 2026 | KURULUM + RESTART BUTONU ✅ |
+| Tavuk Dünyası (TD) | v4.31 | 15 Ocak 2026 | STABİL ✅ |
+| Nisantasi FIX | v4.31 | 15 Ocak 2026 | STABİL ✅ |
+| Nişantaşı 03 | v4.31 | 15 Ocak 2026 | STABİL ✅ |
 
 ---
 
@@ -9854,6 +9854,24 @@ sudo /opt/clixer/scripts/setup-services.sh
 - **502 Bad Gateway (Restart sırasında):** Bu normaldir, servisler kapanıp açılırken Nginx geçici olarak bağlantıyı kaybeder. 30-60 sn sonra düzelir.
 - **Restart İşleminin Yarıda Kalması:** Backend servisi kendini kapatırken restart komutunu da öldürmemesi için `spawn` ile `detached: true` modunda çalıştırılmalıdır.
 - **PowerShell $pid Çakışması:** Windows scriptlerinde `$pid` rezerve bir değişkendir, yerine `$foundPid` kullanılmalıdır.
+
+### 🔴 NPM YOLU STANDARTLAŞTIRMASI (v4.31 - 15 Ocak 2026)
+**Sorun:** Farklı sunucularda Node.js farklı yöntemlerle kurulmuş olabilir (apt, nvm, manual). Bu durumda `npm` komutu farklı yollarda bulunur:
+- apt kurulumu: `/usr/bin/npm`
+- nvm kurulumu: `~/.nvm/versions/node/vXX.X.X/bin/npm`
+- Manual kurulum: `/usr/local/bin/npm`
+
+Systemd servis dosyaları `/usr/bin/npm` kullanır. Eğer npm farklı yerdeyse servisler başlamaz.
+
+**Çözüm:** `install-ubuntu.sh` ve `setup-services.sh` scriptleri otomatik olarak npm'in gerçek konumunu bulur ve `/usr/bin/npm`'e symlink oluşturur:
+```bash
+ACTUAL_NPM=$(which npm)
+if [ "$ACTUAL_NPM" != "/usr/bin/npm" ]; then
+    ln -sf "$ACTUAL_NPM" /usr/bin/npm
+fi
+```
+
+**Yeni kurulum veya güncelleme sonrası:** `setup-services.sh` çalıştırmak yeterli. Symlink otomatik oluşturulur.
 
 ---
 

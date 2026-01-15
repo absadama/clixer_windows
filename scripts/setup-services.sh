@@ -15,6 +15,15 @@ fi
 
 echo -e "${YELLOW}Servis dosyaları kopyalanıyor...${NC}"
 
+# 🔴 NPM YOLU STANDARTLAŞTIRMA
+# Farklı Node.js kurulum yöntemleri (apt, nvm, manual) npm'i farklı yerlere koyar.
+# Systemd servisleri /usr/bin/npm kullanır, bu yüzden symlink oluşturuyoruz.
+ACTUAL_NPM=$(which npm)
+if [ "$ACTUAL_NPM" != "/usr/bin/npm" ]; then
+    echo -e "${YELLOW}NPM yolu standartlaştırılıyor: $ACTUAL_NPM -> /usr/bin/npm${NC}"
+    ln -sf "$ACTUAL_NPM" /usr/bin/npm
+fi
+
 # Servis dosyalarını kopyala
 cp /opt/clixer/deploy/systemd/clixer-*.service /etc/systemd/system/
 

@@ -92,6 +92,16 @@ else
     log_info "Node.js zaten kurulu: $(node -v)"
 fi
 
+# 🔴 NPM YOLU STANDARTLAŞTIRMA
+# Farklı Node.js kurulum yöntemleri (apt, nvm, manual) npm'i farklı yerlere koyar.
+# Systemd servisleri /usr/bin/npm kullanır, bu yüzden symlink oluşturuyoruz.
+ACTUAL_NPM=$(which npm)
+if [ "$ACTUAL_NPM" != "/usr/bin/npm" ]; then
+    log_info "NPM yolu standartlaştırılıyor: $ACTUAL_NPM -> /usr/bin/npm"
+    ln -sf "$ACTUAL_NPM" /usr/bin/npm
+fi
+log_info "NPM yolu: $(which npm) -> $(readlink -f $(which npm) 2>/dev/null || which npm)"
+
 # ============================================
 # 5. Clixer Kullanıcısı ve Dizin
 # ============================================
