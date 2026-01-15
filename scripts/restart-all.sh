@@ -42,13 +42,10 @@ pkill -9 -f "node.*/gateway/" || true
 pkill -9 -f "ts-node-dev" || true
 pkill -9 -f "vite" || true
 
-# Portları kullananları bul ve öldür (Portlar: 4000-4005)
-for port in {4000..4005}; do
-    pid=$(lsof -t -i:$port)
-    if [ -n "$pid" ]; then
-        echo "Killing process on port $port (PID: $pid)" >> $LOG_FILE
-        kill -9 $pid || true
-    fi
+# Portları kullananları bul ve öldür (Portlar: 4000..4005)
+for port in 4000 4001 4002 4003 4004 4005 3000; do
+    # fuser veya lsof kullanarak portu temizle
+    fuser -k $port/tcp >> $LOG_FILE 2>&1 || true
 done
 
 sleep 5

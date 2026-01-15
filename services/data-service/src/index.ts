@@ -525,21 +525,21 @@ app.post('/admin/system/restart', authenticate, authorize(ROLES.ADMIN), async (r
   // ÖNEMLİ: İşlemi 'detached' modda başlatıyoruz. 
   // Böylece bu servis kapansa bile restart scripti çalışmaya devam edecek.
   
-  let child;
+  let cmd;
   if (isWindows) {
-    child = spawn('powershell.exe', ['-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+    cmd = `powershell.exe -ExecutionPolicy Bypass -File "${scriptPath}"`;
+    spawn('cmd.exe', ['/c', cmd], {
       detached: true,
       stdio: 'ignore'
-    });
+    }).unref();
   } else {
-    child = spawn('sudo', [scriptPath], {
-      detached: true,
-      stdio: 'ignore'
+    // Linux'ta 'at now' kullanarak işlemi servis sürecinden tamamen koparıyoruz.
+    // Bu sayede servis kapansa bile restart scripti öksüz kalıp çalışmaya devam eder.
+    cmd = `echo "sudo ${scriptPath}" | at now`;
+    exec(cmd, (err: any) => {
+      if (err) logger.error('Failed to schedule restart with at', { error: err.message });
     });
   }
-
-  // İşlemi ana süreçten kopar
-  child.unref();
   
   res.json({ 
     success: true, 
