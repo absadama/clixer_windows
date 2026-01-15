@@ -53,12 +53,12 @@ function Stop-ClixerProcesses {
         $netstatOutput = netstat -ano | Select-String ":$port " | Select-String "LISTENING"
         if ($netstatOutput) {
             $line = $netstatOutput -split '\s+' | Where-Object { $_ -ne '' }
-            $pid = $line[-1]
-            if ($pid -and $pid -match '^\d+$') {
+            $foundPid = $line[-1]
+            if ($foundPid -and $foundPid -match '^\d+$') {
                 try {
-                    Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+                    Stop-Process -Id $foundPid -Force -ErrorAction SilentlyContinue
                     $killedCount++
-                    Write-Info "Port $port serbest birakildi (PID: $pid)"
+                    Write-Info "Port $port serbest birakildi (PID: $foundPid)"
                 } catch {
                     # Ignore
                 }

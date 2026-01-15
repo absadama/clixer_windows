@@ -162,6 +162,7 @@ export default function AdminPage() {
   // Sistem Monitörü States
   const [activeSessions, setActiveSessions] = useState<any[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [restartLoading, setRestartLoading] = useState(false)
   
   
   // Logo Upload States
@@ -689,6 +690,26 @@ export default function AdminPage() {
       loadSessions()
     } catch (err: any) {
       alert('Oturum sonlandırılamadı: ' + err.message)
+    }
+  }
+
+  // Sistemi yeniden başlat
+  const handleSystemRestart = async () => {
+    if (!confirm('DİKKAT: Tüm servisler yeniden başlatılacak.\n\nBu işlem yaklaşık 30-60 saniye sürebilir ve kullanıcıların bağlantısı geçici olarak kesilebilir.\n\nDevam etmek istiyor musunuz?')) return
+    
+    setRestartLoading(true)
+    try {
+      const res = await apiCall('/admin/system/restart', { method: 'POST' })
+      alert(res.message || '✅ Yeniden başlatma işlemi başlatıldı. Lütfen bekleyin...')
+      
+      // Servisler ayağa kalkana kadar bekleyelim (30 saniye sonra butonu aktif et)
+      setTimeout(() => {
+        setRestartLoading(false)
+        loadSessions()
+      }, 30000)
+    } catch (err: any) {
+      setRestartLoading(false)
+      alert('Hata: ' + err.message)
     }
   }
 
@@ -3563,6 +3584,50 @@ export default function AdminPage() {
                 <RefreshCw size={16} className={sessionsLoading ? 'animate-spin' : ''} />
                 Yenile
               </button>
+            </div>
+
+            {/* Sistem Acil Müdahale (Restart) */}
+            <div className={clsx('rounded-2xl p-6 border-2', isDark ? 'bg-rose-500/5 border-rose-500/20' : 'bg-rose-50 border-rose-200')}>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                  <div className={clsx('p-3 rounded-xl', isDark ? 'bg-rose-500/20' : 'bg-rose-100')}>
+                    <Zap size={24} className="text-rose-500" />
+                  </div>
+                  <div>
+                    <h3 className={clsx('font-bold text-lg', theme.contentText)}>Sistem Acil Müdahale</h3>
+                    <p className={clsx('text-sm', theme.contentTextMuted)}>
+                      Eğer sistem yavaşsa veya bazı servisler çalışmıyorsa "Temiz Restart" yapın
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleSystemRestart}
+                  disabled={restartLoading}
+                  className={clsx(
+                    'flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-lg min-w-[220px]',
+                    restartLoading 
+                      ? 'bg-slate-400 cursor-not-allowed text-white' 
+                      : 'bg-rose-600 hover:bg-rose-700 text-white hover:scale-105 active:scale-95'
+                  )}
+                >
+                  {restartLoading ? (
+                    <>
+                      <Loader2 size={20} className="animate-spin" />
+                      Yeniden Başlatılıyor...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw size={20} />
+                      Sistemi Yeniden Başlat
+                    </>
+                  )}
+                </button>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                <span className={clsx('px-2 py-1 rounded font-medium', isDark ? 'bg-rose-500/10 text-rose-400' : 'bg-rose-100 text-rose-700')}>
+                  ⚠️ Bu işlem tüm arka plan servislerini (Gateway, Auth, Core, Data, Analytics) durdurup temizleyerek yeniden başlatır.
+                </span>
+              </div>
             </div>
 
             <div className={clsx('rounded-2xl p-6', theme.cardBg)}>

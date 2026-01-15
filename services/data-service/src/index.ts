@@ -510,6 +510,41 @@ app.get('/admin/system/stats', authenticate, async (req: Request, res: Response,
 });
 
 /**
+ * 🚀 Tüm servisleri yeniden başlat (Sorun çözücü)
+ * POST /admin/system/restart
+ */
+app.post('/admin/system/restart', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response) => {
+  const { exec } = require('child_process');
+  const path = require('path');
+  const isWindows = process.platform === 'win32';
+  
+  // Script yolu: scripts/ içindeki ilgili dosya
+  // index.ts src içinde olduğu için ../../../ ile root'a çıkıp scripts'e giriyoruz
+  const scriptPath = path.join(__dirname, '../../../scripts', isWindows ? 'restart-local.ps1' : 'restart-all.sh');
+  
+  logger.warn('System restart initiated by user', { user: req.user?.email, platform: process.platform });
+  
+  // Hemen yanıt ver ki UI zaman aşımına uğramasın
+  res.json({ 
+    success: true, 
+    message: 'Yeniden başlatma işlemi arka planda başlatıldı. Tüm servislerin ayağa kalkması 30-60 saniye sürebilir.' 
+  });
+
+  // Arka planda çalıştır
+  const cmd = isWindows 
+    ? `powershell -ExecutionPolicy Bypass -File "${scriptPath}"` 
+    : `sudo "${scriptPath}"`;
+
+  exec(cmd, (error: any, stdout: string, stderr: string) => {
+    if (error) {
+      logger.error('System restart failed', { error: error.message, stderr });
+      return;
+    }
+    logger.info('System restart completed successfully', { stdout });
+  });
+});
+
+/**
  * 🔧 Tüm servislerin durumu (Servis Yönetimi için)
  * GET /admin/services
  */

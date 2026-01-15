@@ -104,6 +104,15 @@ fi
 mkdir -p $CLIXER_DIR
 chown -R $CLIXER_USER:$CLIXER_USER $CLIXER_DIR
 
+# Script yetkilerini ayarla
+log_info "Script yetkileri ayarlanıyor..."
+chmod +x $CLIXER_DIR/scripts/*.sh
+
+# Sudoers yetkisi - clixer kullanıcısı restart scriptini şifresiz çalıştırabilsin (UI'dan restart için)
+log_info "Sudoers yapılandırması ekleniyor..."
+echo "$CLIXER_USER ALL=(ALL) NOPASSWD: $CLIXER_DIR/scripts/restart-all.sh" > /etc/sudoers.d/clixer
+chmod 440 /etc/sudoers.d/clixer
+
 # Persistent Uploads Klasörü (WhiteLabel için)
 mkdir -p /opt/clixer/uploads
 chown -R www-data:www-data /opt/clixer/uploads
