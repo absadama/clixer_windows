@@ -534,8 +534,8 @@ app.post('/admin/system/restart', authenticate, authorize(ROLES.ADMIN), async (r
     }).unref();
   } else {
     // Linux'ta 'at now' kullanarak işlemi servis sürecinden tamamen koparıyoruz.
-    // Bu sayede servis kapansa bile restart scripti öksüz kalıp çalışmaya devam eder.
-    cmd = `echo "sudo ${scriptPath}" | at now`;
+    // 2 saniyelik bir gecikme (sleep 2) ekliyoruz ki backend cevabı gönderebilsin.
+    cmd = `echo "sleep 2 && sudo ${scriptPath}" | at now`;
     exec(cmd, (err: any) => {
       if (err) logger.error('Failed to schedule restart with at', { error: err.message });
     });

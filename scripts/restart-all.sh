@@ -19,6 +19,9 @@ mkdir -p /opt/clixer/logs
 
 echo "$(date): --- RESTART STARTED ---" >> $LOG_FILE
 
+# Önce 2 saniye bekle ki API cevabını gönderebilsin
+sleep 2
+
 # 1. Stop all services
 echo -e "${YELLOW}[1/4] Stopping all services...${NC}"
 echo "$(date): Stopping services..." >> $LOG_FILE
