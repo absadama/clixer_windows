@@ -695,18 +695,37 @@ export default function AdminPage() {
 
   // Sistemi yeniden başlat
   const handleSystemRestart = async () => {
-    if (!confirm('DİKKAT: Tüm servisler yeniden başlatılacak.\n\nBu işlem yaklaşık 30-60 saniye sürebilir ve kullanıcıların bağlantısı geçici olarak kesilebilir.\n\nDevam etmek istiyor musunuz?')) return
+    if (!confirm('DİKKAT: Tüm servisler yeniden başlatılacak.\n\nBu işlem yaklaşık 30-60 saniye sürebilir.\n\nDevam etmek istiyor musunuz?')) return
     
     setRestartLoading(true)
     try {
       const res = await apiCall('/admin/system/restart', { method: 'POST' })
-      alert(res.message || '✅ Yeniden başlatma işlemi başlatıldı. Lütfen bekleyin...')
       
-      // Servisler ayağa kalkana kadar bekleyelim (30 saniye sonra butonu aktif et)
-      setTimeout(() => {
-        setRestartLoading(false)
-        loadSessions()
-      }, 30000)
+      // Akıllı bekleme (Polling)
+      let attempts = 0
+      const maxAttempts = 20 // 20 * 5sn = 100 saniye max bekleme
+      
+      const checkHealth = setInterval(async () => {
+        attempts++
+        try {
+          // Gateway health kontrolü (API_BASE /health)
+          const health = await fetch(`${API_BASE}/health`).then(r => r.json())
+          if (health.status === 'healthy') {
+            clearInterval(checkHealth)
+            setRestartLoading(false)
+            alert('✅ Sistem başarıyla yeniden başlatıldı ve hazır!')
+            loadSessions()
+          }
+        } catch (e) {
+          // Henüz hazır değil, devam...
+          if (attempts >= maxAttempts) {
+            clearInterval(checkHealth)
+            setRestartLoading(false)
+            alert('⚠️ İşlem tamamlandı ancak servislerin tam ayağa kalkması biraz daha sürebilir. Lütfen sayfayı yenileyin.')
+          }
+        }
+      }, 5000)
+
     } catch (err: any) {
       setRestartLoading(false)
       alert('Hata: ' + err.message)
