@@ -514,7 +514,7 @@ app.get('/admin/system/stats', authenticate, async (req: Request, res: Response,
  * POST /admin/system/restart
  */
 app.post('/admin/system/restart', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response) => {
-  const { spawn } = require('child_process');
+  const { spawn, exec } = require('child_process');
   const path = require('path');
   const isWindows = process.platform === 'win32';
   
@@ -534,8 +534,8 @@ app.post('/admin/system/restart', authenticate, authorize(ROLES.ADMIN), async (r
     }).unref();
   } else {
     // Linux'ta 'at now' kullanarak işlemi servis sürecinden tamamen koparıyoruz.
-    // 2 saniyelik bir gecikme (sleep 2) ekliyoruz ki backend cevabı gönderebilsin.
-    cmd = `echo "sleep 2 && sudo ${scriptPath}" | at now`;
+    // 5 saniyelik bir gecikme (sleep 5) ekliyoruz ki backend cevabı gönderebilsin.
+    cmd = `echo "sleep 5 && sudo ${scriptPath}" | at now`;
     exec(cmd, (err: any) => {
       if (err) logger.error('Failed to schedule restart with at', { error: err.message });
     });
