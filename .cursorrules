@@ -134,11 +134,13 @@ Sudoers gerekli: `clixer ALL=(ALL) NOPASSWD: /opt/clixer/scripts/restart-all.sh`
 
 ## DETAYLI BİLGİ İÇİN
 
-Mimari detaylar, hata çözümleri, versiyon geçmişi için:
-```
-@docs/architecture.md
-@docs/troubleshooting.md
-@docs/history/versions.md
-```
+| İhtiyaç | Dosya | Kullanım |
+|---------|-------|----------|
+| Mimari bilgi | `@docs/architecture.md` | Yeni özellik, servis yapısı, veritabanı |
+| Hata çözümü | `@docs/troubleshooting.md` | Debug, error, sorun giderme |
+| Geçmiş bilgi | `@docs/history/versions.md` | Versiyon notları, eski değişiklikler |
+| Tam yedek | `docs/cursorrules_backup_20260115.md` | Acil durumda tüm eski bilgiler |
+
+**Cursor AI:** Bu dosyaları gerektiğinde oku veya kullanıcı `@dosya` ile referans versin.
 
 ---
