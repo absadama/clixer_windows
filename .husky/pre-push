@@ -1,4 +1,4 @@
-﻿#!/bin/sh
+#!/bin/sh
 
 echo "=== Pre-push kontrolleri basliyor ==="
 
