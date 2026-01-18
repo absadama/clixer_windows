@@ -1,0 +1,27 @@
+﻿#!/bin/sh
+
+echo "=== Pre-push kontrolleri basliyor ==="
+
+# Frontend testleri
+echo ""
+echo "[1/2] Frontend testleri calistiriliyor..."
+cd frontend && npm test
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "!!! Frontend testleri BASARISIZ! Push iptal edildi."
+  exit 1
+fi
+
+# Shared testleri
+echo ""
+echo "[2/2] Shared testleri calistiriliyor..."
+cd ../shared && npm test
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "!!! Shared testleri BASARISIZ! Push iptal edildi."
+  exit 1
+fi
+
+echo ""
+echo "=== Tum testler gecti. Push devam ediyor... ==="
+exit 0

@@ -102,7 +102,7 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label className="block text-xs font-semibold uppercase mb-2 tracking-wide" style={{ color: '#9CA3AF' }}>
-                  E-posta
+                  E-Mail
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5" style={{ color: '#6B7280' }} />

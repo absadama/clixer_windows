@@ -1,5 +1,19 @@
 {
+  "name": "clixer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:frontend && npm run test:shared",
+    "test:frontend": "cd frontend && npm test",
+    "test:shared": "cd shared && npm test",
+    "test:coverage": "npm run test:frontend -- --coverage && npm run test:shared -- --coverage",
+    "build:check": "cd frontend && npm run build && cd ../shared && npm run build",
+    "health": "node scripts/health-check.js",
+    "pre-deploy": "npm test && npm run build:check && npm run health",
+    "prepare": "husky"
+  },
   "devDependencies": {
+    "husky": "^9.1.7",
     "mssql": "^12.2.0"
   }
 }
