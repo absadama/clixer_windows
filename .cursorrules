@@ -1,10 +1,10 @@
 # CLİXER - Enterprise Analytics Platform
 # "Olağanüstü Veri Hızı" - Power BI / Tableau / Qlik Rakibi
-# Versiyon: v4.31 | Tarih: 15 Ocak 2026
+# Versiyon: v4.32 | Tarih: 19 Ocak 2026
 
 ---
 
-## DOKÜMANTASYON YAPISI (15 Ocak 2026)
+## DOKÜMANTASYON YAPISI (19 Ocak 2026)
 
 Bu dosya optimize edilmiştir. Detaylı bilgiler aşağıdaki dosyalarda:
 
@@ -12,17 +12,34 @@ Bu dosya optimize edilmiştir. Detaylı bilgiler aşağıdaki dosyalarda:
 |-------|--------|--------------|
 | `docs/architecture.md` | Mimari, servisler, veritabanı, akışlar | Yeni özellik eklerken |
 | `docs/troubleshooting.md` | Hata çözümleri, debugging | Hata ayıklarken |
-| `docs/history/versions.md` | Tüm versiyon geçmişi (v2.0 - v4.31) | Geçmiş araştırırken |
+| `docs/history/versions.md` | Tüm versiyon geçmişi (v2.0 - v4.32) | Geçmiş araştırırken |
 | `docs/cursorrules_backup_20260115.md` | Orijinal 9878 satırlık yedek | Acil durumda |
 
 ---
 
 ## CURSOR AI - KRİTİK KURALLAR
 
-### 1. Test Edilmeden Rules'a Yazma
+### 1. LFL & Ranking List (ÖNEMLİ)
+Ranking list (TOP10) widget'larında LFL hesaplanırken:
+- `metric.comparison_type === 'lfl'` ve `rankingChartConfig.lflCalendarDatasetId` kontrolü yapılmalı.
+- SQL oluşturulurken dış SELECT'te kolon adı yerine subquery alias'ı (`grp_col`) kullanılmalı.
+
+### 2. Token Validation & 401 Race Condition
+`App.tsx` içerisinde `Layout` render edilmeden önce MUTLAKA `/auth/verify` endpoint'i ile token doğrulanmalı. Aksi takdirde refresh anında expired token ile çoklu API çağrısı yapılıp 401 hatalarına neden olur.
+
+### 3. White-Label & Dinamik Etiketler
+Mağaza, Bölge ve Grup isimleri kod içerisinde hardcoded (örn: "Mağaza") kullanılmamalıdır. Her zaman `settingsStore`'dan (`storeLabel`, `storeLabelPlural` vb.) okunmalıdır.
+
+### 4. UI Filtre Kontrolleri
+FilterBar ve Dashboard'da filtre butonları gösterilmeden önce verinin varlığı (`stores.length > 0`) kontrol edilmelidir. Boş liste durumunda "Mağaza Seçin" butonu gizlenmelidir.
+
+### 5. Yeni Müşteri (Tenant) Setup
+Yeni kurulumlarda veya ayarlar gelmediğinde Admin Panel > Sistem Ayarları > "Varsayılanları Yükle" butonu kullanılmalıdır.
+
+### 6. Test Edilmeden Rules'a Yazma
 Kullanıcıdan "başarılı/çalıştı" mesajı gelmeden .cursorrules'a güncelleme YAPMA!
 
-### 2. Git Push Zorunlu
+### 7. Git Push Zorunlu
 Commit sonrası MUTLAKA `git push origin master` yap. Push edilmemiş kod = Production'da YOK.
 
 ---
@@ -33,26 +50,23 @@ Commit sonrası MUTLAKA `git push origin master` yap. Push edilmemiş kod = Prod
 
 | Dosya | Neden Korunuyor |
 |-------|-----------------|
-| `frontend/src/components/FilterBar.tsx` | Bölge/Grup/Mağaza seçici - v4.26'da stabilize edildi |
+| `frontend/src/components/FilterBar.tsx` | Bölge/Grup/Mağaza seçici - v4.32'de dinamik etiketlendi |
 | `frontend/src/stores/filterStore.ts` | Filtre state yönetimi - kritik bağımlılıklar var |
 | `frontend/src/pages/DashboardPage.tsx` | Filtre entegrasyonu |
 | `frontend/src/pages/AnalysisPage.tsx` | Filtre entegrasyonu |
-| `services/analytics-service/src/index.ts` | storeIds/regionIds/groupIds işleme |
+| `services/analytics-service/src/index.ts` | storeIds/regionIds/groupIds ve LFL mantığı |
 
-**Stabil Versiyon:** v4.26-stable-magaza (12 Ocak 2026)
+**Stabil Versiyon:** v4.32 (19 Ocak 2026)
 
 ---
 
 ## PROJE ÖZETİ
-
 **Clixer**, kurumsal analitik platformudur. Perakende, F&B, üniversite, holding sektörlerinde kullanılır.
-
 **Fark:** Real-time WebSocket, Offline PWA, Delta Sync, White-label, No-code ETL
 
 ---
 
 ## MİMARİ
-
 ### Servisler ve Portlar
 
 | Servis | Port | Sorumluluk |
@@ -89,7 +103,6 @@ cd /opt/clixer && sudo git fetch origin && sudo git reset --hard origin/master &
 ---
 
 ## PRODUCTION NOTLARI
-
 ### Systemd Servisleri
 Linux'ta servisler systemd ile yönetilir:
 ```bash
@@ -117,14 +130,12 @@ Sudoers gerekli: `clixer ALL=(ALL) NOPASSWD: /opt/clixer/scripts/restart-all.sh`
 
 | Müşteri | Versiyon | Tarih | Durum |
 |---------|----------|-------|-------|
-| Tavuk Dünyası (TD) | v4.31 | 15 Ocak 2026 | STABİL |
-| Nisantasi FIX | v4.31 | 15 Ocak 2026 | STABİL |
-| Nişantaşı 03 | v4.31 | 15 Ocak 2026 | STABİL |
+| Tavuk Dünyası (TD) | v4.32 | 19 Ocak 2026 | STABİL |
+| Nişantaşı Üniv | v4.32 | 19 Ocak 2026 | STABİL |
 
 ---
 
 ## TEKNOLOJİ
-
 - **Frontend:** React 19, TypeScript, Vite, Zustand, TailwindCSS
 - **Backend:** Node.js, Express, TypeScript
 - **Mobile:** Capacitor (PWA + Native)
