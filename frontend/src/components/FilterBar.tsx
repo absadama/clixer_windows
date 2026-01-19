@@ -6,6 +6,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useFilterStore, DATE_PRESETS } from '../stores/filterStore'
 import { useAuthStore } from '../stores/authStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useTheme } from './Layout'
 import { 
   Building2, 
@@ -79,6 +80,16 @@ export default function FilterBar({
     isMobileFilterOpen,
     setMobileFilterOpen
   } = useFilterStore()
+  
+  // Veri etiketleri (dinamik isimler)
+  const { 
+    storeLabel, 
+    storeLabelPlural, 
+    regionLabel, 
+    regionLabelPlural,
+    groupLabel,
+    groupLabelPlural 
+  } = useSettingsStore()
 
   const [showRegionDropdown, setShowRegionDropdown] = useState(false)
   const [showGroupDropdown, setShowGroupDropdown] = useState(false)
@@ -151,24 +162,25 @@ export default function FilterBar({
   const selectedDatePreset = DATE_PRESETS.find(p => p.id === datePreset)
 
   // Bölge seçim özeti
+  // Bölge seçim özeti (dinamik etiket)
   const regionSelectionText = () => {
-    if (selectedRegionIds.length === 0) return 'Tüm Bölgeler'
+    if (selectedRegionIds.length === 0) return `Tüm ${regionLabelPlural}`
     if (selectedRegionIds.length === 1) {
       // selectedRegionIds artık code değerleri içeriyor (UUID değil)
       const region = regions.find(r => r.code === selectedRegionIds[0])
-      return region?.name || '1 bölge'
+      return region?.name || `1 ${regionLabel.toLowerCase()}`
     }
-    return `${selectedRegionIds.length} bölge`
+    return `${selectedRegionIds.length} ${regionLabel.toLowerCase()}`
   }
 
-  // Grup seçim özeti
+  // Grup seçim özeti (dinamik etiket)
   const groupSelectionText = () => {
-    if (selectedGroupIds.length === 0) return 'Tüm Gruplar'
+    if (selectedGroupIds.length === 0) return `Tüm ${groupLabelPlural}`
     if (selectedGroupIds.length === 1) {
       const group = groups.find(g => g.id === selectedGroupIds[0])
-      return group?.name || '1 grup'
+      return group?.name || `1 ${groupLabel.toLowerCase()}`
     }
-    return `${selectedGroupIds.length} grup`
+    return `${selectedGroupIds.length} ${groupLabel.toLowerCase()}`
   }
 
   // Filtrelenmiş bölgeler (arama için)
@@ -215,15 +227,15 @@ export default function FilterBar({
     return result
   }, [filteredStores, storeSearchQuery, localSelectedStoreIds, showStoreDropdown])
 
-  // Seçili mağaza sayısı özeti
+  // Seçili mağaza sayısı özeti (dinamik etiket)
   const storeSelectionText = () => {
-    if (selectedStoreIds.length === 0) return 'Mağaza seçin'
-    if (selectedStoreIds.length === stores.length) return 'Tüm Mağazalar'
+    if (selectedStoreIds.length === 0) return `${storeLabel} seçin`
+    if (selectedStoreIds.length === stores.length) return `Tüm ${storeLabelPlural}`
     if (selectedStoreIds.length === 1) {
       const store = stores.find(s => s.id === selectedStoreIds[0])
-      return store?.name || '1 mağaza'
+      return store?.name || `1 ${storeLabel.toLowerCase()}`
     }
-    return `${selectedStoreIds.length} mağaza`
+    return `${selectedStoreIds.length} ${storeLabel.toLowerCase()}`
   }
 
   // Mobil detection
@@ -404,7 +416,7 @@ export default function FilterBar({
                       <MapPin size={18} className="text-blue-500" />
                     </div>
                     <div className="text-left">
-                      <p className={clsx('text-sm font-medium', theme.contentText)}>Bölge</p>
+                      <p className={clsx('text-sm font-medium', theme.contentText)}>{regionLabel}</p>
                       <p className={clsx('text-xs', theme.contentTextMuted)}>{regionSelectionText()}</p>
                     </div>
                   </div>
@@ -426,7 +438,7 @@ export default function FilterBar({
                       <Store size={18} className="text-emerald-500" />
                     </div>
                     <div className="text-left">
-                      <p className={clsx('text-sm font-medium', theme.contentText)}>Mağaza</p>
+                      <p className={clsx('text-sm font-medium', theme.contentText)}>{storeLabel}</p>
                       <p className={clsx('text-xs', theme.contentTextMuted)}>{storeSelectionText()}</p>
                     </div>
                   </div>
@@ -471,7 +483,7 @@ export default function FilterBar({
         <IOSPicker
           isOpen={showRegionPicker}
           onClose={() => setShowRegionPicker(false)}
-          title="Bölge Seçin"
+          title={`${regionLabel} Seçin`}
           options={regions.map(r => ({ id: r.code, label: r.name }))}
           selectedIds={selectedRegionIds}
           onSelect={(ids) => setRegions(ids)}
@@ -481,13 +493,13 @@ export default function FilterBar({
         <IOSPicker
           isOpen={showStorePicker}
           onClose={() => setShowStorePicker(false)}
-          title="Mağaza Seçin"
+          title={`${storeLabel} Seçin`}
           options={filteredStores.map(s => ({ id: s.id, label: s.name, sublabel: s.city || '' }))}
           selectedIds={selectedStoreIds}
           onSelect={(ids) => setStores(ids)}
           accentColor="#10B981"
           showSearch={true}
-          searchPlaceholder="Mağaza ara..."
+          searchPlaceholder={`${storeLabel} ara...`}
         />
       </>
     )
@@ -543,7 +555,7 @@ export default function FilterBar({
                   <Search size={16} className={isDark ? 'text-gray-400' : 'text-gray-500'} />
                   <input
                     type="text"
-                    placeholder="Bölge ara..."
+                    placeholder={`${regionLabel} ara...`}
                     value={regionSearchQuery}
                     onChange={(e) => setRegionSearchQuery(e.target.value)}
                     className={clsx(
@@ -822,7 +834,7 @@ export default function FilterBar({
       )}
 
       {/* Mağaza Seçimi - Gelişmiş UI */}
-      {showStoreFilter && (
+      {showStoreFilter && stores.length > 0 && (
         <div className="relative">
           <button
             onClick={() => { setShowStoreDropdown(!showStoreDropdown); setStoreSearchQuery('') }}
@@ -858,7 +870,7 @@ export default function FilterBar({
                   <Search size={16} className={isDark ? 'text-gray-400' : 'text-gray-500'} />
                   <input
                     type="text"
-                    placeholder="Mağaza veya şehir ara..."
+                    placeholder={`${storeLabel} veya şehir ara...`}
                     value={storeSearchQuery}
                     onChange={(e) => setStoreSearchQuery(e.target.value)}
                     className={clsx(

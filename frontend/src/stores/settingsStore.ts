@@ -45,6 +45,14 @@ interface SettingsState {
   // Menü izinleri
   menuPermissions: MenuPermission[]
   
+  // Veri etiketleri (Mağaza/Bölge/Grup isimleri)
+  storeLabel: string
+  storeLabelPlural: string
+  regionLabel: string
+  regionLabelPlural: string
+  groupLabel: string
+  groupLabelPlural: string
+  
   // Loading state
   isLoading: boolean
   isLoaded: boolean
@@ -96,6 +104,13 @@ const defaultSettings = {
   financeExpenseBreakdownPositions: ['GENERAL_MANAGER', 'DIRECTOR', 'REGION_MANAGER'],
   financeAmortizationPositions: ['GENERAL_MANAGER', 'DIRECTOR', 'REGION_MANAGER'],
   financeSettingsPositions: ['GENERAL_MANAGER', 'DIRECTOR'],
+  // Veri etiketleri - varsayılan değerler
+  storeLabel: 'Mağaza',
+  storeLabelPlural: 'Mağazalar',
+  regionLabel: 'Bölge',
+  regionLabelPlural: 'Bölgeler',
+  groupLabel: 'Grup',
+  groupLabelPlural: 'Gruplar',
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -239,6 +254,50 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
             } catch { updates.financeSettingsPositions = ['GENERAL_MANAGER', 'DIRECTOR'] }
             break
         }
+      }
+      
+      // Veri etiketlerini yükle (labels API)
+      try {
+        const labelsResponse = await fetch(`${API_BASE}/core/labels`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (labelsResponse.ok) {
+          const labelsResult = await labelsResponse.json()
+          const labels = labelsResult.data || []
+          
+          // 'data' tipindeki etiketleri filtrele
+          for (const label of labels) {
+            if (label.label_type === 'data') {
+              switch (label.label_key) {
+                case 'store':
+                  updates.storeLabel = label.label_value
+                  break
+                case 'store_plural':
+                  updates.storeLabelPlural = label.label_value
+                  break
+                case 'region':
+                  updates.regionLabel = label.label_value
+                  break
+                case 'region_plural':
+                  updates.regionLabelPlural = label.label_value
+                  break
+                case 'group':
+                  updates.groupLabel = label.label_value
+                  break
+                case 'group_plural':
+                  updates.groupLabelPlural = label.label_value
+                  break
+              }
+            }
+          }
+        }
+      } catch (labelsError) {
+        // Labels yüklenemezse varsayılan değerler kullanılır
+        console.debug('Data labels could not be loaded, using defaults')
       }
       
       set({ ...updates, isLoading: false, isLoaded: true })

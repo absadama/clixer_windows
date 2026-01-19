@@ -241,7 +241,7 @@ export default function AdminPage() {
   const [labels, setLabels] = useState<any[]>([])
   const [labelsLoading, setLabelsLoading] = useState(false)
   const [labelsSaving, setLabelsSaving] = useState(false)
-  const [labelsTab, setLabelsTab] = useState<'menu' | 'position'>('menu')
+  const [labelsTab, setLabelsTab] = useState<'menu' | 'position' | 'data'>('menu')
   const [editedLabels, setEditedLabels] = useState<Record<string, string>>({})
   
   // Labels'dan pozisyon ismi çek (dinamik etiket desteği)
@@ -272,6 +272,16 @@ export default function AdminPage() {
     STORE_MANAGER: 'Magaza Muduru',
     ANALYST: 'Analist',
     VIEWER: 'Izleyici'
+  }
+  
+  // Veri etiketleri - Mağaza/Bölge/Grup isimlerinin özelleştirilmesi
+  const defaultDataLabels: Record<string, string> = {
+    store: 'Magaza',
+    store_plural: 'Magazalar',
+    region: 'Bolge',
+    region_plural: 'Bolgeler',
+    group: 'Grup',
+    group_plural: 'Gruplar'
   }
 
   // Filtrelenmiş mağazalar
@@ -423,9 +433,12 @@ export default function AdminPage() {
   
   // Etiket değerini al
   const getLabelValue = (type: string, key: string): string => {
-    return editedLabels[`${type}:${key}`] || 
-           (type === 'menu' ? defaultMenuLabels[key] : defaultPositionLabels[key]) || 
-           key
+    const defaultValue = type === 'menu' 
+      ? defaultMenuLabels[key] 
+      : type === 'position' 
+        ? defaultPositionLabels[key] 
+        : defaultDataLabels[key]
+    return editedLabels[`${type}:${key}`] || defaultValue || key
   }
 
   // Performans ayarını kaydet
@@ -1527,6 +1540,17 @@ export default function AdminPage() {
               >
                 Pozisyon Etiketleri
               </button>
+              <button
+                onClick={() => setLabelsTab('data')}
+                className={clsx(
+                  'px-4 py-2 rounded-xl font-medium transition-all',
+                  labelsTab === 'data' 
+                    ? theme.buttonPrimary 
+                    : clsx(theme.contentTextMuted, 'hover:' + theme.contentText)
+                )}
+              >
+                Veri Etiketleri
+              </button>
             </div>
 
             {labelsLoading ? (
@@ -1591,6 +1615,62 @@ export default function AdminPage() {
                           <p className={clsx('text-xs mt-1', theme.contentTextMuted)}>Varsayılan: {defaultValue}</p>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {labelsTab === 'data' && (
+                  <div className="space-y-4">
+                    <p className={clsx('text-sm mb-4', theme.contentTextMuted)}>
+                      Mağaza, Bölge ve Grup terimlerini şirketinize uygun şekilde değiştirin.
+                      Örneğin bir üniversite için "Mağaza" yerine "Fakülte", "Bölge" yerine "Kampüs" yazabilirsiniz.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {Object.entries(defaultDataLabels).map(([key, defaultValue]) => {
+                        // Key'i daha okunabilir hale getir
+                        const labelMap: Record<string, string> = {
+                          store: 'Tekil (örn: Mağaza)',
+                          store_plural: 'Çoğul (örn: Mağazalar)',
+                          region: 'Tekil (örn: Bölge)',
+                          region_plural: 'Çoğul (örn: Bölgeler)',
+                          group: 'Tekil (örn: Grup)',
+                          group_plural: 'Çoğul (örn: Gruplar)'
+                        }
+                        const categoryMap: Record<string, string> = {
+                          store: 'MAĞAZA',
+                          store_plural: 'MAĞAZA',
+                          region: 'BÖLGE',
+                          region_plural: 'BÖLGE',
+                          group: 'GRUP',
+                          group_plural: 'GRUP'
+                        }
+                        return (
+                          <div key={key} className={clsx('p-4 rounded-xl border', theme.cardBg, isDark ? 'border-gray-700' : 'border-gray-200')}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={clsx('text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded', 
+                                key.startsWith('store') ? 'bg-emerald-500/20 text-emerald-500' :
+                                key.startsWith('region') ? 'bg-blue-500/20 text-blue-500' :
+                                'bg-purple-500/20 text-purple-500'
+                              )}>
+                                {categoryMap[key]}
+                              </span>
+                              <span className={clsx('text-xs', theme.contentTextMuted)}>{labelMap[key]}</span>
+                            </div>
+                            <input
+                              type="text"
+                              value={getLabelValue('data', key)}
+                              onChange={(e) => updateLabel('data', key, e.target.value)}
+                              placeholder={defaultValue}
+                              className={clsx(
+                                'w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-500',
+                                theme.inputBg, theme.inputText,
+                                isDark ? 'border-gray-600' : 'border-gray-300'
+                              )}
+                            />
+                            <p className={clsx('text-xs mt-1', theme.contentTextMuted)}>Varsayılan: {defaultValue}</p>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
