@@ -87,6 +87,8 @@ export default function FilterBar({
   
   // LOCAL STORE SEÇİMİ - Dropdown açıkken bu kullanılır, kapatılınca Zustand'a yazılır
   const [localSelectedStoreIds, setLocalSelectedStoreIds] = useState<string[]>(selectedStoreIds)
+  const [localSelectedRegionIds, setLocalSelectedRegionIds] = useState<string[]>(selectedRegionIds)
+  const [localSelectedGroupIds, setLocalSelectedGroupIds] = useState<string[]>(selectedGroupIds)
   
   // Zustand store değiştiğinde local state'i senkronize et (sadece dropdown kapalıyken)
   useEffect(() => {
@@ -94,14 +96,42 @@ export default function FilterBar({
       setLocalSelectedStoreIds(selectedStoreIds)
     }
   }, [selectedStoreIds, showStoreDropdown])
+
+  useEffect(() => {
+    if (!showRegionDropdown) {
+      setLocalSelectedRegionIds(selectedRegionIds)
+    }
+  }, [selectedRegionIds, showRegionDropdown])
+
+  useEffect(() => {
+    if (!showGroupDropdown) {
+      setLocalSelectedGroupIds(selectedGroupIds)
+    }
+  }, [selectedGroupIds, showGroupDropdown])
   
   // Dropdown kapandığında store'u güncelle
   const handleCloseStoreDropdown = () => {
     setShowStoreDropdown(false)
     // Sadece değişiklik varsa store'u güncelle
-    if (JSON.stringify(localSelectedStoreIds.sort()) !== JSON.stringify(selectedStoreIds.sort())) {
+    if (JSON.stringify([...localSelectedStoreIds].sort()) !== JSON.stringify([...selectedStoreIds].sort())) {
       console.log('🔵 [FilterBar] Mağaza seçimleri kaydediliyor:', localSelectedStoreIds.length)
       setStores(localSelectedStoreIds)
+    }
+  }
+
+  const handleCloseRegionDropdown = () => {
+    setShowRegionDropdown(false)
+    if (JSON.stringify([...localSelectedRegionIds].sort()) !== JSON.stringify([...selectedRegionIds].sort())) {
+      console.log('🔵 [FilterBar] Bölge seçimleri kaydediliyor:', localSelectedRegionIds.length)
+      setRegions(localSelectedRegionIds)
+    }
+  }
+
+  const handleCloseGroupDropdown = () => {
+    setShowGroupDropdown(false)
+    if (JSON.stringify([...localSelectedGroupIds].sort()) !== JSON.stringify([...selectedGroupIds].sort())) {
+      console.log('🔵 [FilterBar] Grup seçimleri kaydediliyor:', localSelectedGroupIds.length)
+      setGroups(localSelectedGroupIds)
     }
   }
   
@@ -169,16 +199,21 @@ export default function FilterBar({
       )
     }
     
-    // Seçili olanları üste al (LOCAL state kullan)
+    // Sıralama mantığı: Sadece dropdown kapalıyken veya arama yapılırken seçilenleri üste al
+    // Dropdown açıkken kullanıcı seçim yaparsa listenin zıplamasını önlemek için
+    // sadece ilk açılıştaki (veya arama sonucundaki) sırayı koruyoruz.
     result.sort((a, b) => {
-      const aSelected = localSelectedStoreIds.includes(a.id) ? 0 : 1
-      const bSelected = localSelectedStoreIds.includes(b.id) ? 0 : 1
-      if (aSelected !== bSelected) return aSelected - bSelected
+      // Eğer arama sorgusu VEYA dropdown KAPALI ise seçilenleri üste al
+      if (!showStoreDropdown || storeSearchQuery.trim()) {
+        const aSelected = localSelectedStoreIds.includes(a.id) ? 0 : 1
+        const bSelected = localSelectedStoreIds.includes(b.id) ? 0 : 1
+        if (aSelected !== bSelected) return aSelected - bSelected
+      }
       return a.name.localeCompare(b.name, 'tr')
     })
     
     return result
-  }, [filteredStores, storeSearchQuery, localSelectedStoreIds])
+  }, [filteredStores, storeSearchQuery, localSelectedStoreIds, showStoreDropdown])
 
   // Seçili mağaza sayısı özeti
   const storeSelectionText = () => {
@@ -489,10 +524,13 @@ export default function FilterBar({
           </button>
 
           {showRegionDropdown && (
-            <div className={clsx(
-              'absolute top-full left-0 mt-2 w-72 rounded-xl shadow-2xl z-50 border overflow-hidden',
-              isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
-            )}>
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className={clsx(
+                'absolute top-full left-0 mt-2 w-72 rounded-xl shadow-2xl z-50 border overflow-hidden',
+                isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
+              )}
+            >
               {/* Header - Search */}
               <div className={clsx(
                 'p-3 border-b',
@@ -524,7 +562,7 @@ export default function FilterBar({
                 {/* Hızlı seçim butonları */}
                 <div className="flex gap-2 mt-2">
                   <button
-                    onClick={() => setRegions(regions.map(r => r.id))}
+                    onClick={() => setLocalSelectedRegionIds(regions.map(r => r.code))}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -536,7 +574,7 @@ export default function FilterBar({
                     Tümünü Seç
                   </button>
                   <button
-                    onClick={() => setRegions([])}
+                    onClick={() => setLocalSelectedRegionIds([])}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -555,10 +593,17 @@ export default function FilterBar({
                 {searchedRegions.map(region => {
                   // KRİTİK: region.code kullan, region.id DEĞİL!
                   // Backend MainRegionID (sayısal) bekliyor, regions.code = MainRegionID
-                  const isSelected = selectedRegionIds.includes(region.code)
+                  const isSelected = localSelectedRegionIds.includes(region.code)
                   return (
-                    <label
+                    <div
                       key={region.id}
+                      onClick={() => {
+                        if (isSelected) {
+                          setLocalSelectedRegionIds(localSelectedRegionIds.filter(code => code !== region.code))
+                        } else {
+                          setLocalSelectedRegionIds([...localSelectedRegionIds, region.code])
+                        }
+                      }}
                       className={clsx(
                         'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all',
                         isSelected 
@@ -582,19 +627,6 @@ export default function FilterBar({
                       >
                         {isSelected && <Check size={12} strokeWidth={3} />}
                       </div>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(e) => {
-                          // KRİTİK: region.code kullan, region.id DEĞİL!
-                          if (e.target.checked) {
-                            setRegions([...selectedRegionIds, region.code])
-                          } else {
-                            setRegions(selectedRegionIds.filter(code => code !== region.code))
-                          }
-                        }}
-                        className="sr-only"
-                      />
                       <div className="flex-1">
                         <span className={clsx(
                           'text-sm font-medium',
@@ -606,7 +638,7 @@ export default function FilterBar({
                           #{region.code}
                         </span>
                       </div>
-                    </label>
+                    </div>
                   )
                 })}
               </div>
@@ -617,10 +649,10 @@ export default function FilterBar({
                 isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
               )}>
                 <span className={clsx('text-xs', isDark ? 'text-gray-500' : 'text-gray-500')}>
-                  {selectedRegionIds.length} / {regions.length} seçili
+                  {localSelectedRegionIds.length} / {regions.length} seçili
                 </span>
                 <button
-                  onClick={() => setShowRegionDropdown(false)}
+                  onClick={handleCloseRegionDropdown}
                   className="px-5 py-2 text-sm font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-all"
                 >
                   Uygula
@@ -649,10 +681,13 @@ export default function FilterBar({
           </button>
 
           {showGroupDropdown && (
-            <div className={clsx(
-              'absolute top-full left-0 mt-2 w-72 rounded-xl shadow-2xl z-50 border overflow-hidden',
-              isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
-            )}>
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className={clsx(
+                'absolute top-full left-0 mt-2 w-72 rounded-xl shadow-2xl z-50 border overflow-hidden',
+                isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
+              )}
+            >
               {/* Header - Search */}
               <div className={clsx(
                 'p-3 border-b',
@@ -684,7 +719,7 @@ export default function FilterBar({
                 {/* Hızlı seçim butonları */}
                 <div className="flex gap-2 mt-2">
                   <button
-                    onClick={() => setGroups(groups.map(g => g.code))}
+                    onClick={() => setLocalSelectedGroupIds(groups.map(g => g.code))}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -696,7 +731,7 @@ export default function FilterBar({
                     Tümünü Seç
                   </button>
                   <button
-                    onClick={() => setGroups([])}
+                    onClick={() => setLocalSelectedGroupIds([])}
                     className={clsx(
                       'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
                       isDark 
@@ -713,10 +748,17 @@ export default function FilterBar({
               {/* Group List */}
               <div className="max-h-64 overflow-y-auto">
                 {searchedGroups.map(group => {
-                  const isSelected = selectedGroupIds.includes(group.code)
+                  const isSelected = localSelectedGroupIds.includes(group.code)
                   return (
-                    <label
+                    <div
                       key={group.id}
+                      onClick={() => {
+                        if (isSelected) {
+                          setLocalSelectedGroupIds(localSelectedGroupIds.filter(code => code !== group.code))
+                        } else {
+                          setLocalSelectedGroupIds([...localSelectedGroupIds, group.code])
+                        }
+                      }}
                       className={clsx(
                         'flex items-center gap-3 px-4 py-3 cursor-pointer transition-all',
                         isSelected 
@@ -740,18 +782,6 @@ export default function FilterBar({
                       >
                         {isSelected && <Check size={12} strokeWidth={3} />}
                       </div>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setGroups([...selectedGroupIds, group.code])
-                          } else {
-                            setGroups(selectedGroupIds.filter(code => code !== group.code))
-                          }
-                        }}
-                        className="sr-only"
-                      />
                       <div className="flex-1 flex items-center gap-2">
                         {group.color && (
                           <div 
@@ -766,7 +796,7 @@ export default function FilterBar({
                           {group.name}
                         </span>
                       </div>
-                    </label>
+                    </div>
                   )
                 })}
               </div>
@@ -777,10 +807,10 @@ export default function FilterBar({
                 isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
               )}>
                 <span className={clsx('text-xs', isDark ? 'text-gray-500' : 'text-gray-500')}>
-                  {selectedGroupIds.length} / {groups.length} seçili
+                  {localSelectedGroupIds.length} / {groups.length} seçili
                 </span>
                 <button
-                  onClick={() => setShowGroupDropdown(false)}
+                  onClick={handleCloseGroupDropdown}
                   className="px-5 py-2 text-sm font-medium rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-all"
                 >
                   Uygula
@@ -1068,14 +1098,9 @@ export default function FilterBar({
         <div 
           className="fixed inset-0 z-40" 
           onClick={() => {
-            setShowRegionDropdown(false)
-            setShowGroupDropdown(false)
-            // Store dropdown için özel handler kullan - seçimleri kaydet
-            if (showStoreDropdown) {
-              handleCloseStoreDropdown()
-            } else {
-              setShowStoreDropdown(false)
-            }
+            if (showRegionDropdown) handleCloseRegionDropdown()
+            if (showGroupDropdown) handleCloseGroupDropdown()
+            if (showStoreDropdown) handleCloseStoreDropdown()
             setShowDateDropdown(false)
           }}
         />

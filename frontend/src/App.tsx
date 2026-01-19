@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/authStore'
 import Layout from './components/Layout'
@@ -19,17 +19,28 @@ import api from './services/api'
 
 function App() {
   const { isAuthenticated, hasHydrated, logout, accessToken } = useAuthStore()
+  const [isTokenValidated, setIsTokenValidated] = useState(false)
 
   // Sayfa açıldığında token geçerliliğini kontrol et
+  // Layout'u render etmeden ÖNCE token'ı doğrula
   useEffect(() => {
     if (hasHydrated && isAuthenticated && accessToken) {
-      // Token'ı test et - settings endpoint'i ile
-      api.get('/core/settings')
+      // Token'ı sessizce test et - verify endpoint ile (hafif)
+      api.get('/auth/verify')
+        .then(() => {
+          // Token geçerli, devam et
+          setIsTokenValidated(true)
+        })
         .catch((err) => {
           if (err.response?.status === 401) {
+            // Token geçersiz, sessizce logout
             logout()
           }
+          setIsTokenValidated(true) // Hata olsa da validation tamamlandı
         })
+    } else if (hasHydrated && !isAuthenticated) {
+      // Zaten login değil, validation gerekmiyor
+      setIsTokenValidated(true)
     }
   }, [hasHydrated, isAuthenticated, accessToken, logout])
 
@@ -40,6 +51,18 @@ function App() {
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
           <span className="text-lg text-slate-600 dark:text-slate-400">Yükleniyor...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // Token validation tamamlanana kadar bekle (konsol hataları önlenir)
+  if (isAuthenticated && !isTokenValidated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-lg text-slate-600 dark:text-slate-400">Oturum doğrulanıyor...</span>
         </div>
       </div>
     )

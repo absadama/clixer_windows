@@ -268,8 +268,6 @@ async function calculateLFL(
     logger.debug('LFL SQL generated', { 
       hasStoreColumn: !!storeCol, 
       lflTable, 
-      thisYearCol, 
-      lastYearCol,
       sqlLength: lflSql.length
     });
     
@@ -327,6 +325,9 @@ async function calculateLFL(
   const lastYearStart = `${startDateObj.getFullYear() - 1}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}-${String(startDateObj.getDate()).padStart(2, '0')}`;
   const lastYearEnd = `${endDateObj.getFullYear() - 1}-${String(endDateObj.getMonth() + 1).padStart(2, '0')}-${String(endDateObj.getDate()).padStart(2, '0')}`;
   
+  // Fallback'te de filtre koşullarını uygula (bölge, grup, mağaza filtreleri)
+  const fallbackStoreFilter = storeFilterCondition || '';
+  
   let lflSql: string;
   
   if (storeColumn) {
@@ -343,6 +344,7 @@ async function calculateLFL(
           AND toDate(${dateColumn}) <= '${thisYearEnd}'
           ${rlsCondition}
           ${filterCondition}
+          ${fallbackStoreFilter}
       ),
       
       -- Geçen yıl mağaza bazında satış olan günler (dayOfYear)
@@ -355,6 +357,7 @@ async function calculateLFL(
           AND toDate(${dateColumn}) <= '${lastYearEnd}'
           ${rlsCondition}
           ${filterCondition}
+          ${fallbackStoreFilter}
       ),
       
       -- Her mağaza için, hem bu yıl hem geçen yıl satış olan dayOfYear
@@ -379,6 +382,7 @@ async function calculateLFL(
           AND toDate(${dateColumn}) <= '${thisYearEnd}'
           ${rlsCondition}
           ${filterCondition}
+          ${fallbackStoreFilter}
         ) as current_value,
         (
           SELECT ${aggFunc}
@@ -392,8 +396,10 @@ async function calculateLFL(
           AND toDate(${dateColumn}) <= '${lastYearEnd}'
           ${rlsCondition}
           ${filterCondition}
+          ${fallbackStoreFilter}
         ) as previous_value,
-        (SELECT count() FROM common_store_days) as common_days_count
+        (SELECT count() FROM common_store_days) as common_days_count,
+        (SELECT uniq(store_id) FROM common_store_days) as unique_stores
     `;
   } else {
     // Genel fallback (eski mantık)
@@ -406,6 +412,7 @@ async function calculateLFL(
           AND toDate(${dateColumn}) <= '${thisYearEnd}'
           ${rlsCondition}
           ${filterCondition}
+          ${fallbackStoreFilter}
       ),
       last_year_days AS (
         SELECT DISTINCT toDayOfYear(toDate(${dateColumn})) as day_of_year
@@ -414,6 +421,7 @@ async function calculateLFL(
           AND toDate(${dateColumn}) <= '${lastYearEnd}'
           ${rlsCondition}
           ${filterCondition}
+          ${fallbackStoreFilter}
       ),
       common_days AS (
         SELECT t.day_of_year
@@ -429,6 +437,7 @@ async function calculateLFL(
             AND toDate(${dateColumn}) <= '${thisYearEnd}'
             ${rlsCondition}
             ${filterCondition}
+            ${fallbackStoreFilter}
         ) as current_value,
         (
           SELECT ${aggFunc}
@@ -438,6 +447,7 @@ async function calculateLFL(
             AND toDate(${dateColumn}) <= '${lastYearEnd}'
             ${rlsCondition}
             ${filterCondition}
+            ${fallbackStoreFilter}
         ) as previous_value,
         (SELECT count() FROM common_days) as common_days_count
     `;
@@ -447,13 +457,14 @@ async function calculateLFL(
     current_value: number;
     previous_value: number;
     common_days_count: number;
+    unique_stores?: number;
   }>(lflSql);
   
   if (result.length === 0 || result[0].common_days_count === 0) {
     return null;
   }
   
-  const { current_value, previous_value, common_days_count } = result[0];
+  const { current_value, previous_value, common_days_count, unique_stores } = result[0];
   const currentVal = Number(current_value) || 0;
   const previousVal = Number(previous_value) || 0;
   
@@ -469,7 +480,7 @@ async function calculateLFL(
     previousValue: previousVal,
     trend,
     commonDays: Number(common_days_count),
-    uniqueStores: undefined,  // Fallback'te mağaza sayısı hesaplanmıyor
+    uniqueStores: storeColumn ? (Number(unique_stores) || undefined) : undefined,
     isStoreBased: !!storeColumn
   };
 }
@@ -1477,6 +1488,59 @@ async function executeMetric(
         logger.debug('SQL Mode: Date filter applied', { startDate, endDate, dateColumn: dateColumnSql });
       }
     }
+
+    // SQL Modunda Bölge, Grup ve Mağaza filtrelerini de uygula
+    const regionIds = parameters.regionIds as string;
+    const groupIds = parameters.groupIds as string;
+    const storeIds = parameters.storeIds as string;
+
+    if ((regionIds || groupIds || storeIds) && metric.dataset_id) {
+      const datasetResult = await db.queryOne<any>(
+        'SELECT store_column, region_column, group_column FROM datasets WHERE id = $1',
+        [metric.dataset_id]
+      );
+
+      if (datasetResult) {
+        const sqlFilters: string[] = [];
+
+        // Bölge filtresi
+        if (regionIds && datasetResult.region_column) {
+          const regionCodeList = regionIds.split(',').map(s => s.trim()).filter(s => s).join(',');
+          if (regionCodeList) sqlFilters.push(`${datasetResult.region_column} IN (${regionCodeList})`);
+        }
+
+        // Grup filtresi
+        if (groupIds && datasetResult.group_column) {
+          const groupValueList = groupIds.split(',').map(s => `'${s.trim()}'`).filter(s => s !== "''").join(',');
+          if (groupValueList) sqlFilters.push(`${datasetResult.group_column} IN (${groupValueList})`);
+        }
+
+        // Mağaza filtresi
+        if (storeIds && datasetResult.store_column) {
+          const storeUUIDs = storeIds.split(',').map(s => s.trim());
+          const storeCodesResult = await db.query(`SELECT code FROM stores WHERE id = ANY($1::uuid[])`, [storeUUIDs]);
+          if (storeCodesResult.rows.length > 0) {
+            const storeCodeList = storeCodesResult.rows.map((r: any) => r.code).join(',');
+            sqlFilters.push(`${datasetResult.store_column} IN (${storeCodeList})`);
+          }
+        }
+
+        if (sqlFilters.length > 0) {
+          const extraCondition = sqlFilters.join(' AND ');
+          if (sql.toLowerCase().includes('where')) {
+            sql = sql.replace(/where/i, `WHERE ${extraCondition} AND `);
+          } else {
+            const insertPos = sql.search(/\b(GROUP BY|ORDER BY|LIMIT)\b/i);
+            if (insertPos > 0) {
+              sql = sql.substring(0, insertPos) + ` WHERE ${extraCondition} ` + sql.substring(insertPos);
+            } else {
+              sql += ` WHERE ${extraCondition}`;
+            }
+          }
+          logger.debug('SQL Mode: Extra filters applied', { sqlFilters });
+        }
+      }
+    }
     
     // LIMIT yoksa ekle - SQL modunda da chart_config.limit'e bak
     // limit: 0 = "Limitsiz" seçilmiş demek
@@ -1983,6 +2047,12 @@ async function executeMetric(
           ? 'AND ' + lflFilterParts.join(' AND ') 
           : '';
         
+        logger.debug('LFL filters applied', {
+          hasRegionFilter: !!(parameters.regionIds),
+          hasGroupFilter: !!(parameters.groupIds),
+          hasStoreFilter: !!(parameters.storeIds)
+        });
+        
         const lflResult = await calculateLFL(
           tableName,
           dateColumn,
@@ -1998,11 +2068,13 @@ async function executeMetric(
         );
         
         if (lflResult) {
-          // ⚠️ KRİTİK: LFL ana değeri = sadece ortak mağaza-günlerin toplamı!
-          // TÜM veri değil, LFL eşleşen günlerin toplamı gösterilmeli
-          value = lflResult.currentValue;
+          // ⚠️ KRİTİK: LFL kartı GEÇEN YIL değerini göstermeli!
+          // Normal kart bu yılı gösterir, LFL kartı geçen yılı gösterir
+          // Böylece kullanıcı bir bakışta "bu yıl vs geçen yıl" karşılaştırması yapabilir
+          value = lflResult.previousValue;  // GEÇEN YIL değeri
           
-          previousValue = lflResult.previousValue;
+          previousValue = lflResult.currentValue;  // BU YIL değeri (karşılaştırma için)
+          // Trend olduğu gibi kalmalı: negatif = bu yıl düşmüş = kırmızı
           trend = lflResult.trend;
           comparisonDays = {
             current: lflResult.commonDays,
@@ -2160,6 +2232,9 @@ async function executeMetric(
       const trendCompType = rankingChartConfig.trendComparisonType || 'mom';
       const dateColumn = rankingChartConfig.comparisonColumn || null;
       
+      // LFL modu kontrolü: comparison_type = 'lfl' ise LFL takvimi kullan
+      const useLflCalendar = metric.comparison_type === 'lfl' && rankingChartConfig.lflCalendarDatasetId;
+      
       if (dateColumn) {
         try {
           // Dashboard'dan gelen tarih aralığını kullan (yoksa bugünü kullan)
@@ -2168,6 +2243,23 @@ async function executeMetric(
           
           let currStartDate: string, currEndDate: string;
           let prevStartDate: string, prevEndDate: string;
+          let lflCalendarTable: string | null = null;
+          let lflThisYearCol: string = 'this_year';
+          let lflLastYearCol: string = 'last_year';
+          
+          // LFL takvim bilgilerini al
+          if (useLflCalendar) {
+            const lflDataset = await db.queryOne<{ clickhouse_table: string }>(
+              'SELECT clickhouse_table FROM datasets WHERE id = $1',
+              [rankingChartConfig.lflCalendarDatasetId]
+            );
+            if (lflDataset?.clickhouse_table) {
+              lflCalendarTable = `clixer_analytics.${lflDataset.clickhouse_table}`;
+              lflThisYearCol = rankingChartConfig.lflThisYearColumn || 'this_year';
+              lflLastYearCol = rankingChartConfig.lflLastYearColumn || 'last_year';
+              logger.debug('Ranking list: Using LFL calendar', { lflCalendarTable, lflThisYearCol, lflLastYearCol });
+            }
+          }
           
           if (paramStartDate && paramEndDate) {
             // Dashboard'dan gelen tarihleri kullan
@@ -2179,7 +2271,17 @@ async function executeMetric(
             const end = new Date(paramEndDate);
             const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
             
-            if (trendCompType === 'mom') {
+            if (useLflCalendar && lflCalendarTable) {
+              // LFL: Geçen yıl tarihlerini takvimden hesapla (geniş aralık al)
+              const prevStart = new Date(start);
+              prevStart.setFullYear(prevStart.getFullYear() - 1);
+              prevStart.setDate(prevStart.getDate() - 10);
+              const prevEnd = new Date(end);
+              prevEnd.setFullYear(prevEnd.getFullYear() - 1);
+              prevEnd.setDate(prevEnd.getDate() + 10);
+              prevStartDate = prevStart.toISOString().slice(0, 10);
+              prevEndDate = prevEnd.toISOString().slice(0, 10);
+            } else if (trendCompType === 'mom') {
               // Geçen ay aynı günler
               const prevStart = new Date(start);
               prevStart.setMonth(prevStart.getMonth() - 1);
@@ -2206,7 +2308,7 @@ async function executeMetric(
             }
             
             logger.debug('Ranking list trend: Using dashboard dates', {
-              currStartDate, currEndDate, prevStartDate, prevEndDate, trendCompType
+              currStartDate, currEndDate, prevStartDate, prevEndDate, trendCompType, useLflCalendar
             });
           } else {
             // Fallback: Bugünü kullan
@@ -2289,24 +2391,69 @@ async function executeMetric(
             if (tableName) {
               // Mevcut satırların label değerlerini al
               const currentLabels = value.map((row: any) => row.label);
+              const labelFilter = currentLabels.map((l: any) => `'${l}'`).join(',');
               
-              // Önceki dönem sorgusunu oluştur
-              const prevPeriodSql = `
-                SELECT 
-                  toString(${actualGroupByColumn}) as label,
-                  SUM(${actualAggregateColumn}) as prev_value
-                FROM clixer_analytics.${tableName}
-                WHERE toDate(${dateColumn}) >= '${prevStartDate}' 
-                  AND toDate(${dateColumn}) <= '${prevEndDate}'
-                  AND toString(${actualGroupByColumn}) IN (${currentLabels.map((l: any) => `'${l}'`).join(',')})
-                GROUP BY ${actualGroupByColumn}
-              `;
+              // Önceki dönem sorgusunu oluştur - LFL veya normal
+              let prevPeriodSql: string;
               
-              logger.debug('Ranking list prev period query', { prevPeriodSql });
+              if (useLflCalendar && lflCalendarTable) {
+                // LFL TAKVİMİ KULLAN: Sadece her iki dönemde de satış olan günleri karşılaştır
+                // Dış SELECT'te grp_col alias'ını kullan (BranchName değil)
+                prevPeriodSql = `
+                  SELECT 
+                    toString(grp_col) as label,
+                    SUM(prev_value) as prev_value
+                  FROM (
+                    SELECT 
+                      ty.grp_col as grp_col,
+                      ly.agg_value as prev_value
+                    FROM (
+                      -- Bu yıl satış yapan mağaza-günler
+                      SELECT ${actualGroupByColumn} as grp_col, toDate(${dateColumn}) as sale_date
+                      FROM clixer_analytics.${tableName}
+                      WHERE toDate(${dateColumn}) >= '${currStartDate}' AND toDate(${dateColumn}) <= '${currEndDate}'
+                        AND toString(${actualGroupByColumn}) IN (${labelFilter})
+                      GROUP BY ${actualGroupByColumn}, toDate(${dateColumn})
+                    ) ty
+                    INNER JOIN (
+                      -- LFL Takvim eşleşmeleri
+                      SELECT toDate(${lflThisYearCol}) as ty_date, toDate(${lflLastYearCol}) as ly_date
+                      FROM ${lflCalendarTable}
+                      WHERE toDate(${lflThisYearCol}) >= '${currStartDate}' AND toDate(${lflThisYearCol}) <= '${currEndDate}'
+                    ) lfl ON ty.sale_date = lfl.ty_date
+                    INNER JOIN (
+                      -- Geçen yıl satış yapan mağaza-günler
+                      SELECT ${actualGroupByColumn} as grp_col, toDate(${dateColumn}) as sale_date, SUM(${actualAggregateColumn}) as agg_value
+                      FROM clixer_analytics.${tableName}
+                      WHERE toDate(${dateColumn}) >= '${prevStartDate}' AND toDate(${dateColumn}) <= '${prevEndDate}'
+                        AND toString(${actualGroupByColumn}) IN (${labelFilter})
+                      GROUP BY ${actualGroupByColumn}, toDate(${dateColumn})
+                    ) ly ON ty.grp_col = ly.grp_col AND lfl.ly_date = ly.sale_date
+                  )
+                  GROUP BY grp_col
+                `;
+                logger.debug('Ranking list LFL prev period query', { useLflCalendar: true, lflCalendarTable });
+              } else {
+                // Normal mod: Basit tarih aralığı karşılaştırması
+                prevPeriodSql = `
+                  SELECT 
+                    toString(${actualGroupByColumn}) as label,
+                    SUM(${actualAggregateColumn}) as prev_value
+                  FROM clixer_analytics.${tableName}
+                  WHERE toDate(${dateColumn}) >= '${prevStartDate}' 
+                    AND toDate(${dateColumn}) <= '${prevEndDate}'
+                    AND toString(${actualGroupByColumn}) IN (${labelFilter})
+                  GROUP BY ${actualGroupByColumn}
+                `;
+              }
+              
+              logger.debug('Ranking list prev period query', { useLflCalendar });
               
               try {
                 const prevResult = await clickhouse.query(prevPeriodSql);
                 const prevData = prevResult as any[];
+                
+                logger.debug('Ranking list prev period result', { count: prevData.length });
                 
                 // Önceki dönem değerlerini map'e dönüştür
                 const prevValueMap = new Map<string, number>();
@@ -2338,12 +2485,7 @@ async function executeMetric(
                 metadata.autoTrendCalculated = true;
                 metadata.trendSource = 'backend_calculated';
                 
-                logger.info('Ranking list auto trend calculated successfully', {
-                  metricId,
-                  trendCompType,
-                  rowCount: value.length,
-                  prevDataCount: prevData.length
-                });
+                logger.debug('Ranking list auto trend calculated', { metricId, rowCount: value.length });
               } catch (prevQueryError: any) {
                 logger.warn('Ranking list prev period query failed', {
                   metricId,
@@ -3030,6 +3172,17 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
     const parameters = req.method === 'POST' 
       ? { ...req.query, ...req.body } 
       : req.query as Record<string, any>;
+    
+    // DEBUG: Gelen parametreleri logla
+    logger.info('DASHBOARD FULL PARAMS DEBUG', {
+      method: req.method,
+      regionIds: parameters.regionIds || '(empty)',
+      groupIds: parameters.groupIds || '(empty)',
+      storeIds: parameters.storeIds ? `${parameters.storeIds.split(',').length} adet` : '(empty)',
+      startDate: parameters.startDate,
+      endDate: parameters.endDate,
+      bodyKeys: Object.keys(req.body || {})
+    });
     
     // Cross-Filter parse
     let crossFilters: Array<{ field: string; value: any }> = [];
