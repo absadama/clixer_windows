@@ -244,6 +244,149 @@ export async function logPermissionDenied(
 }
 
 // ============================================
+// SENSITIVE OPERATIONS
+// ============================================
+
+/**
+ * Password change - kritik güvenlik olayı
+ */
+export async function logPasswordChange(
+  userId: string,
+  tenantId: string,
+  targetUserId: string,
+  changedBy: 'self' | 'admin',
+  ipAddress?: string
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action: 'PASSWORD_CHANGE',
+    resourceType: 'user',
+    resourceId: targetUserId,
+    details: { changedBy, isSelfChange: userId === targetUserId },
+    ipAddress
+  });
+  
+  logger.info('Password changed', { 
+    userId, 
+    targetUserId, 
+    changedBy,
+    isSelfChange: userId === targetUserId 
+  });
+}
+
+/**
+ * Role change - kritik güvenlik olayı
+ */
+export async function logRoleChange(
+  userId: string,
+  tenantId: string,
+  targetUserId: string,
+  oldRole: string,
+  newRole: string,
+  ipAddress?: string
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action: 'UPDATE',
+    resourceType: 'user',
+    resourceId: targetUserId,
+    details: { 
+      changeType: 'role_change',
+      oldRole, 
+      newRole 
+    },
+    ipAddress
+  });
+  
+  logger.warn('User role changed', { 
+    changedBy: userId, 
+    targetUserId, 
+    oldRole, 
+    newRole 
+  });
+}
+
+/**
+ * Category permission change
+ */
+export async function logCategoryPermissionChange(
+  userId: string,
+  tenantId: string,
+  targetUserId: string,
+  addedCategories: string[],
+  removedCategories: string[],
+  canSeeAllCategories?: boolean
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action: 'UPDATE',
+    resourceType: 'user',
+    resourceId: targetUserId,
+    details: { 
+      changeType: 'category_permission',
+      addedCategories, 
+      removedCategories,
+      canSeeAllCategories
+    }
+  });
+}
+
+/**
+ * Settings change - sistem ayarları değişikliği
+ */
+export async function logSettingsChange(
+  userId: string,
+  tenantId: string,
+  settingKey: string,
+  oldValue: any,
+  newValue: any
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action: 'SETTINGS_CHANGE',
+    resourceType: 'system_setting',
+    resourceId: settingKey,
+    details: { 
+      settingKey,
+      oldValue: typeof oldValue === 'object' ? JSON.stringify(oldValue) : oldValue,
+      newValue: typeof newValue === 'object' ? JSON.stringify(newValue) : newValue
+    }
+  });
+  
+  logger.info('Settings changed', { userId, settingKey });
+}
+
+/**
+ * Data export - veri dışa aktarım
+ */
+export async function logDataExport(
+  userId: string,
+  tenantId: string,
+  resourceType: ResourceType,
+  exportFormat: string,
+  rowCount: number,
+  filters?: Record<string, any>
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action: 'EXPORT',
+    resourceType,
+    details: { 
+      format: exportFormat,
+      rowCount,
+      filters
+    }
+  });
+  
+  logger.info('Data exported', { userId, resourceType, format: exportFormat, rowCount });
+}
+
+// ============================================
 // QUERY FUNCTIONS
 // ============================================
 
@@ -308,6 +451,11 @@ export default {
   logCrud,
   logError,
   logPermissionDenied,
+  logPasswordChange,
+  logRoleChange,
+  logCategoryPermissionChange,
+  logSettingsChange,
+  logDataExport,
   getUserActivity,
   getRecentLogins,
   getFailedOperations

@@ -82,6 +82,11 @@ export {
   logCrud,
   logError,
   logPermissionDenied,
+  logPasswordChange,
+  logRoleChange,
+  logCategoryPermissionChange,
+  logSettingsChange,
+  logDataExport,
   getUserActivity,
   getRecentLogins,
   getFailedOperations
