@@ -37,6 +37,9 @@ import {
   containsDangerousSQLKeywords
 } from '@clixer/shared';
 
+// NOTE: Modular helpers exist in ./helpers/ but index.ts contains more detailed versions
+// Future refactoring should consolidate these (helpers contain simplified versions)
+
 const logger = createLogger({ service: 'analytics-service' });
 const app = express();
 const PORT = process.env.ANALYTICS_SERVICE_PORT || 4005;
@@ -2773,11 +2776,17 @@ app.post('/datasets/:datasetId/aggregate', authenticate, tenantIsolation, async 
 
 /**
  * Tüm tasarımları listele
+ * GÜVENLİK: Pozisyon ve kategori bazlı filtreleme
+ * - ADMIN her şeyi görür
+ * - Diğer kullanıcılar sadece allowed_positions içinde kendi pozisyonu olan tasarımları görür
+ * - Kategori kontrolü: Kullanıcının erişim hakkı olan kategoriler
  */
 app.get('/designs', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { type, isActive } = req.query;
-
+    const userRole = req.user!.role;
+    const userPosition = req.user!.positionCode || 'VIEWER';
+    
     let sql = `
       SELECT d.*, 
              (SELECT COUNT(*) FROM design_widgets dw WHERE dw.design_id = d.id) as widget_count
@@ -2785,6 +2794,33 @@ app.get('/designs', authenticate, tenantIsolation, async (req: Request, res: Res
       WHERE d.tenant_id = $1
     `;
     const params: any[] = [req.user!.tenantId];
+
+    // ADMIN her şeyi görür, diğerleri sadece izin verilen tasarımları
+    if (userRole !== 'ADMIN') {
+      // Pozisyon kontrolü: allowed_positions array'inde kullanıcının pozisyonu olmalı
+      // veya allowed_positions boş/null ise (eski tasarımlar) herkese açık kabul et
+      sql += ` AND (
+        d.allowed_positions IS NULL 
+        OR array_length(d.allowed_positions, 1) IS NULL 
+        OR $${params.length + 1} = ANY(d.allowed_positions)
+        OR d.created_by = $${params.length + 2}
+      )`;
+      params.push(userPosition);
+      params.push(req.user!.userId);
+      
+      // Kategori kontrolü: Kullanıcının erişebileceği kategoriler
+      // category_id NULL → seçilmemiş = sadece oluşturan görebilir (yukarıda created_by ile kontrol edildi)
+      // category_id = UUID → user_report_categories tablosunda eşleşme olmalı
+      sql += ` AND (
+        d.category_id IS NULL
+        OR EXISTS (
+          SELECT 1 FROM user_report_categories urc 
+          WHERE urc.user_id = $${params.length + 1} 
+          AND urc.category_id = d.category_id
+        )
+      )`;
+      params.push(req.user!.userId);
+    }
 
     if (type) {
       sql += ` AND d.type = $${params.length + 1}`;
@@ -2799,6 +2835,13 @@ app.get('/designs', authenticate, tenantIsolation, async (req: Request, res: Res
     sql += ' ORDER BY d.is_default DESC, d.created_at DESC';
 
     const designs = await db.queryAll(sql, params);
+    
+    logger.debug('Designs filtered by position/category', { 
+      userId: req.user!.userId, 
+      position: userPosition, 
+      role: userRole,
+      count: designs.length 
+    });
 
     res.json({ success: true, data: designs });
   } catch (error) {
@@ -2808,10 +2851,13 @@ app.get('/designs', authenticate, tenantIsolation, async (req: Request, res: Res
 
 /**
  * Tasarım detayı (widget'lar dahil)
+ * GÜVENLİK: Pozisyon ve kategori kontrolü
  */
 app.get('/designs/:designId', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { designId } = req.params;
+    const userRole = req.user!.role;
+    const userPosition = req.user!.positionCode || 'VIEWER';
 
     // Design
     const design = await db.queryOne(
@@ -2821,6 +2867,32 @@ app.get('/designs/:designId', authenticate, tenantIsolation, async (req: Request
 
     if (!design) {
       throw new NotFoundError('Tasarım');
+    }
+    
+    // GÜVENLİK: Pozisyon ve kategori kontrolü (ADMIN hariç)
+    if (userRole !== 'ADMIN' && design.created_by !== req.user!.userId) {
+      // Pozisyon kontrolü
+      const allowedPositions = design.allowed_positions || [];
+      if (allowedPositions.length > 0 && !allowedPositions.includes(userPosition)) {
+        logger.warn('Design access denied - position mismatch', { 
+          designId, userId: req.user!.userId, userPosition, allowedPositions 
+        });
+        throw new NotFoundError('Tasarım'); // 404 dönerek tasarımın varlığını da gizle
+      }
+      
+      // Kategori kontrolü
+      if (design.category_id) {
+        const hasAccess = await db.queryOne(
+          'SELECT 1 FROM user_report_categories WHERE user_id = $1 AND category_id = $2',
+          [req.user!.userId, design.category_id]
+        );
+        if (!hasAccess) {
+          logger.warn('Design access denied - category mismatch', { 
+            designId, userId: req.user!.userId, categoryId: design.category_id 
+          });
+          throw new NotFoundError('Tasarım');
+        }
+      }
     }
 
     // Widgets
@@ -2884,9 +2956,10 @@ app.post('/designs', authenticate, tenantIsolation, async (req: Request, res: Re
     }
 
     // allowedPositions - pozisyon bazlı yetkilendirme
-    const ALL_POSITIONS = ['GENERAL_MANAGER', 'DIRECTOR', 'REGION_MANAGER', 'STORE_MANAGER', 'ANALYST', 'VIEWER'];
-    let positionsArray: string[] = ALL_POSITIONS; // Varsayılan: herkes
-    if (allowedPositions && Array.isArray(allowedPositions)) {
+    // GÜVENLİ VARSAYILAN: Hiç pozisyon seçilmediyse boş array = sadece oluşturan ve ADMIN görebilir
+    // Kullanıcı açıkça pozisyon seçmeli, kazara herkesin görmesini engellemek için
+    let positionsArray: string[] = []; // Varsayılan: kimse (sadece ADMIN ve oluşturan)
+    if (allowedPositions && Array.isArray(allowedPositions) && allowedPositions.length > 0) {
       positionsArray = allowedPositions;
     }
 
@@ -2919,11 +2992,45 @@ app.post('/designs', authenticate, tenantIsolation, async (req: Request, res: Re
 
 /**
  * Tasarım güncelle
+ * 
+ * OPTIMISTIC LOCKING:
+ * - Client tasarımı yüklerken updated_at alır
+ * - Kaydetme sırasında lastUpdatedAt gönderir
+ * - Eğer başkası değiştirdiyse conflict hatası döner
  */
 app.put('/designs/:designId', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { designId } = req.params;
-    const { name, description, type, layoutConfig, settings, targetRoles, allowedPositions, categoryId, gridColumns, rowHeight, themeConfig, isActive, isDefault } = req.body;
+    const { name, description, type, layoutConfig, settings, targetRoles, allowedPositions, categoryId, gridColumns, rowHeight, themeConfig, isActive, isDefault, lastUpdatedAt } = req.body;
+
+    // OPTIMISTIC LOCKING: Concurrent edit kontrolü
+    if (lastUpdatedAt) {
+      const currentDesign = await db.queryOne(
+        'SELECT updated_at FROM designs WHERE id = $1 AND tenant_id = $2',
+        [designId, req.user!.tenantId]
+      );
+      
+      if (currentDesign) {
+        const serverTime = new Date(currentDesign.updated_at).getTime();
+        const clientTime = new Date(lastUpdatedAt).getTime();
+        
+        // 2 saniye tolerans (network gecikme)
+        if (serverTime > clientTime + 2000) {
+          logger.warn('Concurrent edit detected', { 
+            designId, 
+            userId: req.user!.userId,
+            serverTime: currentDesign.updated_at,
+            clientTime: lastUpdatedAt 
+          });
+          return res.status(409).json({
+            success: false,
+            errorCode: 'CONCURRENT_EDIT',
+            message: 'Bu tasarım başka bir kullanıcı tarafından değiştirilmiş. Sayfayı yenileyip tekrar deneyin.',
+            serverUpdatedAt: currentDesign.updated_at
+          });
+        }
+      }
+    }
 
     // Eğer varsayılan yapılıyorsa diğerlerini kaldır
     if (isDefault) {

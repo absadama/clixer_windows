@@ -1,63 +1,46 @@
 /**
  * Data Service Routes Index
- * Aggregates all route modules
+ * Aggregates modular route modules
  * 
- * NOTE: Due to complex interdependencies in the original monolithic file,
- * some endpoints remain in the main index.ts. This is a partial refactor
- * that establishes the modular structure.
+ * ARCHITECTURE NOTE:
+ * - Simple CRUD operations are in modular route files
+ * - Complex operations with heavy dependencies remain in main index.ts
+ * - This prevents circular dependencies and keeps complex logic centralized
  */
 
 import { Router } from 'express';
 
-// Import route modules
+// Import route modules - only simple/independent routes
 import healthRoutes from './health.routes';
-import adminRoutes from './admin.routes';
-import connectionsRoutes from './connections.routes';
-import datasetsRoutes from './datasets.routes';
-import etlRoutes from './etl.routes';
 import etlWorkerRoutes from './etl-worker.routes';
-import schedulesRoutes from './schedules.routes';
-import systemRoutes from './system.routes';
 import clickhouseRoutes from './clickhouse.routes';
 import performanceRoutes from './performance.routes';
 import cacheRoutes from './cache.routes';
-import apiPreviewRoutes from './api-preview.routes';
 
 const router = Router();
 
-// Health check
+// Health check (simple, no dependencies)
 router.use('/health', healthRoutes);
 
-// Admin routes
-router.use('/admin', adminRoutes);
+// ETL Worker management (start/stop/restart - independent)
+router.use('/etl', etlWorkerRoutes);
 
-// Connection management
-router.use('/connections', connectionsRoutes);
-
-// Dataset management
-router.use('/datasets', datasetsRoutes);
-
-// ETL routes
-router.use('/etl', etlRoutes);
-router.use('/etl', etlWorkerRoutes);  // ETL Worker management (start/stop/restart)
-router.use('/etl-jobs', etlRoutes);  // Alias for /etl/jobs
-
-// Schedule management
-router.use('/schedules', schedulesRoutes);
-
-// System routes
-router.use('/system', systemRoutes);
-
-// ClickHouse management
+// ClickHouse table management (independent)
 router.use('/clickhouse', clickhouseRoutes);
 
-// Performance metrics
+// Performance metrics (independent)
 router.use('/performance', performanceRoutes);
 
-// Cache management
+// Cache management (independent)
 router.use('/cache', cacheRoutes);
 
-// API preview
-router.use('/api-preview', apiPreviewRoutes);
+// NOTE: The following routes remain in index.ts due to complex dependencies:
+// - /admin/* (system status, stats, restart, backup - heavy system dependencies)
+// - /connections/* (database driver dependencies for test, query, preview)
+// - /datasets/* (ETL and ClickHouse dependencies for sync, preview, aggregates)
+// - /etl/* (ETL job management with complex state)
+// - /schedules/* (dataset schedule dependencies)
+// - /system/* (system-wide operations)
+// - /api-preview (external API dependencies)
 
 export default router;

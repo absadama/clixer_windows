@@ -11,17 +11,34 @@ const logger = createLogger({ service: 'data-service' });
 
 /**
  * GET /etl/status
- * Get ETL worker status
+ * Get ETL worker status with heartbeat check
  */
 router.get('/status', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const workerStatus = await cache.get('etl:worker:status');
+    const workerStatusStr = await cache.get('etl:worker:status');
+    const lastHeartbeat = await cache.get('etl:worker:heartbeat');
+    const activeJobs = await cache.get('etl:worker:active_jobs') || '0';
+    
+    // Heartbeat son 30 saniye içinde mi?
+    const isAlive = lastHeartbeat && (Date.now() - parseInt(lastHeartbeat)) < 30000;
+    
+    // workerInfo parse et
+    let workerInfo = null;
+    if (workerStatusStr) {
+      try {
+        workerInfo = JSON.parse(workerStatusStr);
+      } catch (e) {
+        workerInfo = null;
+      }
+    }
     
     res.json({
       success: true,
-      data: workerStatus ? JSON.parse(workerStatus) : {
-        isRunning: false,
-        message: 'ETL worker durumu bilinmiyor'
+      data: {
+        status: isAlive ? 'running' : 'stopped',
+        lastHeartbeat: lastHeartbeat ? new Date(parseInt(lastHeartbeat)).toISOString() : null,
+        activeJobs: parseInt(activeJobs) || 0,
+        workerInfo
       }
     });
   } catch (error) {

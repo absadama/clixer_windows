@@ -23,12 +23,61 @@ import {
   cache
 } from '@clixer/shared';
 
+// Import modular helpers
+import { 
+  MAX_MEMORY_MB, 
+  BATCH_SIZE, 
+  GC_INTERVAL, 
+  LOCK_TTL,
+  STREAM_BATCH_SIZE,
+  INSERT_BATCH_SIZE
+} from './helpers';
+import { ETLJob, TypeMismatch, DataValidationResult } from './types';
+
 const logger = createLogger({ service: 'etl-worker' });
 
-// Memory Optimizasyonu Sabitleri
-const MAX_MEMORY_MB = 1024; // 1GB limit
-const BATCH_SIZE = 5000; // Küçük batch'ler = daha az memory
-const GC_INTERVAL = 10000; // Her 10 batch'te bir GC tetikle
+// ============================================
+// GLOBAL ERROR HANDLERS - Kritik hatalar için
+// Enterprise uygulamalarda sessiz crash önleme
+// ============================================
+process.on('uncaughtException', (error: Error) => {
+  logger.error('UNCAUGHT EXCEPTION - ETL Worker çökecek', { 
+    error: error.message, 
+    stack: error.stack,
+    name: error.name 
+  });
+  // Graceful shutdown için 1 saniye bekle
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  logger.error('UNHANDLED REJECTION - Promise reject edildi', { 
+    reason: reason?.message || String(reason),
+    stack: reason?.stack 
+  });
+  // Unhandled rejection'ları exception'a çevir (Node.js 15+ davranışı)
+  throw reason;
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  logger.info('SIGTERM received - ETL Worker kapatılıyor...');
+  try {
+    // Aktif job'ları bildir
+    await cache.set('etl:worker:status', JSON.stringify({ status: 'shutting_down' }));
+  } catch (e) {
+    // Ignore cleanup errors
+  }
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  logger.info('SIGINT received - ETL Worker kapatılıyor...');
+  process.exit(0);
+});
+
+// NOTE: Constants moved to helpers/constants.ts
+// MAX_MEMORY_MB, BATCH_SIZE, GC_INTERVAL, LOCK_TTL, STREAM_BATCH_SIZE, INSERT_BATCH_SIZE
 
 // ============================================
 // AKILLI TARİH DÖNÜŞTÜRÜCÜ
@@ -535,13 +584,7 @@ function extractTableFromQuery(query: string): string | null {
 // TİP UYUMLULUK KONTROLÜ (MUST!)
 // ClickHouse tablo tipleri ile kaynak DB tipleri UYUMLU OLMAK ZORUNDA
 // ============================================
-
-interface TypeMismatch {
-  column: string;
-  sourceType: string;
-  clickhouseType: string;
-  compatible: boolean;
-}
+// NOTE: TypeMismatch interface moved to types/index.ts
 
 /**
  * SQL tipini ClickHouse tipine dönüştür
@@ -676,14 +719,7 @@ async function validateTypeCompatibility(
 // ============================================
 // VERİ TUTARLILIK VE DUPLICATE ÖNLEME SİSTEMİ
 // ============================================
-
-interface DataValidationResult {
-  sourceCount: number;
-  targetCount: number;
-  isConsistent: boolean;
-  duplicateCount: number;
-  message: string;
-}
+// NOTE: DataValidationResult interface moved to types/index.ts
 
 /**
  * ReplacingMergeTree için OPTIMIZE çalıştır - Duplicate'ları temizler
@@ -800,7 +836,7 @@ async function checkPartitionDuplicates(
 // DATASET LOCK MEKANİZMASI
 // Aynı dataset için aynı anda sadece bir job çalışabilir!
 // ============================================
-const LOCK_TTL = 3600; // 1 saat lock timeout (sonsuz çalışmayı önler)
+// NOTE: LOCK_TTL moved to helpers/constants.ts
 
 /**
  * Dataset için lock al
@@ -886,18 +922,7 @@ function forceGC() {
 // ============================================
 // ETL JOB PROCESSOR
 // ============================================
-
-interface ETLJob {
-  datasetId: string;
-  jobId?: string;
-  action: 'initial_sync' | 'incremental_sync' | 'full_refresh' | 'manual_sync' | 'partial_refresh' | 'missing_sync' | 'new_records_sync';
-  triggeredBy?: string;
-  days?: number; // Partial refresh için gün sayısı
-  ranges?: Array<{start: number; end: number; missing_count?: number}>; // missing_sync için eksik ID aralıkları
-  pkColumn?: string; // ⚠️ KULLANICI SEÇTİĞİ PK KOLONU - hardcoded değil!
-  afterId?: number; // new_records_sync için: Bu ID'den sonraki kayıtları çek
-  limit?: number; // Opsiyonel satır limiti
-}
+// NOTE: ETLJob interface moved to types/index.ts
 
 async function processETLJob(job: ETLJob): Promise<void> {
   const startTime = Date.now();
@@ -1118,9 +1143,7 @@ async function processETLJob(job: ETLJob): Promise<void> {
 // STREAMING POSTGRESQL SYNC
 // 200M+ satır sorunsuz işlenir - bellek sabit kalır
 // ============================================
-
-const STREAM_BATCH_SIZE = 10000; // Cursor'dan bir seferde okunacak satır
-const INSERT_BATCH_SIZE = 5000;  // ClickHouse'a yazılacak batch boyutu
+// NOTE: STREAM_BATCH_SIZE, INSERT_BATCH_SIZE moved to helpers/constants.ts
 
 async function streamingPostgreSQLSync(
   dataset: any, 

@@ -125,7 +125,6 @@ export default function FilterBar({
     setShowStoreDropdown(false)
     // Sadece değişiklik varsa store'u güncelle
     if (JSON.stringify([...localSelectedStoreIds].sort()) !== JSON.stringify([...selectedStoreIds].sort())) {
-      console.log('🔵 [FilterBar] Mağaza seçimleri kaydediliyor:', localSelectedStoreIds.length)
       setStores(localSelectedStoreIds)
     }
   }
@@ -133,7 +132,6 @@ export default function FilterBar({
   const handleCloseRegionDropdown = () => {
     setShowRegionDropdown(false)
     if (JSON.stringify([...localSelectedRegionIds].sort()) !== JSON.stringify([...selectedRegionIds].sort())) {
-      console.log('🔵 [FilterBar] Bölge seçimleri kaydediliyor:', localSelectedRegionIds.length)
       setRegions(localSelectedRegionIds)
     }
   }
@@ -141,7 +139,6 @@ export default function FilterBar({
   const handleCloseGroupDropdown = () => {
     setShowGroupDropdown(false)
     if (JSON.stringify([...localSelectedGroupIds].sort()) !== JSON.stringify([...selectedGroupIds].sort())) {
-      console.log('🔵 [FilterBar] Grup seçimleri kaydediliyor:', localSelectedGroupIds.length)
       setGroups(localSelectedGroupIds)
     }
   }

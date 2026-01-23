@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-echo ═══════════════════════════════════════════════════════════════
+echo ===============================================================
 echo    CLIXER - Enterprise Analytics Platform
 echo    Baslatma Scripti (Windows)
-echo ═══════════════════════════════════════════════════════════════
+echo ===============================================================
 echo.
 
 :: Docker kontrol
@@ -19,7 +19,7 @@ cd ..
 echo [OK] Docker servisleri calisiyor
 echo.
 
-:: Servisleri arka planda başlat
+:: Servisleri arka planda baslat
 echo [2/4] Backend servisleri baslatiliyor...
 
 :: Gateway
@@ -36,29 +36,29 @@ start "Clixer ETL Worker" /min cmd /c "cd services\etl-worker && npm run dev"
 echo [OK] 7 backend servisi baslatildi
 echo.
 
-:: Servislerin hazır olmasını bekle
+:: Servislerin hazir olmasini bekle
 echo [3/4] Servisler hazir olana kadar bekleniyor...
 timeout /t 8 /nobreak >nul
 echo [OK] Servisler hazir
 echo.
 
-:: Frontend başlat
+:: Frontend baslat
 echo [4/4] Frontend baslatiliyor...
 start "Clixer Frontend" cmd /c "cd frontend && npm run dev"
 echo [OK] Frontend baslatildi
 echo.
 
-:: Tarayıcıda aç
+:: Tarayicida ac
 timeout /t 5 /nobreak >nul
 start http://localhost:3000
 
-echo ═══════════════════════════════════════════════════════════════
+echo ===============================================================
 echo    CLIXER CALISIYOR!
-echo ═══════════════════════════════════════════════════════════════
+echo ===============================================================
 echo.
 echo    URL: http://localhost:3000
 echo    Email: admin@clixer
-echo    Sifre: Admin123!
+echo    Sifre: Admin1234!
 echo.
 echo    Durdurmak icin: stop.bat
 echo.
@@ -73,4 +73,3 @@ echo    - Clixer ETL Worker
 echo    - Clixer Frontend (3000)
 echo.
 pause
-

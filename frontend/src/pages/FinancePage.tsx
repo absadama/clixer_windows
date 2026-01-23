@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
+import toast from 'react-hot-toast'
 import { useTheme } from '../components/Layout'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -242,7 +243,7 @@ export default function FinancePage() {
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (err: any) {
-      alert('Kaydetme hatası: ' + err.message)
+      toast.error('Kaydetme hatası: ' + err.message)
     } finally {
       setSaving(false)
     }

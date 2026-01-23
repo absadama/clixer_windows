@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import toast from 'react-hot-toast'
 import { useTheme } from '../components/Layout'
 import { 
   Database, 
@@ -41,7 +42,8 @@ import {
   TrendingUp,
   AlertTriangle,
   Wrench,
-  Search
+  Search,
+  Square
 } from 'lucide-react'
 // Play ve Zap zaten import edilmiş
 import clsx from 'clsx'
@@ -603,7 +605,7 @@ export default function DataPage() {
       await apiCall(`/data/system/locks/${datasetId}`, { method: 'DELETE' })
       await loadEtlMonitoring()
     } catch (err: any) {
-      alert('Lock silinemedi: ' + err.message)
+      toast.error('Lock silinemedi: ' + err.message)
     } finally {
       setSystemActionLoading(null)
     }
@@ -617,7 +619,7 @@ export default function DataPage() {
       await apiCall('/data/system/locks', { method: 'DELETE' })
       await loadEtlMonitoring()
     } catch (err: any) {
-      alert('Lock\'lar silinemedi: ' + err.message)
+      toast.error('Lock\'lar silinemedi: ' + err.message)
     } finally {
       setSystemActionLoading(null)
     }
@@ -632,7 +634,7 @@ export default function DataPage() {
       await loadEtlMonitoring()
       await loadETLJobs()
     } catch (err: any) {
-      alert('Job iptal edilemedi: ' + err.message)
+      toast.error('Job iptal edilemedi: ' + err.message)
     } finally {
       setSystemActionLoading(null)
     }
@@ -729,10 +731,10 @@ export default function DataPage() {
     setPerformanceActionLoading(`vacuum-${tableName}`)
     try {
       const result = await apiCall(`/data/performance/postgres/vacuum/${tableName}?analyze=${analyze}`, { method: 'POST' })
-      alert(`✅ ${result.message}`)
+      toast.success(result.message)
       loadPostgresPerformance()
     } catch (err: any) {
-      alert('❌ VACUUM başarısız: ' + err.message)
+      toast.error('VACUUM başarısız: ' + err.message)
     } finally {
       setPerformanceActionLoading(null)
     }
@@ -744,10 +746,10 @@ export default function DataPage() {
     setPerformanceActionLoading(`drop-${indexName}`)
     try {
       const result = await apiCall(`/data/performance/postgres/index/${indexName}`, { method: 'DELETE' })
-      alert(`✅ ${result.message}`)
+      toast.success(result.message)
       loadPostgresPerformance()
     } catch (err: any) {
-      alert('❌ Index silinemedi: ' + err.message)
+      toast.error('Index silinemedi: ' + err.message)
     } finally {
       setPerformanceActionLoading(null)
     }
@@ -759,11 +761,11 @@ export default function DataPage() {
     setPerformanceActionLoading('optimize-all')
     try {
       const result = await apiCall('/data/performance/clickhouse/optimize-all', { method: 'POST' })
-      alert(`✅ ${result.message}`)
+      toast.success(result.message)
       // Optimize sonrası verileri yenile
       await loadClickhousePerformance()
     } catch (err: any) {
-      alert('❌ Optimize başarısız: ' + err.message)
+      toast.error('Optimize başarısız: ' + err.message)
     } finally {
       setPerformanceActionLoading(null)
     }
@@ -772,7 +774,7 @@ export default function DataPage() {
   // Metni panoya kopyala
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
-    alert('✅ Panoya kopyalandı!')
+    toast.success('Panoya kopyalandı!')
   }
   
   // Load ClickHouse tables
@@ -795,7 +797,7 @@ export default function DataPage() {
       setSelectedChTable(result.data)
       setShowChTableModal(true)
     } catch (err: any) {
-      alert('Tablo detayları yüklenemedi: ' + err.message)
+      toast.error('Tablo detayları yüklenemedi: ' + err.message)
     }
   }
   
@@ -806,9 +808,9 @@ export default function DataPage() {
     try {
       await apiCall(`/data/clickhouse/tables/${tableName}/truncate`, { method: 'POST' })
       await loadClickhouseTables()
-      alert('Tablo temizlendi')
+      toast.success('Tablo temizlendi')
     } catch (err: any) {
-      alert('Tablo temizlenemedi: ' + err.message)
+      toast.error('Tablo temizlenemedi: ' + err.message)
     } finally {
       setSystemActionLoading(null)
     }
@@ -820,9 +822,9 @@ export default function DataPage() {
     try {
       await apiCall(`/data/clickhouse/tables/${tableName}/optimize`, { method: 'POST' })
       await loadClickhouseTables()
-      alert('Tablo optimize edildi (duplicate\'lar temizlendi)')
+      toast.success('Tablo optimize edildi (duplicate\'lar temizlendi)')
     } catch (err: any) {
-      alert('Optimize edilemedi: ' + err.message)
+      toast.error('Optimize edilemedi: ' + err.message)
     } finally {
       setSystemActionLoading(null)
     }
@@ -858,7 +860,7 @@ export default function DataPage() {
   // Veri Doğrulama - Kaynak vs ClickHouse Karşılaştırma
   const loadComparison = async () => {
     if (!dataManagementDatasetId) {
-      alert('Dataset ID bulunamadı. Lütfen dataset listesinden açın.')
+      toast.error('Dataset ID bulunamadı. Lütfen dataset listesinden açın.')
       return
     }
     setValidationLoading(true)
@@ -866,7 +868,7 @@ export default function DataPage() {
       const result = await apiCall(`/data/datasets/${dataManagementDatasetId}/compare?pkColumn=${pkColumn}`)
       setComparisonData(result.data)
     } catch (err: any) {
-      alert('Karşılaştırma yapılamadı: ' + err.message)
+      toast.error('Karşılaştırma yapılamadı: ' + err.message)
     } finally {
       setValidationLoading(false)
     }
@@ -875,7 +877,7 @@ export default function DataPage() {
   // Eksik ID Aralıklarını Bul
   const loadMissingRanges = async () => {
     if (!dataManagementDatasetId) {
-      alert('Dataset ID bulunamadı.')
+      toast.error('Dataset ID bulunamadı.')
       return
     }
     setValidationLoading(true)
@@ -883,7 +885,7 @@ export default function DataPage() {
       const result = await apiCall(`/data/datasets/${dataManagementDatasetId}/missing-ranges?pkColumn=${pkColumn}`)
       setMissingRanges(result.data)
     } catch (err: any) {
-      alert('Eksik aralıklar bulunamadı: ' + err.message)
+      toast.error('Eksik aralıklar bulunamadı: ' + err.message)
     } finally {
       setValidationLoading(false)
     }
@@ -892,7 +894,7 @@ export default function DataPage() {
   // Duplicate Analizi
   const loadDuplicateAnalysis = async () => {
     if (!dataManagementDatasetId) {
-      alert('Dataset ID bulunamadı.')
+      toast.error('Dataset ID bulunamadı.')
       return
     }
     setValidationLoading(true)
@@ -900,7 +902,7 @@ export default function DataPage() {
       const result = await apiCall(`/data/datasets/${dataManagementDatasetId}/duplicate-analysis`)
       setDuplicateAnalysis(result.data)
     } catch (err: any) {
-      alert('Duplicate analizi yapılamadı: ' + err.message)
+      toast.error('Duplicate analizi yapılamadı: ' + err.message)
     } finally {
       setValidationLoading(false)
     }
@@ -909,7 +911,7 @@ export default function DataPage() {
   // Eksik Verileri Sync Et
   const syncMissingData = async () => {
     if (!dataManagementDatasetId || !missingRanges?.missing_ranges?.length) {
-      alert('Önce eksik aralıkları bulun.')
+      toast.error('Önce eksik aralıkları bulun.')
       return
     }
     
@@ -921,10 +923,10 @@ export default function DataPage() {
         method: 'POST',
         body: JSON.stringify({ ranges: missingRanges.missing_ranges, pkColumn })
       })
-      alert(`Eksik veri sync işlemi başlatıldı.`)
+      toast.success('Eksik veri sync işlemi başlatıldı.')
       loadETLJobs()
     } catch (err: any) {
-      alert('Sync başlatılamadı: ' + err.message)
+      toast.error('Sync başlatılamadı: ' + err.message)
     } finally {
       setValidationLoading(false)
     }
@@ -933,7 +935,7 @@ export default function DataPage() {
   // 🚀 Sadece Yeni Kayıtları Çek (En hızlı yöntem - 100M+ tablolar için)
   const syncNewRecordsOnly = async () => {
     if (!dataManagementDatasetId) {
-      alert('Dataset ID bulunamadı.')
+      toast.error('Dataset ID bulunamadı.')
       return
     }
     
@@ -946,10 +948,10 @@ export default function DataPage() {
         method: 'POST',
         body: JSON.stringify({ pkColumn })
       })
-      alert(`✅ Yeni kayıt sync başlatıldı!\n\nMax ID: ${result.data.clickhouse_max_id}'den sonraki tüm kayıtlar çekilecek.`)
+      toast.success(`Yeni kayıt sync başlatıldı! Max ID: ${result.data.clickhouse_max_id}'den sonraki kayıtlar çekilecek.`)
       loadETLJobs()
     } catch (err: any) {
-      alert('Sync başlatılamadı: ' + err.message)
+      toast.error('Sync başlatılamadı: ' + err.message)
     } finally {
       setValidationLoading(false)
     }
@@ -958,7 +960,7 @@ export default function DataPage() {
   // Silinecek satır sayısını önizle
   const previewDataManagementDelete = async () => {
     if (!dmDateColumn) {
-      alert('Lütfen tarih kolonu seçin')
+      toast.error('Lütfen tarih kolonu seçin')
       return
     }
     setDataManagementLoading(true)
@@ -973,7 +975,7 @@ export default function DataPage() {
       const result = await apiCall(`/data/clickhouse/tables/${dataManagementTable}/preview-delete?${params}`)
       setDataManagementPreview(result.data)
     } catch (err: any) {
-      alert('Önizleme hatası: ' + err.message)
+      toast.error('Önizleme hatası: ' + err.message)
     } finally {
       setDataManagementLoading(false)
     }
@@ -982,7 +984,7 @@ export default function DataPage() {
   // Veriyi sil
   const executeDataManagementDelete = async () => {
     if (!dataManagementPreview || dataManagementPreview.rowsToDelete === 0) {
-      alert('Silinecek veri yok')
+      toast.error('Silinecek veri yok')
       return
     }
     
@@ -1003,11 +1005,11 @@ export default function DataPage() {
         method: 'DELETE',
         body: JSON.stringify(body)
       })
-      alert(result.data?.message || 'Silme işlemi başlatıldı')
+      toast.success(result.data?.message || 'Silme işlemi başlatıldı')
       setShowDataManagementModal(false)
       await loadClickhouseTables()
     } catch (err: any) {
-      alert('Silme hatası: ' + err.message)
+      toast.error('Silme hatası: ' + err.message)
     } finally {
       setDataManagementLoading(false)
     }
@@ -1020,9 +1022,9 @@ export default function DataPage() {
     try {
       await apiCall(`/data/clickhouse/tables/${tableName}`, { method: 'DELETE' })
       await loadClickhouseTables()
-      alert('Tablo silindi')
+      toast.success('Tablo silindi')
     } catch (err: any) {
-      alert('Tablo silinemedi: ' + err.message)
+      toast.error('Tablo silinemedi: ' + err.message)
     } finally {
       setSystemActionLoading(null)
     }
@@ -1038,10 +1040,10 @@ export default function DataPage() {
     setSystemActionLoading('cache')
     try {
       const result = await apiCall('/admin/cache/clear', { method: 'POST' })
-      alert(`✅ ${result.message || 'Önbellek temizlendi'}\n\nSilinen kayıt: ${result.data?.deletedCount || 0}`)
+      toast.success(`${result.message || 'Önbellek temizlendi'} - Silinen: ${result.data?.deletedCount || 0}`)
       loadSystemHealth()
     } catch (err: any) {
-      alert('❌ Önbellek temizlenemedi: ' + err.message)
+      toast.error('Önbellek temizlenemedi: ' + err.message)
     } finally {
       setSystemActionLoading(null)
     }
@@ -1052,11 +1054,11 @@ export default function DataPage() {
     setSystemActionLoading('etl')
     try {
       const result = await apiCall('/admin/etl/trigger', { method: 'POST' })
-      alert(result.message || 'ETL tetiklendi')
+      toast.success(result.message || 'ETL tetiklendi')
       loadSystemHealth()
       loadETLJobs()
     } catch (err: any) {
-      alert('ETL tetiklenemedi: ' + err.message)
+      toast.error('ETL tetiklenemedi: ' + err.message)
     } finally {
       setSystemActionLoading(null)
     }
@@ -1069,11 +1071,11 @@ export default function DataPage() {
     setSystemActionLoading('cancel')
     try {
       const result = await apiCall('/admin/etl/cancel-all', { method: 'POST' })
-      alert(result.message || 'Tüm job\'lar iptal edildi')
+      toast.success(result.message || 'Tüm job\'lar iptal edildi')
       loadSystemHealth()
       loadETLJobs()
     } catch (err: any) {
-      alert('İptal işlemi başarısız: ' + err.message)
+      toast.error('İptal işlemi başarısız: ' + err.message)
     } finally {
       setSystemActionLoading(null)
     }
@@ -1084,7 +1086,7 @@ export default function DataPage() {
     setTriggeringAll(true)
     try {
       const result = await apiCall('/data/etl/trigger-all', { method: 'POST' })
-      alert(result.message || 'Tüm datasetler için sync tetiklendi')
+      toast.success(result.message || 'Tüm datasetler için sync tetiklendi')
       loadETLJobs()
       loadWorkerStatus()
     } catch (err: any) {
@@ -1129,7 +1131,7 @@ export default function DataPage() {
   // Handle create dataset from SQL query
   const handleCreateDataset = async () => {
     if (!newDatasetName || !sqlResult || !sqlConnectionId) {
-      alert('Dataset adı ve SQL sonucu gerekli')
+      toast.error('Dataset adı ve SQL sonucu gerekli')
       return
     }
     
@@ -1192,14 +1194,14 @@ export default function DataPage() {
         })
       })
 
-      alert(`Dataset "${newDatasetName}" başarıyla oluşturuldu! Clixer tablosu: ${result.data.clickhouseTable}`)
+      toast.success(`Dataset "${newDatasetName}" başarıyla oluşturuldu! Tablo: ${result.data.clickhouseTable}`)
       setShowDatasetModal(false)
       setNewDatasetName('')
       setNewDatasetDescription('')
       loadDatasets()
     } catch (err: any) {
       console.error('Create dataset error:', err)
-      alert('Dataset oluşturulurken hata: ' + (err.message || 'Bilinmeyen hata'))
+      toast.error('Dataset oluşturulurken hata: ' + (err.message || 'Bilinmeyen hata'))
     } finally {
       setDatasetCreating(false)
     }
@@ -1416,17 +1418,17 @@ export default function DataPage() {
       
       if (result.success) {
         // Başarı mesajı göster
-        alert(`✅ Sync başlatıldı! Job ID: ${result.jobId?.slice(0, 8) || 'N/A'}`)
+        toast.success(`Sync başlatıldı! Job ID: ${result.jobId?.slice(0, 8) || 'N/A'}`)
       } else {
         // Hata veya uyarı mesajı
-        alert(`⚠️ ${result.error || 'Sync başlatılamadı'}`)
+        toast(result.error || 'Sync başlatılamadı', { icon: '⚠️' })
       }
       
       loadDatasets()
       loadETLJobs()
     } catch (err: any) {
       setError(err.message)
-      alert(`❌ Hata: ${err.message}`)
+      toast.error(err.message)
     } finally {
       // 2 saniye sonra butonları tekrar aktif et
       setTimeout(() => setSyncingDatasetId(null), 2000)
@@ -1561,10 +1563,10 @@ export default function DataPage() {
       loadSchedules()
       loadETLJobs()
       // Başarı mesajı
-      alert('Dataset ayarları kaydedildi!')
+      toast.success('Dataset ayarları kaydedildi!')
     } catch (err: any) {
       setError(err.message)
-      alert('Kaydetme hatası: ' + err.message)
+      toast.error('Kaydetme hatası: ' + err.message)
     }
   }
 
@@ -1586,7 +1588,7 @@ export default function DataPage() {
     // Bu bağlantıya ait dataset var mı kontrol et
     const linkedDatasets = datasets.filter(d => d.connection_id === conn.id)
     if (linkedDatasets.length > 0) {
-      alert(`Bu bağlantıya ait ${linkedDatasets.length} dataset var. Önce datasetleri silin:\n${linkedDatasets.map(d => '- ' + d.name).join('\n')}`)
+      toast.error(`Bu bağlantıya ait ${linkedDatasets.length} dataset var. Önce datasetleri silin.`)
       return
     }
     
@@ -1597,7 +1599,7 @@ export default function DataPage() {
       loadConnections()
       loadDatasets()
     } catch (err: any) {
-      alert('Silme hatası: ' + err.message)
+      toast.error('Silme hatası: ' + err.message)
     }
   }
 
@@ -1616,38 +1618,75 @@ export default function DataPage() {
     }
   }, []);
 
+  // GÜVENLİK: isMounted flag ile memory leak önleme
+  // Component unmount olduktan sonra setState çağrılmasını engeller
   useEffect(() => {
-    // accessToken yüklendiğinde verileri yükle
-    if (accessToken) {
-      loadConnections()
-      loadDatasets()
-      loadETLJobs()
-      loadSchedules()
-      loadWorkerStatus()
+    let isMounted = true
+    
+    const loadInitialData = async () => {
+      if (!accessToken) return
+      
+      try {
+        // Paralel yükleme - Promise.allSettled ile hata yönetimi
+        const results = await Promise.allSettled([
+          loadConnections(),
+          loadDatasets(),
+          loadETLJobs(),
+          loadSchedules(),
+          loadWorkerStatus()
+        ])
+        
+        // Unmount olduysa state güncelleme
+        if (!isMounted) return
+        
+        // Hataları logla
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') {
+            const names = ['connections', 'datasets', 'etlJobs', 'schedules', 'workerStatus']
+            console.warn(`[DataPage] ${names[i]} yüklenemedi:`, r.reason)
+          }
+        })
+      } catch (err) {
+        console.error('[DataPage] Initial load error:', err)
+      }
     }
+    
+    loadInitialData()
+    
+    return () => { isMounted = false }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken])
 
   // Auto-refresh worker status every 15 seconds
   useEffect(() => {
-    if (accessToken) {
-      const interval = setInterval(loadWorkerStatus, 15000)
-      return () => clearInterval(interval)
-    }
+    if (!accessToken) return
+    
+    const interval = setInterval(loadWorkerStatus, 15000)
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken])
 
   // Load system health when system tab is active
   useEffect(() => {
+    let isMounted = true
+    
     if (accessToken && activeTab === 'system') {
-      loadSystemHealth(true)
+      loadSystemHealth(true).then(() => {
+        if (!isMounted) return
+      })
     }
+    
+    return () => { isMounted = false }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, activeTab])
 
   // Auto-refresh system health every 10 seconds when tab is active
   useEffect(() => {
-    if (accessToken && activeTab === 'system' && systemAutoRefresh) {
-      const interval = setInterval(() => loadSystemHealth(), 10000)
-      return () => clearInterval(interval)
-    }
+    if (!accessToken || activeTab !== 'system' || !systemAutoRefresh) return
+    
+    const interval = setInterval(() => loadSystemHealth(), 10000)
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, activeTab, systemAutoRefresh])
 
   // Load ClickHouse tables when clickhouse tab is active
@@ -1655,6 +1694,7 @@ export default function DataPage() {
     if (accessToken && activeTab === 'clickhouse') {
       loadClickhouseTables()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, activeTab])
 
   // Load performance data when performance tab is active
@@ -1662,24 +1702,28 @@ export default function DataPage() {
     if (accessToken && activeTab === 'performance') {
       loadAllPerformance()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, activeTab])
 
   // Auto-refresh for running ETL jobs - faster refresh for progress bar
   useEffect(() => {
     const hasRunningJobs = etlJobs.some(j => j.status === 'running' || j.status === 'pending')
-    if (hasRunningJobs) {
-      const interval = setInterval(() => {
-        loadETLJobs()
-        loadDatasets()
-      }, 2000) // Refresh every 2 seconds for smoother progress
-      return () => clearInterval(interval)
-    }
-  }, [etlJobs])
+    if (!hasRunningJobs) return
+    
+    const interval = setInterval(() => {
+      loadETLJobs()
+      loadDatasets()
+    }, 2000) // Refresh every 2 seconds for smoother progress
+    
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etlJobs.length]) // etlJobs.length daha stabil, gereksiz re-render önler
 
   useEffect(() => {
     if (sqlConnectionId && accessToken) {
       loadTables(sqlConnectionId)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sqlConnectionId, accessToken])
 
   // ============================================
@@ -2350,6 +2394,62 @@ export default function DataPage() {
             >
               <RefreshCw className="h-4 w-4" />
             </button>
+            
+            {/* Worker Control Buttons */}
+            {workerStatus?.status !== 'running' ? (
+              <button
+                onClick={async () => {
+                  try {
+                    await apiCall('/data/etl/worker/start', { method: 'POST' })
+                    setTimeout(loadWorkerStatus, 2000)
+                  } catch (err) {
+                    console.error('Worker start error:', err)
+                  }
+                }}
+                className={clsx('flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors',
+                  isDark ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                )}
+              >
+                <Play className="h-4 w-4" />
+                Worker'ı Başlat
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={async () => {
+                    try {
+                      await apiCall('/data/etl/worker/restart', { method: 'POST' })
+                      setTimeout(loadWorkerStatus, 3000)
+                    } catch (err) {
+                      console.error('Worker restart error:', err)
+                    }
+                  }}
+                  className={clsx('flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-colors',
+                    isDark ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'
+                  )}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Yeniden Başlat
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      await apiCall('/data/etl/worker/stop', { method: 'POST' })
+                      setTimeout(loadWorkerStatus, 1000)
+                    } catch (err) {
+                      console.error('Worker stop error:', err)
+                    }
+                  }}
+                  className={clsx('flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-colors',
+                    isDark ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-red-600 hover:bg-red-700 text-white'
+                  )}
+                >
+                  <Square className="h-4 w-4" />
+                  Durdur
+                </button>
+              </>
+            )}
+            
             <button
               onClick={triggerAllSync}
               disabled={triggeringAll || workerStatus?.status !== 'running'}
@@ -2779,7 +2879,7 @@ export default function DataPage() {
                               // ETL jobs listesini yenile
                               loadETLJobs();
                             } catch (err: any) {
-                              alert(err instanceof Error ? err.message : 'İptal işlemi başarısız');
+                              toast.error(err instanceof Error ? err.message : 'İptal işlemi başarısız');
                             }
                           }}
                           className={clsx(
@@ -3746,11 +3846,11 @@ export default function DataPage() {
                             const result = await apiCall(`/admin/service/${service.id}/restart`, {
                               method: 'POST'
                             })
-                            alert(result.message || `${service.name} yeniden başlatıldı`)
+                            toast.success(result.message || `${service.name} yeniden başlatıldı`)
                             // 2 saniye bekle ve durumu yenile
                             setTimeout(() => loadSystemHealth(true), 2000)
                           } catch (err: any) {
-                            alert('❌ ' + (err.message || 'Servis başlatılamadı'))
+                            toast.error(err.message || 'Servis başlatılamadı')
                           } finally {
                             setSystemActionLoading(null)
                           }
@@ -3839,9 +3939,9 @@ export default function DataPage() {
                         try {
                           await apiCall('/admin/clickhouse/reconnect', { method: 'POST' })
                           await loadSystemHealth(true)
-                          alert('✅ Clixer DB bağlantısı yenilendi')
+                          toast.success('Clixer DB bağlantısı yenilendi')
                         } catch (e: any) {
-                          alert('❌ Clixer DB bağlantısı kurulamadı: ' + e.message)
+                          toast.error('Clixer DB bağlantısı kurulamadı: ' + e.message)
                         } finally {
                           setSystemActionLoading(null)
                         }
@@ -3930,9 +4030,9 @@ export default function DataPage() {
                         try {
                           await apiCall('/admin/redis/reconnect', { method: 'POST' })
                           await loadSystemHealth(true)
-                          alert('✅ Redis bağlantısı yenilendi')
+                          toast.success('Redis bağlantısı yenilendi')
                         } catch (e: any) {
-                          alert('❌ Redis bağlantısı kurulamadı: ' + e.message)
+                          toast.error('Redis bağlantısı kurulamadı: ' + e.message)
                         } finally {
                           setSystemActionLoading(null)
                         }
@@ -5811,13 +5911,13 @@ export default function DataPage() {
                                 body: JSON.stringify({ days: opt.days })
                               });
                               if (result.success) {
-                                alert(`✅ ${opt.label} yenileme başlatıldı!`);
+                                toast.success(`${opt.label} yenileme başlatıldı!`);
                                 loadETLJobs();
                               } else {
-                                alert(`⚠️ ${result.error || 'Başlatılamadı'}`);
+                                toast(result.error || 'Başlatılamadı', { icon: '⚠️' });
                               }
                             } catch (err: any) {
-                              alert(`❌ Hata: ${err.message}`);
+                              toast.error(err.message);
                             }
                           }}
                           className={clsx(

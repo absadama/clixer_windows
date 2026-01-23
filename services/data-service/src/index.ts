@@ -28,220 +28,28 @@ import {
   formatError,
   ValidationError,
   NotFoundError,
-  ROLES
+  ROLES,
+  sanitizeTableName  // SQL Injection koruması
 } from '@clixer/shared';
+
+// Import modular routes
+import routes from './routes';
+
+// Import helpers (modularized)
+import { 
+  sqlToClickHouseType, 
+  SQL_TO_CLICKHOUSE_TYPE, 
+  isDateType, 
+  isNumericType,
+  isDateTimeColumn,
+  isNumericColumn,
+  SERVICE_LIST,
+  pingService
+} from './helpers';
 
 const logger = createLogger({ service: 'data-service' });
 const app = express();
 const PORT = process.env.DATA_SERVICE_PORT || 4003;
-
-// ============================================
-// AKILLI TİP DÖNÜŞÜM SİSTEMİ
-// PostgreSQL/MySQL/MSSQL/Oracle tiplerini ClickHouse tiplerine dönüştürür
-// ============================================
-const SQL_TO_CLICKHOUSE_TYPE: Record<string, string> = {
-  // ============ STRING TYPES ============
-  // PostgreSQL
-  'text': 'String',
-  'varchar': 'String',
-  'char': 'String',
-  'character varying': 'String',
-  'character': 'String',
-  'bpchar': 'String',           // PostgreSQL blank-padded char
-  'name': 'String',             // PostgreSQL system name
-  'uuid': 'String',
-  'json': 'String',
-  'jsonb': 'String',
-  'xml': 'String',
-  'citext': 'String',           // PostgreSQL case-insensitive text
-  'inet': 'String',             // PostgreSQL IP address
-  'cidr': 'String',             // PostgreSQL network address
-  'macaddr': 'String',          // PostgreSQL MAC address
-  
-  // MySQL
-  'tinytext': 'String',
-  'mediumtext': 'String',
-  'longtext': 'String',
-  'enum': 'String',
-  'set': 'String',
-  
-  // MSSQL
-  'nvarchar': 'String',
-  'nchar': 'String',
-  'ntext': 'String',
-  'uniqueidentifier': 'String', // MSSQL GUID
-  'sql_variant': 'String',
-  'sysname': 'String',
-  
-  // Oracle
-  'varchar2': 'String',
-  'nvarchar2': 'String',
-  'clob': 'String',
-  'nclob': 'String',
-  'long': 'String',
-  'rowid': 'String',
-  
-  // ============ INTEGER TYPES ============
-  // PostgreSQL
-  'int': 'Int32',
-  'int4': 'Int32',
-  'integer': 'Int32',
-  'int2': 'Int16',
-  'smallint': 'Int16',
-  'int8': 'Int64',
-  'bigint': 'Int64',
-  'serial': 'Int32',
-  'bigserial': 'Int64',
-  'smallserial': 'Int16',
-  'oid': 'UInt32',              // PostgreSQL object ID
-  
-  // MySQL
-  'tinyint': 'Int8',
-  'mediumint': 'Int32',
-  'year': 'Int16',
-  
-  // MSSQL (tinyint zaten MySQL'de tanımlı)
-  
-  // Oracle
-  'number': 'Float64',          // Oracle NUMBER default to Float
-  'pls_integer': 'Int32',
-  'binary_integer': 'Int32',
-  
-  // ============ FLOAT TYPES ============
-  // PostgreSQL
-  'float': 'Float64',
-  'float4': 'Float32',
-  'float8': 'Float64',
-  'real': 'Float32',
-  'double precision': 'Float64',
-  'double': 'Float64',
-  'decimal': 'Float64',
-  'numeric': 'Float64',
-  'money': 'Float64',
-  
-  // MySQL
-  'newdecimal': 'Float64',      // MySQL decimal (internal type 246)
-  
-  // MSSQL
-  'smallmoney': 'Float64',
-  
-  // Oracle
-  'binary_float': 'Float32',
-  'binary_double': 'Float64',
-  
-  // ============ BOOLEAN TYPES ============
-  'boolean': 'UInt8',
-  'bool': 'UInt8',
-  'bit': 'UInt8',
-  
-  // ============ DATE/TIME TYPES ============
-  // PostgreSQL
-  'date': 'Date',
-  'time': 'String',
-  'timetz': 'String',
-  'timestamp': 'DateTime',
-  'timestamp without time zone': 'DateTime',
-  'timestamp with time zone': 'DateTime',
-  'timestamptz': 'DateTime',
-  'interval': 'String',
-  
-  // MySQL
-  'datetime': 'DateTime',
-  'newdate': 'Date',
-  
-  // MSSQL
-  'datetime2': 'DateTime',
-  'smalldatetime': 'DateTime',
-  'datetimeoffset': 'DateTime',
-  
-  // Oracle
-  'timestamp with local time zone': 'DateTime',
-  
-  // ============ BINARY TYPES ============
-  // PostgreSQL
-  'bytea': 'String',
-  
-  // MySQL
-  'blob': 'String',
-  'tinyblob': 'String',
-  'mediumblob': 'String',
-  'longblob': 'String',
-  'binary': 'String',
-  'varbinary': 'String',
-  
-  // MSSQL
-  'image': 'String',
-  
-  // Oracle
-  'raw': 'String',
-  'long raw': 'String',
-  'bfile': 'String',
-  
-  // ============ GEOMETRY TYPES ============
-  'geometry': 'String',
-  'geography': 'String',
-  'point': 'String',
-  'linestring': 'String',
-  'polygon': 'String',
-  
-  // Default
-  'default': 'String'
-};
-
-/**
- * SQL tipini ClickHouse tipine dönüştür
- */
-function sqlToClickHouseType(sqlType: string): string {
-  if (!sqlType) return 'String';
-  
-  const normalized = sqlType.toLowerCase().trim();
-  
-  // Direkt eşleşme
-  if (SQL_TO_CLICKHOUSE_TYPE[normalized]) {
-    return SQL_TO_CLICKHOUSE_TYPE[normalized];
-  }
-  
-  // Parantez içi kaldır (varchar(255) -> varchar)
-  const baseType = normalized.replace(/\(.*\)/, '').trim();
-  if (SQL_TO_CLICKHOUSE_TYPE[baseType]) {
-    return SQL_TO_CLICKHOUSE_TYPE[baseType];
-  }
-  
-  // Kısmi eşleşme
-  for (const [key, value] of Object.entries(SQL_TO_CLICKHOUSE_TYPE)) {
-    if (normalized.includes(key)) {
-      return value;
-    }
-  }
-  
-  logger.warn('Unknown SQL type, defaulting to String', { sqlType });
-  return 'String';
-}
-
-/**
- * Tarih/DateTime kolonlarını otomatik algıla (kolon adına göre)
- */
-function isDateTimeColumn(columnName: string): boolean {
-  const datePatterns = [
-    'date', 'tarih', 'time', 'timestamp', 'created', 'updated', 'modified',
-    '_at', '_on', '_date', '_time', 'datetime'
-  ];
-  const lowerName = columnName.toLowerCase();
-  return datePatterns.some(pattern => lowerName.includes(pattern));
-}
-
-/**
- * Sayısal kolonları otomatik algıla (kolon adına göre)
- */
-function isNumericColumn(columnName: string): boolean {
-  const numericPatterns = [
-    'amount', 'tutar', 'price', 'fiyat', 'total', 'toplam', 'count', 'adet',
-    'quantity', 'miktar', 'sum', 'avg', 'min', 'max', '_id', 'id$',
-    'indirim', 'discount', 'brut', 'net', 'gross'
-  ];
-  const lowerName = columnName.toLowerCase();
-  return numericPatterns.some(pattern => lowerName.includes(pattern));
-}
 
 // Middleware
 app.use(helmet());
@@ -256,27 +64,17 @@ app.use(compression());
 app.use(express.json());
 app.use(requestLogger(logger));
 
+// Mount modular routes
+app.use(routes);
+
 // ============================================
 // ROUTES
 // ============================================
-
-// Health check
-app.get('/health', async (req: Request, res: Response) => {
-  const dbHealthy = await db.checkHealth();
-  const chHealthy = await clickhouse.checkHealth();
-  res.json({
-    service: 'data-service',
-    status: dbHealthy && chHealthy ? 'healthy' : 'degraded',
-    checks: {
-      database: dbHealthy ? 'ok' : 'error',
-      clickhouse: chHealthy ? 'ok' : 'error'
-    },
-    timestamp: new Date().toISOString()
-  });
-});
+// NOTE: Modular routes are mounted via app.use(routes)
+// Below are complex endpoints that remain in index.ts due to dependencies
 
 // ============================================
-// ADMIN ENDPOINTS (Self-Healing)
+// ADMIN ENDPOINTS (Self-Healing) - Complex operations
 // ============================================
 
 // Redis Reconnect
@@ -401,30 +199,7 @@ app.get('/admin/system/status', authenticate, async (req: Request, res: Response
 // ============================================
 // ADMIN - SERVİS YÖNETİMİ & SİSTEM MONİTÖRÜ
 // ============================================
-
-// Servis listesi (Servis Yönetimi sayfası için)
-const SERVICE_LIST = [
-  { id: 'gateway', name: 'API Gateway', port: 4000, critical: true },
-  { id: 'auth', name: 'Auth Service', port: 4001, critical: true },
-  { id: 'core', name: 'Core Service', port: 4002, critical: true },
-  { id: 'data', name: 'Data Service', port: 4003, critical: true },
-  { id: 'notification', name: 'Notification Service', port: 4004, critical: false },
-  { id: 'analytics', name: 'Analytics Service', port: 4005, critical: true },
-  { id: 'etl-worker', name: 'ETL Worker', port: null, critical: true }
-];
-
-// Helper: Servise ping at
-async function pingService(url: string, timeout = 3000): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
+// NOTE: SERVICE_LIST and pingService moved to helpers/service.helper.ts
 
 /**
  * 📊 Sistem istatistikleri (Sistem Monitörü için)
@@ -518,22 +293,64 @@ app.get('/admin/system/stats', authenticate, async (req: Request, res: Response,
 /**
  * 🚀 Tüm servisleri yeniden başlat (Sorun çözücü)
  * POST /admin/system/restart
+ * 
+ * GÜVENLİK: Command Injection koruması
+ * - Whitelist yaklaşımı: Sadece önceden tanımlı scriptler çalıştırılabilir
+ * - Path traversal koruması: Script path'i doğrulanır
+ * - Dosya varlık kontrolü: Script dosyasının var olduğu kontrol edilir
  */
 app.post('/admin/system/restart', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response) => {
   const { spawn, exec } = require('child_process');
   const path = require('path');
+  const fs = require('fs');
   const isWindows = process.platform === 'win32';
   
-  const scriptPath = path.join(__dirname, '../../../scripts', isWindows ? 'restart-local.ps1' : 'restart-all.sh');
+  // GÜVENLİK: Whitelist - sadece bu scriptler çalıştırılabilir
+  const ALLOWED_SCRIPTS: Record<string, string> = {
+    windows: 'restart-local.ps1',
+    linux: 'restart-all.sh'
+  };
   
-  logger.warn('System restart initiated by user', { user: req.user?.email, platform: process.platform });
+  const scriptName = isWindows ? ALLOWED_SCRIPTS.windows : ALLOWED_SCRIPTS.linux;
+  const scriptsDir = path.resolve(__dirname, '../../../scripts');
+  const scriptPath = path.resolve(scriptsDir, scriptName);
+  
+  // GÜVENLİK: Path traversal koruması - script path'i scripts klasörü içinde olmalı
+  if (!scriptPath.startsWith(scriptsDir)) {
+    logger.error('Path traversal attempt detected', { 
+      attemptedPath: scriptPath, 
+      scriptsDir, 
+      user: req.user?.email 
+    });
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Geçersiz script path' 
+    });
+  }
+  
+  // GÜVENLİK: Script dosyasının var olduğunu kontrol et
+  if (!fs.existsSync(scriptPath)) {
+    logger.error('Restart script not found', { scriptPath, user: req.user?.email });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Restart scripti bulunamadı' 
+    });
+  }
+  
+  logger.warn('System restart initiated by user', { 
+    user: req.user?.email, 
+    platform: process.platform,
+    scriptPath 
+  });
   
   // ÖNEMLİ: İşlemi 'detached' modda başlatıyoruz. 
   // Böylece bu servis kapansa bile restart scripti çalışmaya devam edecek.
   
   let cmd;
   if (isWindows) {
-    cmd = `powershell.exe -ExecutionPolicy Bypass -File "${scriptPath}"`;
+    // GÜVENLİK: Escape edilmiş path kullan
+    const escapedPath = scriptPath.replace(/"/g, '\\"');
+    cmd = `powershell.exe -ExecutionPolicy Bypass -File "${escapedPath}"`;
     spawn('cmd.exe', ['/c', cmd], {
       detached: true,
       stdio: 'ignore'
@@ -541,6 +358,7 @@ app.post('/admin/system/restart', authenticate, authorize(ROLES.ADMIN), async (r
   } else {
     // Linux'ta 'at now' kullanarak işlemi servis sürecinden tamamen koparıyoruz.
     // 5 saniyelik bir gecikme (sleep 5) ekliyoruz ki backend cevabı gönderebilsin.
+    // GÜVENLİK: Script path zaten whitelist'ten geliyor
     cmd = `echo "sleep 5 && sudo ${scriptPath}" | at now`;
     exec(cmd, (err: any) => {
       if (err) logger.error('Failed to schedule restart with at', { error: err.message });
@@ -1595,133 +1413,8 @@ app.get('/etl/status', authenticate, async (req: Request, res: Response, next: N
   }
 });
 
-// Start ETL Worker (UI'dan başlatma)
-app.post('/etl/worker/start', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { spawn } = require('child_process');
-    const path = require('path');
-    
-    // Önce çalışıp çalışmadığını kontrol et
-    const lastHeartbeat = await cache.get('etl:worker:heartbeat');
-    const isAlive = lastHeartbeat && (Date.now() - parseInt(lastHeartbeat)) < 30000;
-    
-    if (isAlive) {
-      return res.json({ 
-        success: true, 
-        message: 'ETL Worker zaten çalışıyor',
-        data: { alreadyRunning: true }
-      });
-    }
-    
-    // ETL Worker'ı başlat - __dirname = services/data-service/src olduğu için ../../etl-worker
-    const workerPath = path.resolve(__dirname, '../../etl-worker');
-    logger.info('Starting ETL Worker', { workerPath });
-    
-    const child = spawn('npm', ['run', 'dev'], {
-      cwd: workerPath,
-      detached: true,
-      stdio: 'ignore',
-      shell: true, // macOS için shell: true gerekli
-      env: { ...process.env }
-    });
-    
-    child.unref(); // Parent process'ten bağımsız çalışsın
-    
-    logger.info('ETL Worker started from UI', { pid: child.pid, workerPath, user: req.user!.email });
-    
-    // Başlaması için biraz bekle
-    await new Promise(r => setTimeout(r, 3000));
-    
-    // Tekrar kontrol et
-    const newHeartbeat = await cache.get('etl:worker:heartbeat');
-    const nowAlive = newHeartbeat && (Date.now() - parseInt(newHeartbeat)) < 30000;
-    
-    res.json({ 
-      success: true, 
-      message: nowAlive ? 'ETL Worker başarıyla başlatıldı' : 'ETL Worker başlatılıyor, birkaç saniye bekleyin',
-      data: { 
-        pid: child.pid,
-        started: nowAlive
-      }
-    });
-  } catch (error: any) {
-    logger.error('Failed to start ETL Worker', { error: error.message });
-    next(error);
-  }
-});
-
-// Stop ETL Worker (UI'dan durdurma)
-app.post('/etl/worker/stop', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { execSync } = require('child_process');
-    
-    // Çalışan ETL Worker process'lerini bul ve durdur
-    try {
-      execSync('pkill -f "ts-node-dev.*etl-worker"', { stdio: 'ignore' });
-    } catch (e) {
-      // Process bulunamadıysa hata vermez
-    }
-    
-    // Redis'teki heartbeat'i temizle
-    await cache.del('etl:worker:heartbeat');
-    await cache.del('etl:worker:status');
-    
-    logger.info('ETL Worker stopped from UI', { user: req.user!.email });
-    
-    res.json({ 
-      success: true, 
-      message: 'ETL Worker durduruldu',
-      data: { stopped: true }
-    });
-  } catch (error: any) {
-    logger.error('Failed to stop ETL Worker', { error: error.message });
-    next(error);
-  }
-});
-
-// Restart ETL Worker
-app.post('/etl/worker/restart', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { execSync, spawn } = require('child_process');
-    const path = require('path');
-    
-    // Önce durdur
-    try {
-      execSync('pkill -f "ts-node-dev.*etl-worker"', { stdio: 'ignore' });
-    } catch (e) {}
-    
-    await cache.del('etl:worker:heartbeat');
-    await cache.del('etl:worker:status');
-    
-    // 1 saniye bekle
-    await new Promise(r => setTimeout(r, 1000));
-    
-    // Sonra başlat
-    const workerPath = path.resolve(__dirname, '../../../etl-worker');
-    const child = spawn('npm', ['run', 'dev'], {
-      cwd: workerPath,
-      detached: true,
-      stdio: 'ignore',
-      env: { ...process.env }
-    });
-    
-    child.unref();
-    
-    logger.info('ETL Worker restarted from UI', { pid: child.pid, user: req.user!.email });
-    
-    // Başlaması için bekle
-    await new Promise(r => setTimeout(r, 3000));
-    
-    res.json({ 
-      success: true, 
-      message: 'ETL Worker yeniden başlatıldı',
-      data: { pid: child.pid }
-    });
-  } catch (error: any) {
-    logger.error('Failed to restart ETL Worker', { error: error.message });
-    next(error);
-  }
-});
+// ETL Worker start/stop/restart endpoints moved to routes/etl-worker.routes.ts
+// Using ServiceManager from @clixer/shared for platform-agnostic service management
 
 // Trigger ETL sync for all pending datasets
 app.post('/etl/trigger-all', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
@@ -1976,6 +1669,9 @@ app.get('/datasets/:id/aggregates', authenticate, tenantIsolation, async (req: R
     if (!dataset.clickhouse_table) {
       throw new ValidationError('Dataset henüz ClickHouse tablosu oluşturulmamış');
     }
+    
+    // SQL Injection koruması - tablo adını sanitize et
+    const safeTable = sanitizeTableName(dataset.clickhouse_table);
 
     // Aggregate sorgusunu oluştur
     const aggregates: Record<string, { sum?: number; avg?: number; count?: number; min?: number; max?: number }> = {};
@@ -2015,7 +1711,7 @@ app.get('/datasets/:id/aggregates', authenticate, tenantIsolation, async (req: R
       const endDate = req.query.endDate as string;
       const dateColumnParam = req.query.dateColumn as string;
       
-      let sql = `SELECT ${selectParts.join(', ')} FROM clixer_analytics.${dataset.clickhouse_table}`;
+      let sql = `SELECT ${selectParts.join(', ')} FROM clixer_analytics.${safeTable}`;
       
       // Tarih filtresi ekle
       if (startDate && endDate && dateColumnParam) {
@@ -2042,21 +1738,21 @@ app.get('/datasets/:id/aggregates', authenticate, tenantIsolation, async (req: R
         success: true, 
         data: {
           datasetId: id,
-          tableName: dataset.clickhouse_table,
+          tableName: safeTable,
           totalCount,
           aggregates
         }
       });
     } else {
       // Kolon belirtilmemişse sadece count dön
-      const countResult = await clickhouse.query(`SELECT count() as cnt FROM clixer_analytics.${dataset.clickhouse_table}`);
+      const countResult = await clickhouse.query(`SELECT count() as cnt FROM clixer_analytics.${safeTable}`);
       const totalCount = Number(countResult[0]?.cnt) || 0;
 
       res.json({ 
         success: true, 
         data: {
           datasetId: id,
-          tableName: dataset.clickhouse_table,
+          tableName: safeTable,
           totalCount,
           aggregates
         }
@@ -2087,6 +1783,9 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
     if (!dataset.clickhouse_table) {
       throw new ValidationError('Dataset henüz ClickHouse tablosu oluşturulmamış');
     }
+    
+    // SQL Injection koruması
+    const safeTable = sanitizeTableName(dataset.clickhouse_table);
 
     // ORDER BY kolon belirleme (tarih kolonu öncelikli)
     let orderByColumn = '';
@@ -2112,7 +1811,7 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
     if (!orderByColumn) {
       try {
         const columnsResult = await clickhouse.query(
-          `SELECT name, type FROM system.columns WHERE database = 'clixer_analytics' AND table = '${dataset.clickhouse_table}'`
+          `SELECT name, type FROM system.columns WHERE database = 'clixer_analytics' AND table = '${safeTable}'`
         );
         
         // Tarih/DateTime tipindeki kolonları bul
@@ -2150,7 +1849,7 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
     const maxLimit = Math.min(limit, 10000); // Max 10K satır
     const validSortOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     
-    let sql = `SELECT * FROM clixer_analytics.${dataset.clickhouse_table}`;
+    let sql = `SELECT * FROM clixer_analytics.${safeTable}`;
     
     // Tarih filtresi ekle
     const whereConditions: string[] = [];
@@ -2179,7 +1878,7 @@ app.get('/datasets/:id/preview', authenticate, tenantIsolation, async (req: Requ
       : [];
 
     // Toplam satır sayısı (tarih filtresi dahil)
-    let countSql = `SELECT count() as cnt FROM clixer_analytics.${dataset.clickhouse_table}`;
+    let countSql = `SELECT count() as cnt FROM clixer_analytics.${safeTable}`;
     if (whereConditions.length > 0) {
       countSql += ` WHERE ${whereConditions.join(' AND ')}`;
     }
@@ -2226,6 +1925,9 @@ app.get('/datasets/:id/export', authenticate, tenantIsolation, async (req: Reque
     if (!dataset.clickhouse_table) {
       throw new ValidationError('Dataset henüz ClickHouse tablosu oluşturulmamış');
     }
+    
+    // SQL Injection koruması
+    const safeTable = sanitizeTableName(dataset.clickhouse_table);
 
     // Sıralama
     let orderClause = '';
@@ -2235,11 +1937,11 @@ app.get('/datasets/:id/export', authenticate, tenantIsolation, async (req: Reque
     }
 
     // Veri çek - LIMIT ve OFFSET ile
-    const sql = `SELECT * FROM clixer_analytics.${dataset.clickhouse_table}${orderClause} LIMIT ${limit} OFFSET ${offset}`;
+    const sql = `SELECT * FROM clixer_analytics.${safeTable}${orderClause} LIMIT ${limit} OFFSET ${offset}`;
     const rows = await clickhouse.query(sql);
 
     // Toplam satır sayısı
-    const countResult = await clickhouse.query(`SELECT count() as cnt FROM clixer_analytics.${dataset.clickhouse_table}`);
+    const countResult = await clickhouse.query(`SELECT count() as cnt FROM clixer_analytics.${safeTable}`);
     const totalRows = countResult[0]?.cnt || 0;
 
     res.json({ 
@@ -2802,8 +2504,9 @@ app.delete('/datasets/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER),
     // ClickHouse tablosunu sil
     if (dataset.clickhouse_table) {
       try {
-        await clickhouse.execute(`DROP TABLE IF EXISTS clixer_analytics.${dataset.clickhouse_table}`);
-        logger.info('ClickHouse table dropped', { table: dataset.clickhouse_table });
+        const safeTable = sanitizeTableName(dataset.clickhouse_table);
+        await clickhouse.execute(`DROP TABLE IF EXISTS clixer_analytics.${safeTable}`);
+        logger.info('ClickHouse table dropped', { table: safeTable });
       } catch (e: any) {
         logger.warn('Could not drop ClickHouse table', { error: e.message });
       }

@@ -227,6 +227,11 @@ export default function AnalysisPage() {
 
   // Pozisyon ve kategori bazlı tasarım filtreleme (Güçler Ayrılığı)
   const getAccessibleDesigns = (designs: SavedDesign[]) => {
+    // ADMIN her şeyi görür (backend'de de aynı mantık)
+    if (user?.role === 'ADMIN') {
+      return designs
+    }
+    
     return designs.filter(d => {
       // 1. Pozisyon kontrolü
       const allowedPositions = (d as any).allowed_positions || (d as any).allowedPositions
@@ -290,13 +295,6 @@ export default function AnalysisPage() {
   // Filtreler değiştiğinde verileri yeniden yükle (tarih, bölge, grup, mağaza)
   useEffect(() => {
     if (selectedDesign && accessToken) {
-      console.log('[AnalysisPage] Filters changed, refetching...', { 
-        startDate, 
-        endDate, 
-        regionCount: selectedRegionIds.length,
-        groupCount: selectedGroupIds.length,
-        storeCount: selectedStoreIds.length 
-      })
       loadDesignDetail(selectedDesign.id)
     }
   // storeIdsKey, regionIdsKey, groupIdsKey: useMemo ile hesaplanan stabil stringler
@@ -359,16 +357,6 @@ export default function AnalysisPage() {
       
       // Mağaza filtresi: Tüm mağazalar seçiliyse filtre GÖNDERİLMEZ ("tüm mağazalar" demektir)
       const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
-      
-      // DEBUG: Filtreler logla
-      console.log('[ANALYSIS_DEBUG] loadDesignDetail', {
-        regionCount: selectedRegionIds.length,
-        groupCount: selectedGroupIds.length,
-        storesCount: stores.length,
-        selectedCount: selectedStoreIds.length,
-        allStoresSelected,
-        willSendStoreIds: selectedStoreIds.length > 0 && !allStoresSelected
-      })
       
       if (selectedStoreIds.length > 0 && !allStoresSelected) {
         requestBody.storeIds = selectedStoreIds.join(',')
@@ -885,14 +873,9 @@ export default function AnalysisPage() {
                       // Lazy load MapChart component
                       const MapChart = React.lazy(() => import('../components/MapChart'));
                       
-                      // DEBUG: Ham veri kontrolü
-                      console.log('🗺️ Harita chartData:', chartData);
-                      console.log('🗺️ Harita chartData[0]:', chartData[0]);
-                      
                       // chartData'yı harita formatına dönüştür
                       // Önce koordinat zenginleştirme yap (şehir isimlerinden koordinat bul)
                       const enrichedData = enrichWithCoordinates(chartData);
-                      console.log('🗺️ Zenginleştirilmiş veri:', enrichedData);
                       
                       const mapData = enrichedData.map((item: any, idx: number) => {
                         const keys = Object.keys(item);

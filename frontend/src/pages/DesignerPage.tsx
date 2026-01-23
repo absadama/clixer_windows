@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react'
+import { debounce } from 'lodash'
 import { useTheme } from '../components/Layout'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -113,6 +114,8 @@ interface Design {
   targetRoles: string[]
   allowedPositions: string[] // Yeni: pozisyon bazlı yetkilendirme
   widgets: DesignWidget[]
+  categoryId?: string | null
+  updatedAt?: string // Optimistic locking için
 }
 
 interface Metric {
@@ -144,9 +147,14 @@ export default function DesignerPage() {
   const [designName, setDesignName] = useState('Yeni Tasarım')
   const [designType, setDesignType] = useState<'cockpit' | 'analysis'>('cockpit')
   const [designRoles, setDesignRoles] = useState<string[]>(['ADMIN'])
-  const [allowedPositions, setAllowedPositions] = useState<string[]>(ALL_POSITIONS.map(p => p.code)) // Varsayılan: herkes
+  const [allowedPositions, setAllowedPositions] = useState<string[]>([]) // GÜVENLİ VARSAYILAN: kimse (kullanıcı açıkça seçmeli)
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null) // Rapor kategorisi (Güçler Ayrılığı)
   const [reportCategories, setReportCategories] = useState<any[]>([]) // Mevcut kategoriler
+  
+  // Loading states - kullanıcı deneyimi için
+  const [designsLoading, setDesignsLoading] = useState(false)
+  const [metricsLoading, setMetricsLoading] = useState(false)
+  const [designLoading, setDesignLoading] = useState(false)
   
   // Layouts state for responsive grid
   const [layouts, setLayouts] = useState<Layouts>({})
@@ -172,6 +180,7 @@ export default function DesignerPage() {
   // Load metrics from API
   const loadMetrics = async () => {
     if (!accessToken) return
+    setMetricsLoading(true)
     try {
       const res = await fetch(`${API_BASE}/analytics/metrics`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -182,6 +191,8 @@ export default function DesignerPage() {
       }
     } catch (err) {
       console.warn('Metrik yükleme hatası:', err)
+    } finally {
+      setMetricsLoading(false)
     }
   }
   
@@ -204,6 +215,7 @@ export default function DesignerPage() {
   // Load designs from API
   const loadDesigns = async () => {
     if (!accessToken) return
+    setDesignsLoading(true)
     try {
       const res = await fetch(`${API_BASE}/analytics/designs`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -241,8 +253,10 @@ export default function DesignerPage() {
               name: d.name,
               type: d.type || 'cockpit',
               targetRoles: d.target_roles || d.targetRoles || ['ADMIN'],
-              allowedPositions: d.allowed_positions || d.allowedPositions || ALL_POSITIONS.map(p => p.code),
+              // GÜVENLİK: Boş array = kimse göremez (ADMIN hariç), ALL_POSITIONS fallback KALDIRILDI
+              allowedPositions: d.allowed_positions || d.allowedPositions || [],
               categoryId: d.category_id || d.categoryId || null,
+              updatedAt: d.updated_at || d.updatedAt || null, // Optimistic locking
               widgets
             }
           })
@@ -256,14 +270,28 @@ export default function DesignerPage() {
       }
     } catch (err) {
       console.warn('Tasarım yükleme hatası:', err)
+    } finally {
+      setDesignsLoading(false)
     }
   }
   
   // Save design to API
   const saveDesign = async () => {
     if (!accessToken || !currentDesign) {
-      alert('Önce bir tasarım seçin veya oluşturun')
+      toast.error('Önce bir tasarım seçin veya oluşturun')
       return
+    }
+    
+    // GÜVENLİK: Kategori zorunlu kontrolü
+    if (!selectedCategoryId) {
+      toast('Rapor Kategorisi seçilmeden kaydedemezsiniz! Sağ panelden bir kategori seçin.', { icon: '⚠️', duration: 5000 })
+      return
+    }
+    
+    // GÜVENLİK: En az bir pozisyon seçilmeli uyarısı (isteğe bağlı)
+    if (allowedPositions.length === 0) {
+      const confirm = window.confirm('⚠️ Hiçbir pozisyon seçilmedi!\n\nBu raporu sadece siz ve ADMIN kullanıcılar görebilecek.\n\nDevam etmek istiyor musunuz?')
+      if (!confirm) return
     }
     
     setSaving(true)
@@ -278,6 +306,7 @@ export default function DesignerPage() {
         targetRoles: designRoles,
         allowedPositions: allowedPositions, // Pozisyon bazlı yetkilendirme
         categoryId: selectedCategoryId, // Kategori bazlı yetkilendirme (Güçler Ayrılığı)
+        lastUpdatedAt: currentDesign.updatedAt, // OPTIMISTIC LOCKING: Concurrent edit kontrolü
         layoutConfig: {
           widgets: currentWidgets.map(w => ({
             id: w.i,
@@ -315,7 +344,7 @@ export default function DesignerPage() {
       
       if (res.ok) {
         const data = await res.json()
-        alert('✅ Tasarım kaydedildi!')
+        toast.success('Tasarım kaydedildi!')
         
         // Update current design with new ID if it was new
         if (isNew && data.data?.id) {
@@ -326,10 +355,22 @@ export default function DesignerPage() {
         loadDesigns()
       } else {
         const error = await res.json()
-        alert(`Hata: ${error.message || 'Tasarım kaydedilemedi'}`)
+        
+        // OPTIMISTIC LOCKING: Concurrent edit hatası
+        if (res.status === 409 || error.errorCode === 'CONCURRENT_EDIT') {
+          const reload = window.confirm(
+            '⚠️ UYARI: Bu tasarım başka bir kullanıcı tarafından değiştirilmiş!\n\n' +
+            'Değişiklikleriniz kaybolabilir. Güncel versiyonu yüklemek için sayfayı yenilemek ister misiniz?'
+          )
+          if (reload) {
+            loadDesigns()
+          }
+        } else {
+          toast.error(error.message || 'Tasarım kaydedilemedi')
+        }
       }
     } catch (err: any) {
-      alert(`Hata: ${err.message}`)
+      toast.error(err.message)
     } finally {
       setSaving(false)
     }
@@ -350,7 +391,7 @@ export default function DesignerPage() {
       })
       
       if (res.ok) {
-        alert('✅ Tasarım silindi!')
+        toast.success('Tasarım silindi!')
         // Clear current design if it was deleted
         if (currentDesign?.id === designId) {
           setCurrentDesign(null)
@@ -360,10 +401,10 @@ export default function DesignerPage() {
         setDesigns(prev => prev.filter(d => d.id !== designId))
       } else {
         const error = await res.json()
-        alert(`Hata: ${error.message || 'Tasarım silinemedi'}`)
+        toast.error(error.message || 'Tasarım silinemedi')
       }
     } catch (err: any) {
-      alert(`Hata: ${err.message}`)
+      toast.error(err.message)
     }
   }
   
@@ -402,7 +443,7 @@ export default function DesignerPage() {
     setDesignName(design.name)
     setDesignType(design.type)
     setDesignRoles(design.targetRoles || ['ADMIN'])
-    setAllowedPositions(design.allowedPositions || ALL_POSITIONS.map(p => p.code))
+    setAllowedPositions(design.allowedPositions || []) // Boşsa boş kalmalı, ALL_POSITIONS değil
     setSelectedCategoryId((design as any).categoryId || null)
     
     // Generate layouts for all breakpoints
@@ -434,7 +475,7 @@ export default function DesignerPage() {
       name: 'Yeni Tasarım',
       type: 'cockpit',
       targetRoles: ['ADMIN'],
-      allowedPositions: ALL_POSITIONS.map(p => p.code),
+      allowedPositions: [], // GÜVENLİ VARSAYILAN: boş (kullanıcı açıkça seçmeli)
       widgets: []
     }
     setDesigns(prev => [...prev, newDesign])
@@ -444,7 +485,7 @@ export default function DesignerPage() {
   // Add widget
   const addWidget = (widgetType: typeof WIDGET_TYPES[0]) => {
     if (!currentDesign) {
-      alert('Önce bir tasarım seçin veya yeni tasarım oluşturun')
+      toast.error('Önce bir tasarım seçin veya yeni tasarım oluşturun')
       return
     }
     
@@ -520,29 +561,54 @@ export default function DesignerPage() {
   }
   
   // Handle layout change (drag & resize)
+  // GÜVENLİK: Debounce ile gereksiz state güncellemelerini önle (performans)
+  const debouncedWidgetUpdate = useMemo(
+    () => debounce((layout: GridLayout[]) => {
+      setWidgets(prev => {
+        // Sadece değişen widget'ları güncelle
+        let hasChanges = false
+        const updated = prev.map(widget => {
+          const layoutItem = layout.find(l => l.i === widget.i)
+          if (layoutItem && (
+            widget.x !== layoutItem.x || 
+            widget.y !== layoutItem.y || 
+            widget.w !== layoutItem.w || 
+            widget.h !== layoutItem.h
+          )) {
+            hasChanges = true
+            return {
+              ...widget,
+              x: layoutItem.x,
+              y: layoutItem.y,
+              w: layoutItem.w,
+              h: layoutItem.h,
+            }
+          }
+          return widget
+        })
+        
+        // Değişiklik yoksa aynı referansı döndür (gereksiz re-render önle)
+        if (!hasChanges) return prev
+        
+        // Update ref for save function
+        widgetsRef.current = updated
+        return updated
+      })
+    }, 100),
+    []
+  )
+  
   const handleLayoutChange = useCallback((layout: GridLayout[], allLayouts: Layouts) => {
     setLayouts(allLayouts)
-    
-    // Update widgets with new positions
-    setWidgets(prev => {
-      const updated = prev.map(widget => {
-        const layoutItem = layout.find(l => l.i === widget.i)
-        if (layoutItem) {
-          return {
-            ...widget,
-            x: layoutItem.x,
-            y: layoutItem.y,
-            w: layoutItem.w,
-            h: layoutItem.h,
-          }
-        }
-        return widget
-      })
-      // Update ref for save function
-      widgetsRef.current = updated
-      return updated
-    })
-  }, [])
+    debouncedWidgetUpdate(layout)
+  }, [debouncedWidgetUpdate])
+  
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      debouncedWidgetUpdate.cancel()
+    }
+  }, [debouncedWidgetUpdate])
   
   // Handle breakpoint change
   const handleBreakpointChange = useCallback((bp: string) => {
@@ -1149,7 +1215,7 @@ export default function DesignerPage() {
                         onChange={(e) => setSelectedCategoryId(e.target.value || null)}
                         className={clsx('w-full px-3 py-2 rounded-lg text-sm border', theme.inputBg, theme.inputText)}
                       >
-                        <option value="">Tüm Kategoriler (Herkes)</option>
+                        <option value="">-- Kategori Seçiniz --</option>
                         {reportCategories.map(cat => (
                           <option key={cat.id} value={cat.id}>
                             {cat.name}
@@ -1170,7 +1236,7 @@ export default function DesignerPage() {
                       onClick={() => {
                         // Tasarımı Aç (Preview) - Açık tasarımı direkt göster
                         if (!currentDesign?.id) {
-                          alert('Önce tasarımı kaydedin veya bir tasarım seçin');
+                          toast.error('Önce tasarımı kaydedin veya bir tasarım seçin');
                           return;
                         }
                         // currentDesign.type'ı kullan (tasarımdan gelen gerçek tip)

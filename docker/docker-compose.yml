@@ -12,7 +12,7 @@ services:
     environment:
       POSTGRES_DB: clixer
       POSTGRES_USER: clixer
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clixer_secret_2025}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable is required}
     command:
       - "postgres"
       - "-c"
@@ -141,9 +141,9 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4001
-      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD}@postgres:5432/clixer
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET:-clixer_jwt_super_secret_2025}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET environment variable is required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -164,7 +164,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4002
-      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD}@postgres:5432/clixer
       - REDIS_URL=redis://redis:6379
     depends_on:
       postgres:
@@ -184,10 +184,10 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4003
-      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD}@postgres:5432/clixer
       - CLICKHOUSE_URL=http://clickhouse:8123
       - CLICKHOUSE_USER=clixer
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD environment variable is required}
       - REDIS_URL=redis://redis:6379
     depends_on:
       postgres:
@@ -211,7 +211,7 @@ services:
       - PORT=4005
       - CLICKHOUSE_URL=http://clickhouse:8123
       - CLICKHOUSE_USER=clixer
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD environment variable is required}
       - REDIS_URL=redis://redis:6379
     depends_on:
       clickhouse:
@@ -233,7 +233,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4004
-      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD}@postgres:5432/clixer
       - REDIS_URL=redis://redis:6379
     depends_on:
       postgres:
@@ -252,10 +252,10 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD:-clixer_secret_2025}@postgres:5432/clixer
+      - DATABASE_URL=postgresql://clixer:${POSTGRES_PASSWORD}@postgres:5432/clixer
       - CLICKHOUSE_URL=http://clickhouse:8123
       - CLICKHOUSE_USER=clixer
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clixer_click_2025}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD environment variable is required}
       - REDIS_URL=redis://redis:6379
     deploy:
       resources:

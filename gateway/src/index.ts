@@ -42,7 +42,7 @@ const SERVICES = {
 // SECURITY MIDDLEWARE
 // ============================================
 
-// Helmet.js - HTTP güvenlik başlıkları
+// Helmet.js - HTTP güvenlik başlıkları (Production-grade)
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -53,23 +53,60 @@ app.use(helmet({
       connectSrc: ["'self'", "ws:", "wss:"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
-      frameSrc: ["'none'"]
+      frameSrc: ["'none'"],
+      upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
     }
   },
   crossOriginEmbedderPolicy: false,  // API için gerekli
+  crossOriginResourcePolicy: { policy: "same-origin" },
   hsts: {
     maxAge: 31536000,  // 1 yıl
     includeSubDomains: true,
     preload: true
-  }
+  },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  xContentTypeOptions: true,  // X-Content-Type-Options: nosniff
+  xFrameOptions: { action: "deny" },  // Clickjacking koruması
+  xXssProtection: true  // XSS koruması (legacy browsers)
 }));
 
-// CORS - Production'da kısıtlı, development'ta localhost ve network IP'leri
-const corsOrigins = process.env.CORS_ORIGIN 
-  ? (process.env.CORS_ORIGIN === '*' ? '*' : process.env.CORS_ORIGIN.split(',').map(o => o.trim()))
-  : (process.env.NODE_ENV === 'production' 
-      ? ['https://clixer.app', 'https://app.clixer.com'] 
-      : '*'); // Development modunda tüm originlere izin ver (mobil test için kritik)
+// Ek güvenlik başlıkları
+app.use((req, res, next) => {
+  // Cache-Control for API responses
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  // Permissions-Policy (eski Feature-Policy)
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  next();
+});
+
+// CORS - Production'da ZORUNLU whitelist, development'ta localhost
+const corsOrigins = (() => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const envOrigin = process.env.CORS_ORIGIN;
+  
+  // Production'da CORS_ORIGIN zorunlu ve * olamaz
+  if (isProduction) {
+    if (!envOrigin) {
+      console.error('CRITICAL: CORS_ORIGIN must be set in production!');
+      throw new Error('CORS_ORIGIN environment variable is required in production');
+    }
+    if (envOrigin === '*') {
+      console.error('CRITICAL: CORS_ORIGIN cannot be * in production!');
+      throw new Error('CORS_ORIGIN cannot be wildcard (*) in production');
+    }
+    return envOrigin.split(',').map(o => o.trim());
+  }
+  
+  // Development'ta izin verilen originler
+  if (envOrigin && envOrigin !== '*') {
+    return envOrigin.split(',').map(o => o.trim());
+  }
+  
+  // Development default - localhost
+  return ['http://localhost:3000', 'http://127.0.0.1:3000'];
+})();
 
 app.use(cors({
   origin: corsOrigins,

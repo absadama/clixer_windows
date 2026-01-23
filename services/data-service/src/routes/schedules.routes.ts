@@ -15,7 +15,9 @@ const logger = createLogger({ service: 'data-service' });
 router.get('/', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const schedules = await db.queryAll(
-      `SELECT d.id, d.name, d.sync_schedule, d.last_sync_at, d.is_active
+      `SELECT d.id as dataset_id, d.id, d.name as dataset_name, 
+              d.sync_schedule as cron_expression, d.last_sync_at as last_run_at, 
+              CASE WHEN d.status = 'active' THEN true ELSE false END as is_active
        FROM datasets d
        WHERE d.tenant_id = $1 AND d.sync_schedule IS NOT NULL
        ORDER BY d.name`,
@@ -40,10 +42,10 @@ router.put('/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), async (r
     const result = await db.queryOne(
       `UPDATE datasets 
        SET sync_schedule = COALESCE($1, sync_schedule),
-           is_active = COALESCE($2, is_active),
+           status = CASE WHEN $2 = true THEN 'active' WHEN $2 = false THEN 'inactive' ELSE status END,
            updated_at = NOW()
        WHERE id = $3 AND tenant_id = $4
-       RETURNING id, name, sync_schedule, is_active`,
+       RETURNING id, name, sync_schedule, CASE WHEN status = 'active' THEN true ELSE false END as is_active`,
       [syncSchedule, isActive, id, req.user!.tenantId]
     );
     

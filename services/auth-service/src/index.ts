@@ -47,12 +47,25 @@ app.use(compression());
 app.use(express.json());
 app.use(requestLogger(logger));
 
-// Rate limiting
-app.use(rateLimit({
+// Rate limiting - Genel limit
+const generalLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
-  message: { success: false, errorCode: 'RATE_LIMIT', message: 'Çok fazla istek' }
-}));
+  message: { success: false, errorCode: 'RATE_LIMIT', message: 'Çok fazla istek' },
+  // Verify ve health endpoint'leri hariç tut
+  skip: (req) => req.path === '/verify' || req.path === '/health'
+});
+
+// Login için daha sıkı rate limit (brute-force koruması)
+const loginLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 dakika
+  max: 20, // 5 dakikada max 20 login denemesi (dev için makul)
+  message: { success: false, errorCode: 'RATE_LIMIT', message: 'Çok fazla giriş denemesi. 5 dakika bekleyin.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(generalLimiter);
 
 // ============================================
 // ROUTES
@@ -134,8 +147,8 @@ async function authenticateWithLDAP(ldapDn: string, password: string): Promise<b
   });
 }
 
-// Login
-app.post('/login', async (req: Request, res: Response, next: NextFunction) => {
+// Login - Brute-force koruması için özel rate limit
+app.post('/login', loginLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, password, twoFactorCode } = req.body;
 

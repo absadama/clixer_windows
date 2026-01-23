@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import {
   Plus, Edit2, Trash2, Eye, Search, Filter, ChevronRight,
   BarChart3, LineChart, PieChart, TrendingUp, Hash, Gauge,
@@ -467,7 +468,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
       setShowModal(false);
       loadData();
     } catch (error: any) {
-      alert('Hata: ' + error.message);
+      toast.error('Hata: ' + error.message);
     }
   };
   
@@ -483,7 +484,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
       });
       loadData();
     } catch (error: any) {
-      alert('Çoğaltma hatası: ' + error.message);
+      toast.error('Çoğaltma hatası: ' + error.message);
     }
   };
   
@@ -497,7 +498,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
       await apiCall(`/metrics/${id}`, { method: 'DELETE' });
       loadData();
     } catch (error: any) {
-      alert('Silme hatası: ' + error.message);
+      toast.error('Silme hatası: ' + error.message);
     }
   };
   
@@ -508,32 +509,32 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
     // SQL Modu kontrolü
     if (formData.useSqlMode) {
       if (!formData.datasetId) {
-        alert('Lütfen dataset seçin');
+        toast.error('Lütfen dataset seçin');
         return;
       }
       if (!formData.customSql || formData.customSql.trim().length === 0) {
-        alert('Lütfen SQL sorgusu yazın');
+        toast.error('Lütfen SQL sorgusu yazın');
         return;
       }
     } else {
       // Grid/List için selectedColumns kontrol et, diğerleri için dbColumn
       if (!formData.datasetId) {
-        alert('Lütfen dataset seçin');
+        toast.error('Lütfen dataset seçin');
         return;
       }
       
       if (isGridOrList) {
         if (!formData.selectedColumns || formData.selectedColumns.length === 0) {
-          alert('Lütfen en az bir kolon seçin');
+          toast.error('Lütfen en az bir kolon seçin');
           return;
         }
         // ranking_list için dbColumn da gerekli (sum için)
         if (formData.visualizationType === 'ranking_list' && !formData.dbColumn) {
-          alert('Sıralama listesi için değer kolonu (Revenue vb.) seçmelisiniz');
+          toast.error('Sıralama listesi için değer kolonu (Revenue vb.) seçmelisiniz');
           return;
         }
       } else if (!formData.dbColumn) {
-        alert('Lütfen kolon seçin');
+        toast.error('Lütfen kolon seçin');
         return;
       }
     }
@@ -573,7 +574,7 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
       
       setPreviewData(res.data);
     } catch (error: any) {
-      alert('Önizleme hatası: ' + error.message);
+      toast.error('Önizleme hatası: ' + error.message);
     } finally {
       setPreviewLoading(false);
     }

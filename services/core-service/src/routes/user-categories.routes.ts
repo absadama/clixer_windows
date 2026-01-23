@@ -111,13 +111,19 @@ router.put('/:id/categories', authenticate, authorize(ROLES.ADMIN), async (req: 
       throw new NotFoundError('Kullanıcı');
     }
     
-    // Update can_see_all_categories
-    if (typeof canSeeAllCategories === 'boolean') {
+    // NOT: can_see_all_categories artık database trigger ile otomatik yönetiliyor
+    // - Kategori atandığında → false
+    // - Tüm kategoriler kaldırıldığında → true
+    // Manuel override sadece özel durumlar için (kategori atamadan tüm erişim vermek)
+    if (typeof canSeeAllCategories === 'boolean' && canSeeAllCategories === true) {
+      // Sadece "tüm kategorileri gör" açıkça istendiğinde manuel set et
+      // Kategori atandığında trigger otomatik false yapacak
       await db.query(
         'UPDATE users SET can_see_all_categories = $1 WHERE id = $2',
         [canSeeAllCategories, userId]
       );
     }
+    // canSeeAllCategories = false ise trigger zaten halledecek
     
     // SECURITY FIX: Verify all categoryIds belong to current tenant
     if (Array.isArray(categoryIds) && categoryIds.length > 0) {

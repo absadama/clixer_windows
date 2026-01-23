@@ -669,6 +669,47 @@ DROP TRIGGER IF EXISTS update_etl_schedules_updated_at ON public.etl_schedules;
 CREATE TRIGGER update_etl_schedules_updated_at BEFORE UPDATE ON public.etl_schedules FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ============================================
+-- GÜÇLER AYRILIĞI - KATEGORİ YÖNETİMİ TRIGGERs
+-- Kullanıcıya kategori atandığında can_see_all_categories = false
+-- Tüm kategorileri kaldırıldığında can_see_all_categories = true
+-- ============================================
+
+-- Kategori ataması yapıldığında kullanıcıyı güncelle
+CREATE OR REPLACE FUNCTION public.update_user_category_access() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+BEGIN
+    -- INSERT: Kullanıcıya kategori atandı, artık tüm kategorileri göremez
+    IF TG_OP = 'INSERT' THEN
+        UPDATE users SET can_see_all_categories = false WHERE id = NEW.user_id;
+        RETURN NEW;
+    END IF;
+    
+    -- DELETE: Kategori kaldırıldı, başka kategorisi kalmadıysa tüm kategorileri görebilir
+    IF TG_OP = 'DELETE' THEN
+        -- Kullanıcının başka kategorisi var mı kontrol et
+        IF NOT EXISTS (SELECT 1 FROM user_report_categories WHERE user_id = OLD.user_id) THEN
+            UPDATE users SET can_see_all_categories = true WHERE id = OLD.user_id;
+        END IF;
+        RETURN OLD;
+    END IF;
+    
+    RETURN NULL;
+END;
+$$;
+
+-- Trigger: Kategori ataması INSERT
+DROP TRIGGER IF EXISTS trg_user_category_insert ON public.user_report_categories;
+CREATE TRIGGER trg_user_category_insert 
+    AFTER INSERT ON public.user_report_categories 
+    FOR EACH ROW EXECUTE FUNCTION public.update_user_category_access();
+
+-- Trigger: Kategori ataması DELETE
+DROP TRIGGER IF EXISTS trg_user_category_delete ON public.user_report_categories;
+CREATE TRIGGER trg_user_category_delete 
+    AFTER DELETE ON public.user_report_categories 
+    FOR EACH ROW EXECUTE FUNCTION public.update_user_category_access();
+
+-- ============================================
 -- SEED DATA - SADECE TEMİZ KURULUM İÇİN
 -- ============================================
 
@@ -689,10 +730,11 @@ ON CONFLICT (code) DO NOTHING;
 
 -- 3. Admin Kullanici (Sifre: Admin1234!)
 -- bcrypt hash for 'Admin1234!'
-INSERT INTO public.users (id, tenant_id, email, password_hash, name, role, position_code, is_active) VALUES
+-- ADMIN kullanıcıları her zaman tüm kategorileri görebilir
+INSERT INTO public.users (id, tenant_id, email, password_hash, name, role, position_code, is_active, can_see_all_categories) VALUES
 ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 
  'admin@clixer', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.SfWvqFw0.iGw/W', 
- 'Admin Clixer', 'ADMIN', 'GENERAL_MANAGER', true)
+ 'Admin Clixer', 'ADMIN', 'GENERAL_MANAGER', true, true)
 ON CONFLICT (id) DO NOTHING;
 
 -- 4. Temel Sistem Ayarlari

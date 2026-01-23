@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import DOMPurify from 'dompurify'
+import toast from 'react-hot-toast'
 import { useTheme } from '../components/Layout'
 import { useAuthStore } from '../stores/authStore'
 import { 
@@ -433,7 +435,7 @@ export default function AdminPage() {
   const saveCategory = async () => {
     try {
       if (!categoryForm.code || !categoryForm.name) {
-        alert('Kod ve ad zorunludur')
+        toast.error('Kod ve ad zorunludur')
         return
       }
       
@@ -451,7 +453,7 @@ export default function AdminPage() {
       setEditingCategory(null)
       setCategoryForm({ code: '', name: '', description: '', color: '#6366f1', icon: 'Folder' })
     } catch (err: any) {
-      alert('Kaydetme hatası: ' + err.message)
+      toast.error('Kaydetme hatası: ' + err.message)
     }
   }
   
@@ -463,7 +465,7 @@ export default function AdminPage() {
       await apiCall(`/core/report-categories/${id}`, { method: 'DELETE' })
       await loadReportCategories()
     } catch (err: any) {
-      alert('Silme hatası: ' + err.message)
+      toast.error('Silme hatası: ' + err.message)
     }
   }
   
@@ -484,9 +486,9 @@ export default function AdminPage() {
       
       // Yeniden yükle
       await loadLabels()
-      alert('Etiketler kaydedildi!')
+      toast.success('Etiketler kaydedildi!')
     } catch (err: any) {
-      alert('Kaydetme hatası: ' + err.message)
+      toast.error('Kaydetme hatası: ' + err.message)
     } finally {
       setLabelsSaving(false)
     }
@@ -532,7 +534,7 @@ export default function AdminPage() {
     } catch (err: any) {
       // Hata durumunda eski değere geri dön
       loadPerfSettings()
-      alert('Kaydetme hatası: ' + err.message)
+      toast.error('Kaydetme hatası: ' + err.message)
     } finally {
       setSaving(null)
     }
@@ -546,10 +548,10 @@ export default function AdminPage() {
         method: 'POST',
         body: JSON.stringify({ type })
       })
-      alert(`${type === 'all' ? 'Tüm cache' : type === 'dashboard' ? 'Dashboard cache' : 'Metrik cache'} temizlendi!`)
+      toast.success(`${type === 'all' ? 'Tüm cache' : type === 'dashboard' ? 'Dashboard cache' : 'Metrik cache'} temizlendi!`)
       loadPerfSettings() // Redis info güncelle
     } catch (err: any) {
-      alert('Cache temizleme hatası: ' + err.message)
+      toast.error('Cache temizleme hatası: ' + err.message)
     } finally {
       setCacheClearLoading(false)
     }
@@ -575,7 +577,7 @@ export default function AdminPage() {
       setEditingKey(null)
       setEditValue('')
     } catch (err: any) {
-      alert('Kaydetme hatası: ' + err.message)
+      toast.error('Kaydetme hatası: ' + err.message)
     } finally {
       setSaving(null)
     }
@@ -604,10 +606,10 @@ export default function AdminPage() {
           if (!e.message?.includes('zaten')) console.warn(`Ayar atlandı: ${setting.key}`)
         }
       }
-      alert('Varsayılan ayarlar kaydedildi!')
+      toast.success('Varsayılan ayarlar kaydedildi!')
       loadSettings()
     } catch (err: any) {
-      alert('Hata: ' + err.message)
+      toast.error('Hata: ' + err.message)
     } finally {
       setSeeding(false)
     }
@@ -626,14 +628,46 @@ export default function AdminPage() {
     }
   }, [accessToken, apiCall])
 
+  // GÜVENLİK: Magic bytes kontrolü - dosya tipini gerçekten doğrula
+  const validateFileType = async (file: File): Promise<{ valid: boolean; actualType: string }> => {
+    const buffer = await file.slice(0, 8).arrayBuffer()
+    const bytes = new Uint8Array(buffer)
+    
+    // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+    const isPng = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47
+    
+    // SVG starts with < (after optional BOM)
+    const isSvg = bytes[0] === 0x3C || // <
+                  (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF && bytes[3] === 0x3C) // UTF-8 BOM + <
+    
+    if (isPng) return { valid: true, actualType: 'image/png' }
+    if (isSvg) return { valid: true, actualType: 'image/svg+xml' }
+    
+    return { valid: false, actualType: 'unknown' }
+  }
+  
+  // GÜVENLİK: SVG dosyalarını XSS'den temizle
+  const sanitizeSvg = async (file: File): Promise<Blob> => {
+    const text = await file.text()
+    
+    // DOMPurify ile SVG temizle - script, event handler vb. kaldır
+    const cleanSvg = DOMPurify.sanitize(text, {
+      USE_PROFILES: { svg: true, svgFilters: true },
+      FORBID_TAGS: ['script', 'style'],
+      FORBID_ATTR: ['onload', 'onerror', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onanimationend', 'onanimationstart']
+    })
+    
+    return new Blob([cleanSvg], { type: 'image/svg+xml' })
+  }
+
   // Logo dosyası seçildiğinde
-  const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
     setLogoError(null)
 
-    // Dosya tipi kontrolü
+    // GÜVENLİK: Dosya tipi kontrolü (browser'dan gelen değere güvenme)
     if (!['image/png', 'image/svg+xml'].includes(file.type)) {
       setLogoError('Sadece PNG veya SVG formatı kabul edilir')
       return
@@ -642,6 +676,19 @@ export default function AdminPage() {
     // Dosya boyutu kontrolü (5MB)
     if (file.size > 5 * 1024 * 1024) {
       setLogoError('Dosya boyutu en fazla 5MB olabilir')
+      return
+    }
+    
+    // GÜVENLİK: Magic bytes ile gerçek dosya tipini doğrula
+    const { valid, actualType } = await validateFileType(file)
+    if (!valid) {
+      setLogoError('Geçersiz dosya formatı. Sadece gerçek PNG veya SVG dosyaları kabul edilir.')
+      return
+    }
+    
+    // Browser tipi ile magic bytes uyuşmalı
+    if (file.type !== actualType) {
+      setLogoError(`Dosya tipi uyuşmazlığı: Belirtilen ${file.type}, gerçek ${actualType}`)
       return
     }
 
@@ -660,9 +707,16 @@ export default function AdminPage() {
       }
       img.src = URL.createObjectURL(file)
     } else {
-      // SVG için direkt kabul et
-      setLogoFile(file)
-      setLogoPreview(URL.createObjectURL(file))
+      // GÜVENLİK: SVG için XSS temizliği yap
+      try {
+        const sanitizedBlob = await sanitizeSvg(file)
+        const sanitizedFile = new File([sanitizedBlob], file.name, { type: 'image/svg+xml' })
+        setLogoFile(sanitizedFile)
+        setLogoPreview(URL.createObjectURL(sanitizedBlob))
+      } catch (err) {
+        setLogoError('SVG dosyası işlenirken hata oluştu')
+        console.error('SVG sanitization error:', err)
+      }
     }
   }
 
@@ -707,7 +761,7 @@ export default function AdminPage() {
       setLogoFile(null)
       setLogoPreview(null)
       await loadLogoInfo()
-      alert('Logo başarıyla yüklendi! Sidebar ve PWA logosu güncellendi.')
+      toast.success('Logo başarıyla yüklendi! Sidebar ve PWA logosu güncellendi.')
       
       // Sayfayı yenile ki yeni logo görünsün
       window.location.reload()
@@ -754,10 +808,10 @@ export default function AdminPage() {
     setBackupCreating(true)
     try {
       await apiCall('/data/admin/backup/create', { method: 'POST' })
-      alert('✅ Yedek oluşturma başlatıldı!')
+      toast.success('Yedek oluşturma başlatıldı!')
       loadBackups()
     } catch (err: any) {
-      alert('Yedek oluşturulamadı: ' + err.message)
+      toast.error('Yedek oluşturulamadı: ' + err.message)
     } finally {
       setBackupCreating(false)
     }
@@ -768,10 +822,10 @@ export default function AdminPage() {
     if (!confirm('Bu kullanıcının oturumunu sonlandırmak istediğinize emin misiniz?')) return
     try {
       await apiCall(`/data/admin/sessions/${userId}`, { method: 'DELETE' })
-      alert('✅ Oturum sonlandırıldı')
+      toast.success('Oturum sonlandırıldı')
       loadSessions()
     } catch (err: any) {
-      alert('Oturum sonlandırılamadı: ' + err.message)
+      toast.error('Oturum sonlandırılamadı: ' + err.message)
     }
   }
 
@@ -795,7 +849,7 @@ export default function AdminPage() {
           if (health.status === 'healthy') {
             clearInterval(checkHealth)
             setRestartLoading(false)
-            alert('✅ Sistem başarıyla yeniden başlatıldı ve hazır!')
+            toast.success('Sistem başarıyla yeniden başlatıldı ve hazır!')
             loadSessions()
           }
         } catch (e) {
@@ -803,14 +857,14 @@ export default function AdminPage() {
           if (attempts >= maxAttempts) {
             clearInterval(checkHealth)
             setRestartLoading(false)
-            alert('⚠️ İşlem tamamlandı ancak servislerin tam ayağa kalkması biraz daha sürebilir. Lütfen sayfayı yenileyin.')
+            toast('İşlem tamamlandı ancak servislerin tam ayağa kalkması biraz daha sürebilir. Lütfen sayfayı yenileyin.', { icon: '⚠️', duration: 6000 })
           }
         }
       }, 5000)
 
     } catch (err: any) {
       setRestartLoading(false)
-      alert('Hata: ' + err.message)
+      toast.error('Hata: ' + err.message)
     }
   }
 
@@ -914,7 +968,7 @@ export default function AdminPage() {
   // Dataset'ten mağaza import et
   const importFromDataset = async () => {
     if (!selectedDatasetId || !datasetImportMapping.code) {
-      alert('Lütfen dataset ve en az "Kod" alanını eşleştirin')
+      toast.error('Lütfen dataset ve en az "Kod" alanını eşleştirin')
       return
     }
     
@@ -944,7 +998,7 @@ export default function AdminPage() {
       // Mağazaları yenile
       loadStoresAndRegions()
     } catch (err: any) {
-      alert(err.message || 'Import başarısız')
+      toast.error(err.message || 'Import başarısız')
     } finally {
       setDatasetImporting(false)
     }
@@ -993,7 +1047,7 @@ export default function AdminPage() {
       setStoreForm({ code: '', name: '', store_type: 'MAGAZA', ownership_group: 'MERKEZ', region_id: '', city: '', district: '', address: '', phone: '', email: '', manager_name: '', manager_email: '', opening_date: '', square_meters: '', employee_count: '', rent_amount: '', target_revenue: '' })
       loadStoresAndRegions()
     } catch (err: any) {
-      alert(err.message || 'Mağaza kaydedilemedi')
+      toast.error(err.message || 'Mağaza kaydedilemedi')
     } finally {
       setSaving(null)
     }
@@ -1019,7 +1073,7 @@ export default function AdminPage() {
       setRegionForm({ code: '', name: '', description: '', manager_name: '', manager_email: '' })
       loadStoresAndRegions()
     } catch (err: any) {
-      alert(err.message || 'Bölge kaydedilemedi')
+      toast.error(err.message || 'Bölge kaydedilemedi')
     } finally {
       setSaving(null)
     }
@@ -1045,7 +1099,7 @@ export default function AdminPage() {
       setGroupForm({ code: '', name: '', description: '', color: '#3B82F6', icon: '🏢' })
       loadStoresAndRegions()
     } catch (err: any) {
-      alert(err.message || 'Grup kaydedilemedi')
+      toast.error(err.message || 'Grup kaydedilemedi')
     } finally {
       setSaving(null)
     }
@@ -1058,7 +1112,7 @@ export default function AdminPage() {
       await apiCall(`/core/stores/${id}`, { method: 'DELETE' })
       loadStoresAndRegions()
     } catch (err: any) {
-      alert(err.message || 'Mağaza silinemedi')
+      toast.error(err.message || 'Mağaza silinemedi')
     }
   }
 
@@ -1068,7 +1122,7 @@ export default function AdminPage() {
       await apiCall(`/core/regions/${id}`, { method: 'DELETE' })
       loadStoresAndRegions()
     } catch (err: any) {
-      alert(err.message || 'Bölge silinemedi')
+      toast.error(err.message || 'Bölge silinemedi')
     }
   }
 
@@ -1078,7 +1132,7 @@ export default function AdminPage() {
       await apiCall(`/core/ownership-groups/${id}`, { method: 'DELETE' })
       loadStoresAndRegions()
     } catch (err: any) {
-      alert(err.message || 'Grup silinemedi')
+      toast.error(err.message || 'Grup silinemedi')
     }
   }
 
@@ -1092,12 +1146,12 @@ export default function AdminPage() {
         method: 'POST',
         body: JSON.stringify({ data: importData })
       })
-      alert(`${result.imported} kayıt başarıyla import edildi.${result.errors?.length ? ` ${result.errors.length} hata var.` : ''}`)
+      toast.success(`${result.imported} kayıt başarıyla import edildi.${result.errors?.length ? ` ${result.errors.length} hata var.` : ''}`)
       setShowImportModal(null)
       setImportData([])
       loadStoresAndRegions()
     } catch (err: any) {
-      alert(err.message || 'Import başarısız')
+      toast.error(err.message || 'Import başarısız')
     } finally {
       setImporting(false)
     }
@@ -1116,7 +1170,7 @@ export default function AdminPage() {
       
       const lines = text.split('\n').filter(line => line.trim())
       if (lines.length < 2) {
-        alert('Dosya boş veya geçersiz format. En az başlık + 1 veri satırı olmalı.')
+        toast.error('Dosya boş veya geçersiz format. En az başlık + 1 veri satırı olmalı.')
         return
       }
       
@@ -1135,7 +1189,7 @@ export default function AdminPage() {
       }).filter(row => Object.values(row).some(v => v)) // Boş satırları filtrele
       
       if (data.length === 0) {
-        alert('Dosyada geçerli veri satırı bulunamadı.')
+        toast.error('Dosyada geçerli veri satırı bulunamadı.')
         return
       }
       
@@ -1179,11 +1233,15 @@ export default function AdminPage() {
   }
 
   // Kullanıcı kaydet
+  // GÜVENLİK: Atomik işlem - kullanıcı + kategori birlikte başarılı olmalı
   const saveUser = async () => {
     setSaving('user')
+    let userId: string | null = editingUser?.id || null
+    let isNewUser = !editingUser
+    let userCreated = false
+    let categoryError: Error | null = null
+    
     try {
-      let userId = editingUser?.id
-      
       if (editingUser) {
         // Güncelle
         await apiCall(`/core/users/${editingUser.id}`, {
@@ -1206,6 +1264,7 @@ export default function AdminPage() {
           })
         })
         userId = result.data?.id
+        userCreated = true
       }
       
       // Kullanıcı kategorilerini kaydet (Güçler Ayrılığı)
@@ -1218,8 +1277,25 @@ export default function AdminPage() {
               canSeeAllCategories: userForm.canSeeAllCategories
             })
           })
-        } catch (catErr) {
+        } catch (catErr: any) {
+          categoryError = catErr
           console.error('Kategori ataması başarısız:', catErr)
+          
+          // GÜVENLİK: Yeni kullanıcıysa ve kategori başarısız olduysa, kullanıcıyı sil (rollback)
+          if (isNewUser && userCreated && userId) {
+            try {
+              await apiCall(`/core/users/${userId}`, { method: 'DELETE' })
+              console.warn('Rollback: Yeni kullanıcı silindi çünkü kategori ataması başarısız')
+            } catch (rollbackErr) {
+              console.error('Rollback başarısız:', rollbackErr)
+            }
+            throw new Error(`Kullanıcı oluşturuldu ama kategori ataması başarısız oldu: ${catErr.message}. Kullanıcı geri alındı.`)
+          }
+          
+          // Mevcut kullanıcı için sadece uyar ama işlemi tamamla
+          if (!isNewUser) {
+            toast(`Kullanıcı güncellendi ancak kategori ataması başarısız: ${catErr.message}`, { icon: '⚠️', duration: 6000 })
+          }
         }
       }
       
@@ -1228,7 +1304,7 @@ export default function AdminPage() {
       setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '', categories: [], canSeeAllCategories: false })
       loadUsers()
     } catch (err: any) {
-      alert('Hata: ' + err.message)
+      toast.error('Hata: ' + err.message)
     } finally {
       setSaving(null)
     }
@@ -1241,7 +1317,7 @@ export default function AdminPage() {
       await apiCall(`/core/users/${userId}`, { method: 'DELETE' })
       loadUsers()
     } catch (err: any) {
-      alert('Hata: ' + err.message)
+      toast.error('Hata: ' + err.message)
     }
   }
 
@@ -1317,9 +1393,9 @@ export default function AdminPage() {
         body: JSON.stringify({ permissions: rolePermissions })
       })
       setEditingRole(null)
-      alert('İzinler güncellendi!')
+      toast.success('İzinler güncellendi!')
     } catch (err: any) {
-      alert('Hata: ' + err.message)
+      toast.error('Hata: ' + err.message)
     } finally {
       setSaving(null)
     }
@@ -1359,10 +1435,10 @@ export default function AdminPage() {
         method: 'POST',
         body: JSON.stringify(ldapForm)
       })
-      alert('LDAP ayarları kaydedildi!')
+      toast.success('LDAP ayarları kaydedildi!')
       loadLdapConfig()
     } catch (err: any) {
-      alert('Hata: ' + err.message)
+      toast.error('Hata: ' + err.message)
     } finally {
       setSaving(null)
     }
@@ -1397,7 +1473,7 @@ export default function AdminPage() {
       const result = await apiCall('/core/ldap/groups')
       setLdapGroups(result.data || [])
     } catch (err: any) {
-      alert('Gruplar yüklenemedi: ' + err.message)
+      toast.error('Gruplar yüklenemedi: ' + err.message)
     } finally {
       setLoadingLdapGroups(false)
     }
@@ -1451,7 +1527,7 @@ export default function AdminPage() {
       setMappingForm({ ldap_group_dn: '', ldap_group_name: '', position_code: 'VIEWER', store_id: '', store_name: '', grants_all_stores: false })
       loadPositionMappings()
     } catch (err: any) {
-      alert('Hata: ' + err.message)
+      toast.error('Hata: ' + err.message)
     }
   }
 
@@ -1472,7 +1548,7 @@ export default function AdminPage() {
       setMappingForm({ ldap_group_dn: '', ldap_group_name: '', position_code: 'VIEWER', store_id: '', store_name: '', grants_all_stores: false })
       loadStoreMappings()
     } catch (err: any) {
-      alert('Hata: ' + err.message)
+      toast.error('Hata: ' + err.message)
     }
   }
 
@@ -1484,7 +1560,7 @@ export default function AdminPage() {
       if (type === 'position') loadPositionMappings()
       else loadStoreMappings()
     } catch (err: any) {
-      alert('Hata: ' + err.message)
+      toast.error('Hata: ' + err.message)
     }
   }
 
@@ -1493,38 +1569,62 @@ export default function AdminPage() {
     setSyncing(true)
     try {
       const result = await apiCall('/core/ldap/sync', { method: 'POST' })
-      alert(result.message)
+      toast.success(result.message)
       loadSyncLogs()
       loadUsers()
     } catch (err: any) {
-      alert('Sync hatası: ' + err.message)
+      toast.error('Sync hatası: ' + err.message)
     } finally {
       setSyncing(false)
     }
   }
 
   // Sayfa yüklendiğinde ayarları çek
+  // GÜVENLİK: Promise.allSettled ile paralel API çağrıları - rate limiting ve tutarsız state önleme
   useEffect(() => {
-    loadSettings()
-    loadUsers()
-    loadPositions()
-    loadStoresAndRegions()
-    loadLdapConfig()
-    loadPositionMappings()
-    loadStoreMappings()
-    loadSyncLogs()
-    loadPerfSettings()
-    loadLabels()
-    loadLogoInfo()
-    loadReportCategories()
-  }, [loadSettings, loadUsers, loadPositions, loadStoresAndRegions, loadLdapConfig, loadPositionMappings, loadStoreMappings, loadSyncLogs, loadPerfSettings, loadLabels, loadLogoInfo, loadReportCategories])
+    const loadInitialData = async () => {
+      try {
+        // Kritik verileri önce yükle (sıralı)
+        await loadSettings()
+        
+        // Bağımsız verileri paralel yükle - Promise.allSettled ile hata yönetimi
+        const results = await Promise.allSettled([
+          loadUsers(),
+          loadPositions(),
+          loadStoresAndRegions(),
+          loadLdapConfig(),
+          loadPositionMappings(),
+          loadStoreMappings(),
+          loadSyncLogs(),
+          loadPerfSettings(),
+          loadLabels(),
+          loadLogoInfo(),
+          loadReportCategories()
+        ])
+        
+        // Başarısız olan API'leri logla (sessizce fail etme)
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            const apis = ['users', 'positions', 'stores', 'ldap', 'posMappings', 'storeMappings', 'syncLogs', 'perf', 'labels', 'logo', 'categories']
+            console.warn(`[AdminPage] ${apis[index]} yüklenemedi:`, result.reason)
+          }
+        })
+      } catch (err) {
+        console.error('[AdminPage] Initial load failed:', err)
+      }
+    }
+    
+    loadInitialData()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Sadece mount'ta çalış - dependency array boş bırakıldı (infinite loop önleme)
 
   // Tab değiştiğinde ilgili verileri yükle
   useEffect(() => {
     if (activeTab === 'monitor') loadSessions()
     if (activeTab === 'backup') loadBackups()
     if (activeTab === 'report-categories') loadReportCategories()
-  }, [activeTab, loadSessions, loadBackups, loadReportCategories])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]) // Sadece activeTab değiştiğinde - fonksiyon referansları hariç
 
   // Kategoriye göre grupla
   const groupedMenuItems = menuItems.reduce((acc, item) => {
@@ -4106,7 +4206,7 @@ export default function AdminPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {activeSessions.map((session: any) => (
+                      {Array.isArray(activeSessions) && activeSessions.map((session: any) => (
                         <tr key={session.user_id} className={clsx('border-b', theme.border)}>
                           <td className={clsx('px-4 py-3', theme.contentText)}>
                             <div>

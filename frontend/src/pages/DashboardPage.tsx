@@ -167,6 +167,11 @@ export default function DashboardPage() {
 
   // Pozisyon ve kategori bazlı tasarım filtreleme (Güçler Ayrılığı)
   const getAccessibleDesigns = () => {
+    // ADMIN her şeyi görür (backend'de de aynı mantık)
+    if (user?.role === 'ADMIN') {
+      return designs
+    }
+    
     return designs.filter(d => {
       // 1. Pozisyon kontrolü
       const allowedPositions = (d as any).allowed_positions || (d as any).allowedPositions
@@ -210,13 +215,6 @@ export default function DashboardPage() {
   useEffect(() => {
     if (currentDesign && accessToken) {
       const timeoutId = setTimeout(() => {
-        console.log('[DashboardPage] Filters changed, refetching...', { 
-          startDate, 
-          endDate, 
-          regionCount: selectedRegionIds.length, 
-          groupCount: selectedGroupIds.length,
-          storeCount: selectedStoreIds.length 
-        })
         fetchDashboardData(currentDesign.id)
       }, 300) // 300ms debounce - kullanıcı seçmeyi bitirene kadar bekle
       

@@ -160,18 +160,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       // Bu "tüm mağazalar" demektir ve backend'de RLS dışında ek filtre uygulanmaz
       const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
       
-      // DEBUG: Filtre gönderme durumunu logla
-      console.log('[STORE_DEBUG] fetchDashboardData', {
-        regionsCount: selectedRegionIds.length,
-        groupsCount: selectedGroupIds.length,
-        storesCount: stores.length,
-        selectedCount: selectedStoreIds.length,
-        allStoresSelected,
-        regionIdsToSend: selectedRegionIds.length > 0 ? selectedRegionIds.join(',') : 'NONE',
-        groupIdsToSend: selectedGroupIds.length > 0 ? selectedGroupIds.join(',') : 'NONE',
-        storeIdsToSend: selectedStoreIds.length > 0 && !allStoresSelected ? selectedStoreIds.slice(0, 3).join(',') + '...' : 'NONE'
-      })
-      
       if (selectedStoreIds.length > 0 && !allStoresSelected) {
         requestBody.storeIds = selectedStoreIds.join(',')
       }
@@ -213,7 +201,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
           // Sparkline data
           sparklineData: w.sparklineData
         }))
-        console.log('[STORE_DEBUG] Setting widgets:', widgetsWithData.length, 'widgets, first widget value:', widgetsWithData[0]?.data?.value)
         
         // Also extract metricsData by widget id
         const metricsData: Record<string, MetricData> = {}
