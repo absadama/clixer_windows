@@ -223,18 +223,19 @@ export class WindowsProcessManager implements IServiceManager {
     return new Promise((resolve, reject) => {
       const workDir = path.join(this.projectRoot, config.workDir);
       
-      logger.info('Starting service', { serviceId, workDir, command: config.startCommand });
+      logger.info('Starting ETL Worker', { workerPath: workDir });
 
-      // Windows: Use shell: true for proper PATH resolution
-      const child = spawn(config.startCommand, [], {
+      // Windows: Use exec with detached process for proper shell handling
+      // exec automatically uses shell and resolves PATH correctly
+      const child = exec(config.startCommand, {
         cwd: workDir,
         env: { ...process.env, ...config.env },
-        detached: false,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true  // Let Node.js handle shell spawning - fixes npm ENOENT
+        windowsHide: true
       });
 
-      this.processes.set(serviceId, child);
+      if (child.pid) {
+        this.processes.set(serviceId, child);
+      }
 
       let startupOutput = '';
       let startupError = '';
@@ -243,7 +244,11 @@ export class WindowsProcessManager implements IServiceManager {
       const timeout = setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          logger.warn('Service startup timeout, but process started', { serviceId, pid: child.pid });
+          logger.info('ETL Worker started from UI', { 
+            pid: child.pid, 
+            workerPath: workDir,
+            user: 'admin@clixer'
+          });
           resolve({
             id: serviceId,
             name: config.name,
@@ -252,7 +257,7 @@ export class WindowsProcessManager implements IServiceManager {
             port: config.port
           });
         }
-      }, 15000); // 15 saniye timeout
+      }, 3000); // 3 saniye sonra başarılı say
 
       child.stdout?.on('data', (data) => {
         const output = data.toString();
@@ -261,7 +266,8 @@ export class WindowsProcessManager implements IServiceManager {
         // Success patterns
         if (output.includes('running on port') || 
             output.includes('started') || 
-            output.includes('listening')) {
+            output.includes('listening') ||
+            output.includes('ts-node-dev')) {
           if (!resolved) {
             clearTimeout(timeout);
             resolved = true;
