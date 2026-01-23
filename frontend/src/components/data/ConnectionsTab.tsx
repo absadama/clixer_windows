@@ -20,7 +20,7 @@ import {
   Terminal
 } from 'lucide-react'
 import clsx from 'clsx'
-import { Connection, Dataset, useDataStore } from '../../stores/dataStore'
+import { Connection, Dataset } from '../../stores/dataStore'
 
 interface ConnectionsTabProps {
   theme: any
@@ -31,6 +31,9 @@ interface ConnectionsTabProps {
   onTestConnection: (id: string) => void
   onDeleteConnection: (conn: Connection) => void
   onOpenApiPreview: (conn: Connection) => void
+  onShowConnectionModal: () => void
+  onSelectConnectionForDataset: (conn: Connection) => void
+  onNavigateToSql: (connectionId: string) => void
 }
 
 export function ConnectionsTab({
@@ -41,15 +44,11 @@ export function ConnectionsTab({
   onEditConnection,
   onTestConnection,
   onDeleteConnection,
-  onOpenApiPreview
+  onOpenApiPreview,
+  onShowConnectionModal,
+  onSelectConnectionForDataset,
+  onNavigateToSql
 }: ConnectionsTabProps) {
-  const { 
-    setShowConnectionModal, 
-    setSelectedConnection, 
-    setShowDatasetModal,
-    setSqlConnectionId,
-    setActiveTab
-  } = useDataStore()
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -71,7 +70,7 @@ export function ConnectionsTab({
         ].map((source) => (
           <button
             key={source.type}
-            onClick={() => !source.disabled && setShowConnectionModal(true)}
+            onClick={() => !source.disabled && onShowConnectionModal()}
             disabled={source.disabled}
             className={clsx(
               'p-4 rounded-2xl transition-all group relative',
@@ -173,10 +172,7 @@ export function ConnectionsTab({
                           </button>
                         ) : (
                           <button 
-                            onClick={() => {
-                              setSqlConnectionId(conn.id)
-                              setActiveTab('sql')
-                            }}
+                            onClick={() => onNavigateToSql(conn.id)}
                             className={clsx('p-2 rounded-lg transition-colors', theme.buttonSecondary)}
                             title="SQL Editör"
                           >
@@ -206,10 +202,7 @@ export function ConnectionsTab({
                         </div>
                       ))}
                       <button 
-                        onClick={() => {
-                          setSelectedConnection(conn)
-                          setShowDatasetModal(true)
-                        }}
+                        onClick={() => onSelectConnectionForDataset(conn)}
                         className={clsx(
                           'flex items-center gap-1.5 px-3 py-1.5 border border-dashed rounded-lg text-xs transition-all',
                           isDark ? 'border-slate-700 hover:border-indigo-500 text-slate-500 hover:text-indigo-400' : 'border-slate-300 hover:border-indigo-500 text-slate-500 hover:text-indigo-600'
@@ -232,7 +225,7 @@ export function ConnectionsTab({
               Veri kaynaklarınızı bağlayarak dashboard'larınızı gerçek verilerle besleyin.
             </p>
             <button 
-              onClick={() => setShowConnectionModal(true)}
+              onClick={() => onShowConnectionModal()}
               className={clsx('inline-flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
             >
               <Plus className="h-4 w-4" />
