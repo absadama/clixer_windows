@@ -120,6 +120,45 @@ const analyticsLimiter = rateLimit({
   }
 });
 
+// Per-user rate limiting (IP + JWT user combined)
+// Enterprise: Her kullanıcı için ayrı limit
+const createUserAwareLimiter = (maxRequests: number) => rateLimit({
+  windowMs: 60 * 1000,
+  max: maxRequests,
+  message: { 
+    success: false, 
+    errorCode: 'USER_RATE_LIMIT', 
+    message: `Kullanıcı limiti aşıldı. Dakikada ${maxRequests} istek hakkınız var.` 
+  },
+  keyGenerator: (req) => {
+    // Try to extract user from JWT (if present)
+    const authHeader = req.headers.authorization;
+    let userId = 'anonymous';
+    
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        // Decode JWT without verification (just for rate limit key)
+        const token = authHeader.substring(7);
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        userId = payload.userId || payload.sub || 'unknown';
+      } catch {
+        // Invalid token, use IP
+      }
+    }
+    
+    // Combine IP + userId for unique rate limit key
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const clientIp = forwardedFor 
+      ? (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor.split(',')[0].trim())
+      : req.ip || 'unknown';
+    
+    return `${clientIp}:${userId}`;
+  }
+});
+
+// Heavy operations limiter (exports, bulk operations)
+const heavyOperationsLimiter = createUserAwareLimiter(10); // 10 per minute
+
 // Auth için brute-force koruması
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 dakika

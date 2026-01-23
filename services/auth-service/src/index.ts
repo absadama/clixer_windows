@@ -279,6 +279,27 @@ app.post('/login', async (req: Request, res: Response, next: NextFunction) => {
       filterValue: user.filter_value
     });
 
+    // Set HttpOnly cookies for XSS protection
+    const isProduction = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'strict' as const : 'lax' as const,
+      path: '/'
+    };
+
+    // Access token cookie (15 dakika)
+    res.cookie('access_token', accessToken, {
+      ...cookieOptions,
+      maxAge: 15 * 60 * 1000 // 15 minutes
+    });
+
+    // Refresh token cookie (7 gün)
+    res.cookie('refresh_token', refreshToken, {
+      ...cookieOptions,
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+
     res.json({
       success: true,
       data: {
@@ -376,9 +397,20 @@ app.post('/refresh', async (req: Request, res: Response, next: NextFunction) => 
 // Logout
 app.post('/logout', authenticate, async (req: Request, res: Response) => {
   if (req.user) {
+    // Clear refresh token from cache
     await cache.del(`refresh:${req.user.userId}`);
-    logger.info('User logged out', { userId: req.user.userId });
+    
+    // Clear all user sessions
+    const sessionPattern = `session:${req.user.userId}:*`;
+    await cache.del(sessionPattern);
+    await cache.del(`user_sessions:${req.user.userId}`);
+    
+    logger.info('User logged out, all sessions cleared', { userId: req.user.userId });
   }
+
+  // Clear HttpOnly cookies
+  res.clearCookie('access_token', { path: '/' });
+  res.clearCookie('refresh_token', { path: '/' });
 
   res.json({ success: true, message: 'Çıkış yapıldı' });
 });
@@ -415,14 +447,28 @@ app.post('/change-password', authenticate, async (req: Request, res: Response, n
     }
 
     const newHash = await hashPassword(newPassword);
+    
+    // Update password and increment token_version to invalidate all existing tokens
     await db.query(
-      'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+      `UPDATE users 
+       SET password_hash = $1, 
+           token_version = COALESCE(token_version, 0) + 1,
+           updated_at = NOW() 
+       WHERE id = $2`,
       [newHash, req.user!.userId]
     );
 
-    logger.info('Password changed', { userId: req.user!.userId });
+    // Invalidate all sessions in Redis
+    const sessionPattern = `session:${req.user!.userId}:*`;
+    await cache.del(sessionPattern);
+    
+    logger.info('Password changed, all sessions invalidated', { userId: req.user!.userId });
 
-    res.json({ success: true, message: 'Şifre değiştirildi' });
+    res.json({ 
+      success: true, 
+      message: 'Şifre değiştirildi. Güvenlik için tüm oturumlar sonlandırıldı, lütfen tekrar giriş yapın.',
+      requireRelogin: true
+    });
   } catch (error) {
     next(error);
   }

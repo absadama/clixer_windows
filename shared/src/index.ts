@@ -118,3 +118,24 @@ export {
   getClientIP,
   validatePassword
 } from './security';
+
+// Input Sanitization
+export { default as sanitize } from './sanitize';
+export {
+  escapeHtml,
+  containsDangerousPattern,
+  sanitizeString as sanitizeInputString,
+  sanitizeObject,
+  sanitizeSqlIdentifier,
+  sanitizeMiddleware
+} from './sanitize';
+
+// Circuit Breaker
+export { default as circuitBreaker } from './circuit-breaker';
+export {
+  CircuitBreaker,
+  CircuitBreakerError,
+  CircuitState,
+  circuitBreakerRegistry
+} from './circuit-breaker';
+export type { CircuitBreakerConfig, CircuitBreakerStats } from './circuit-breaker';

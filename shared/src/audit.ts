@@ -443,6 +443,187 @@ export async function getFailedOperations(
   return result;
 }
 
+// ============================================
+// ADDITIONAL CRITICAL OPERATIONS
+// ============================================
+
+/**
+ * 2FA Enable/Disable - kritik güvenlik
+ */
+export async function log2FAChange(
+  userId: string,
+  tenantId: string,
+  enabled: boolean,
+  ipAddress?: string
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action: enabled ? 'CREATE' : 'DELETE',
+    resourceType: 'user',
+    resourceId: userId,
+    details: { 
+      changeType: '2fa_status',
+      twoFactorEnabled: enabled 
+    },
+    ipAddress
+  });
+  
+  logger.warn('2FA status changed', { userId, enabled });
+}
+
+/**
+ * Database connection created/modified - sensitive
+ */
+export async function logConnectionChange(
+  userId: string,
+  tenantId: string,
+  action: 'CREATE' | 'UPDATE' | 'DELETE',
+  connectionId: string,
+  connectionName: string,
+  connectionType: string,
+  ipAddress?: string
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action,
+    resourceType: 'connection',
+    resourceId: connectionId,
+    resourceName: connectionName,
+    details: { connectionType },
+    ipAddress
+  });
+  
+  logger.info('Connection changed', { userId, action, connectionId, connectionName });
+}
+
+/**
+ * Dataset operation - data management
+ */
+export async function logDatasetOperation(
+  userId: string,
+  tenantId: string,
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SYNC',
+  datasetId: string,
+  datasetName: string,
+  details?: Record<string, any>
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action,
+    resourceType: 'dataset',
+    resourceId: datasetId,
+    resourceName: datasetName,
+    details
+  });
+}
+
+/**
+ * ETL job operation
+ */
+export async function logETLOperation(
+  userId: string,
+  tenantId: string,
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SYNC',
+  jobId: string,
+  datasetName?: string,
+  details?: Record<string, any>
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action,
+    resourceType: 'etl_job',
+    resourceId: jobId,
+    resourceName: datasetName,
+    details
+  });
+}
+
+/**
+ * Bulk data delete - critical operation
+ */
+export async function logBulkDelete(
+  userId: string,
+  tenantId: string,
+  resourceType: ResourceType,
+  deletedCount: number,
+  filters: Record<string, any>,
+  ipAddress?: string
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action: 'DELETE',
+    resourceType,
+    details: { 
+      bulkOperation: true,
+      deletedCount,
+      filters 
+    },
+    ipAddress
+  });
+  
+  logger.warn('Bulk delete executed', { userId, resourceType, deletedCount, filters });
+}
+
+/**
+ * API key created/revoked
+ */
+export async function logAPIKeyChange(
+  userId: string,
+  tenantId: string,
+  action: 'CREATE' | 'DELETE',
+  keyId: string,
+  keyName: string,
+  ipAddress?: string
+): Promise<void> {
+  await log({
+    userId,
+    tenantId,
+    action,
+    resourceType: 'system_setting',
+    resourceId: keyId,
+    resourceName: `api_key:${keyName}`,
+    details: { changeType: 'api_key' },
+    ipAddress
+  });
+  
+  logger.warn('API key changed', { userId, action, keyId });
+}
+
+/**
+ * User impersonation - critical security
+ */
+export async function logImpersonation(
+  adminUserId: string,
+  tenantId: string,
+  targetUserId: string,
+  targetEmail: string,
+  action: 'start' | 'end',
+  ipAddress?: string
+): Promise<void> {
+  await log({
+    userId: adminUserId,
+    tenantId,
+    action: action === 'start' ? 'CREATE' : 'DELETE',
+    resourceType: 'session',
+    resourceId: targetUserId,
+    resourceName: `impersonation:${targetEmail}`,
+    details: { 
+      impersonation: true,
+      targetUserId,
+      targetEmail,
+      impersonationAction: action
+    },
+    ipAddress
+  });
+  
+  logger.warn('User impersonation', { adminUserId, targetUserId, action });
+}
+
 export default {
   log,
   logLogin,
@@ -456,6 +637,13 @@ export default {
   logCategoryPermissionChange,
   logSettingsChange,
   logDataExport,
+  log2FAChange,
+  logConnectionChange,
+  logDatasetOperation,
+  logETLOperation,
+  logBulkDelete,
+  logAPIKeyChange,
+  logImpersonation,
   getUserActivity,
   getRecentLogins,
   getFailedOperations

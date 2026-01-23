@@ -120,10 +120,17 @@ export function extractToken(authHeader?: string): string | null {
 
 /**
  * Authentication middleware
+ * Supports both Authorization header and HttpOnly cookies
  */
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
   try {
-    const token = extractToken(req.headers.authorization);
+    // Try Authorization header first
+    let token = extractToken(req.headers.authorization);
+    
+    // Fallback to HttpOnly cookie
+    if (!token && req.cookies?.access_token) {
+      token = req.cookies.access_token;
+    }
 
     if (!token) {
       throw new AuthenticationError('Token gerekli');
