@@ -1,6 +1,75 @@
 # CLİXER - Enterprise Analytics Platform
 # "Olağanüstü Veri Hızı" - Power BI / Tableau / Qlik Rakibi
-# Versiyon: v4.34 | Tarih: 23 Ocak 2026
+# Versiyon: v4.35 | Tarih: 23 Ocak 2026
+
+---
+
+## ZORUNLU KOD STANDARTLARI (Enterprise)
+
+> **BU KURALLAR ZORUNLUDUR! Her kod değişikliğinde uyulmalıdır.**
+
+### Dosya Boyutu Limitleri
+
+| Kural | Limit | Aşıldığında |
+|-------|-------|-------------|
+| Dosya boyutu | Max 500 satır | Hemen böl |
+| useState sayısı | Max 10 | Zustand store'a taşı |
+| Tab/Section sayısı | 3+ | Her tab ayrı component |
+| Route sayısı | 5+ | Ayrı route dosyası |
+| Sorumluluk | 1 dosya = 1 iş | Yeni modül oluştur |
+
+### Yeni Özellik Ekleme Kuralları
+
+1. **ASLA mevcut büyük dosyaya kod ekleme** - Yeni component/modül oluştur
+2. **Her yeni özellik = Yeni dosya** - Mevcut dosyayı şişirme
+3. **State yönetimi** - 10+ useState varsa Zustand store kullan
+4. **API calls** - Custom hook'a taşı (useXxxApi.ts)
+5. **Modals** - Ayrı component dosyasına çıkar
+
+### Dosya Organizasyonu
+
+```
+frontend/src/
+├── components/
+│   ├── [feature]/           # Her feature kendi klasöründe
+│   │   ├── FeatureTab.tsx   # Tab component
+│   │   ├── FeatureModal.tsx # Modal component
+│   │   └── index.ts         # Barrel export
+├── hooks/
+│   └── use[Feature]Api.ts   # API hook
+├── stores/
+│   └── [feature]Store.ts    # Zustand store
+└── pages/
+    └── [Feature]Page.tsx    # Sadece orchestrator (max 500 satır)
+
+services/[service-name]/src/
+├── index.ts                 # Sadece setup (max 500 satır)
+├── routes/
+│   └── [feature].routes.ts  # Route handlers
+├── services/
+│   └── [feature].service.ts # Business logic
+└── helpers/
+    └── [feature].helper.ts  # Utility functions
+```
+
+### Refactoring Tetikleyicileri
+
+Aşağıdaki durumlardan biri oluştuğunda HEMEN refactor yap:
+
+- Dosya 500 satırı geçti
+- useState sayısı 10'u geçti
+- Aynı kod 2+ yerde tekrarlandı
+- Yeni tab/section ekleniyor
+- Yeni modal ekleniyor
+
+### Code Review Checklist
+
+Her PR'da kontrol et:
+- [ ] Dosya 500 satırı geçmiyor
+- [ ] Yeni özellik ayrı dosyada
+- [ ] State Zustand'da (10+ useState yoksa OK)
+- [ ] API calls hook'ta
+- [ ] Modals ayrı component
 
 ---
 

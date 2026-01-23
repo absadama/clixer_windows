@@ -8,3 +8,5 @@ export type { Connection } from './ConnectionModal'
 
 export { DatasetModal } from './DatasetModal'
 export type { DatasetModalProps } from './DatasetModal'
+
+export { ConnectionsTab } from './ConnectionsTab'
