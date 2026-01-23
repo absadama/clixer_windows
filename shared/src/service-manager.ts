@@ -201,13 +201,13 @@ export class WindowsProcessManager implements IServiceManager {
       
       logger.info('Starting service', { serviceId, workDir, command: config.startCommand });
 
-      // Windows: Use cmd.exe to run npm command
-      const child = spawn('cmd.exe', ['/c', config.startCommand], {
+      // Windows: Use shell: true for proper PATH resolution
+      const child = spawn(config.startCommand, [], {
         cwd: workDir,
         env: { ...process.env, ...config.env },
         detached: false,
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: false  // cmd.exe already is the shell
+        shell: true  // Let Node.js handle shell spawning - fixes npm ENOENT
       });
 
       this.processes.set(serviceId, child);
