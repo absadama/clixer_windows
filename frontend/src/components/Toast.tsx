@@ -142,10 +142,10 @@ export function setGlobalToast(toast: ToastContextType) {
 }
 
 export const toast = {
-  success: (message: string) => globalToast?.success(message) || alert('✅ ' + message),
-  error: (message: string) => globalToast?.error(message) || alert('❌ ' + message),
-  warning: (message: string) => globalToast?.warning(message) || alert('⚠️ ' + message),
-  info: (message: string) => globalToast?.info(message) || alert('ℹ️ ' + message)
+  success: (message: string) => { if (globalToast) globalToast.success(message); else alert('✅ ' + message); },
+  error: (message: string) => { if (globalToast) globalToast.error(message); else alert('❌ ' + message); },
+  warning: (message: string) => { if (globalToast) globalToast.warning(message); else alert('⚠️ ' + message); },
+  info: (message: string) => { if (globalToast) globalToast.info(message); else alert('ℹ️ ' + message); }
 };
 
 export default ToastProvider;

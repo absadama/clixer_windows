@@ -6,3 +6,4 @@
 export * from './type-mapping.helper';
 export * from './column-detection.helper';
 export * from './service.helper';
+export * from './db-connection';

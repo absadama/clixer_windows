@@ -37,8 +37,17 @@ import {
   containsDangerousSQLKeywords
 } from '@clixer/shared';
 
-// NOTE: Modular helpers exist in ./helpers/ but index.ts contains more detailed versions
-// Future refactoring should consolidate these (helpers contain simplified versions)
+// Import modular helpers
+import { 
+  getDefaultComparisonLabel, 
+  calculatePreviousPeriodDates 
+} from './helpers/comparison.helper';
+import { 
+  formatDateString, 
+  escapeValue 
+} from './helpers/format.helper';
+
+// NOTE: calculateLFL remains in this file as it has extended store-based fallback logic
 
 const logger = createLogger({ service: 'analytics-service' });
 const app = express();
@@ -47,26 +56,8 @@ const PORT = process.env.ANALYTICS_SERVICE_PORT || 4005;
 // ============================================
 // KARŞILAŞTIRMA HELPER FONKSİYONLARI
 // ============================================
-
-/**
- * Karşılaştırma tipi için varsayılan etiket
- */
-function getDefaultComparisonLabel(compType: string): string {
-  switch (compType) {
-    case 'yoy': return 'vs geçen yıl';
-    case 'mom': return 'vs geçen ay';
-    case 'wow': return 'vs geçen hafta';
-    case 'ytd': return 'YTD vs geçen yıl';
-    case 'lfl': return 'LFL vs geçen yıl';
-    default: return 'vs önceki dönem';
-  }
-}
-
-/**
- * Önceki dönem tarih aralığını hesapla
- * @param compType Karşılaştırma tipi (yoy, mom, wow, ytd, lfl)
- * @returns Önceki dönem başlangıç ve bitiş tarihleri + güncel dönem gün sayısı
- */
+// getDefaultComparisonLabel, calculatePreviousPeriodDates → imported from helpers/comparison.helper.ts
+// formatDateString, escapeValue → imported from helpers/format.helper.ts
 /**
  * LFL (Like-for-Like) hesaplama - MAĞAZA BAZLI
  * 
@@ -488,102 +479,7 @@ async function calculateLFL(
   };
 }
 
-/**
- * Tarihi YYYY-MM-DD formatına çevirir
- */
-function formatDateString(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function calculatePreviousPeriodDates(compType: string): { 
-  prevStartDate: string; 
-  prevEndDate: string; 
-  currentDays: number;
-} {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  
-  let prevStart: Date;
-  let prevEnd: Date;
-  let currentDays = 1;
-  
-  switch (compType) {
-    case 'yoy': {
-      // Geçen Yıl Aynı Gün
-      // Bugün: 26 Aralık 2025 → Geçen yıl: 26 Aralık 2024
-      prevStart = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-      prevEnd = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-      currentDays = 1;
-      break;
-    }
-    
-    case 'mom': {
-      // Geçen Ay Aynı Gün
-      // Bugün: 26 Aralık 2025 → Geçen ay: 26 Kasım 2025
-      prevStart = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
-      prevEnd = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
-      currentDays = 1;
-      break;
-    }
-    
-    case 'wow': {
-      // Geçen Hafta
-      // Bugün: 26 Aralık 2025 (Cuma) → Geçen hafta: 19 Aralık 2025 (Cuma)
-      prevStart = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-      prevEnd = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-      currentDays = 1;
-      break;
-    }
-    
-    case 'ytd': {
-      // Yılbaşından Bugüne (Year-to-Date)
-      // Bu yıl: 1 Ocak 2025 - 26 Aralık 2025
-      // Geçen yıl: 1 Ocak 2024 - 26 Aralık 2024
-      const yearStart = new Date(today.getFullYear(), 0, 1);
-      currentDays = Math.floor((today.getTime() - yearStart.getTime()) / (24 * 60 * 60 * 1000)) + 1;
-      
-      prevStart = new Date(today.getFullYear() - 1, 0, 1);
-      prevEnd = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-      break;
-    }
-    
-    case 'lfl': {
-      // Like-for-Like (YTD ile aynı tarih aralığı, ancak LFL filtresi backend'de uygulanmalı)
-      // NOT: LFL için daha gelişmiş bir implementasyon gerekir
-      // Şimdilik YTD gibi davran
-      const yearStart = new Date(today.getFullYear(), 0, 1);
-      currentDays = Math.floor((today.getTime() - yearStart.getTime()) / (24 * 60 * 60 * 1000)) + 1;
-      
-      prevStart = new Date(today.getFullYear() - 1, 0, 1);
-      prevEnd = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-      break;
-    }
-    
-    default: {
-      // Varsayılan: Geçen yıl aynı gün
-      prevStart = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-      prevEnd = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-      currentDays = 1;
-    }
-  }
-  
-  // Tarihleri YYYY-MM-DD formatına çevir
-  const formatDate = (d: Date): string => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-  
-  return {
-    prevStartDate: formatDate(prevStart),
-    prevEndDate: formatDate(prevEnd),
-    currentDays
-  };
-}
+// formatDateString, calculatePreviousPeriodDates → imported from helpers
 
 // ============================================
 // TYPES
@@ -3710,16 +3606,7 @@ app.delete('/datasets/:datasetId/cache', authenticate, tenantIsolation, async (r
 // ============================================
 // HELPERS
 // ============================================
-
-function escapeValue(value: any): string {
-  if (value === null || value === undefined) return 'NULL';
-  if (typeof value === 'number') return String(value);
-  if (typeof value === 'boolean') return value ? '1' : '0';
-  if (value instanceof Date) return `'${value.toISOString()}'`;
-  
-  // String escape
-  return `'${String(value).replace(/'/g, "''")}'`;
-}
+// escapeValue → imported from helpers/format.helper.ts
 
 function getDefaultParameterValue(param: any): any {
   const { type, default: defaultValue } = param;

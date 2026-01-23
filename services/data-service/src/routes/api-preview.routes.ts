@@ -1,77 +1,116 @@
 /**
  * API Preview Routes
- * API connection testing and preview
+ * External API data preview
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { authenticate, createLogger, ValidationError } from '@clixer/shared';
+import { db, authenticate, createLogger, NotFoundError, AppError } from '@clixer/shared';
 
 const router = Router();
 const logger = createLogger({ service: 'data-service' });
 
 /**
  * POST /api-preview
- * Test and preview an API connection
+ * Preview data from external API
  */
 router.post('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { url, method = 'GET', headers, body, authType, authConfig } = req.body;
-    
-    if (!url) {
-      throw new ValidationError('URL gerekli');
+    const { connectionId, endpoint, method = 'GET', queryParams, headers, responsePath, requestBody } = req.body;
+
+    const connection = await db.queryOne(
+      'SELECT * FROM data_connections WHERE id = $1 AND tenant_id = $2',
+      [connectionId, req.user!.tenantId]
+    );
+
+    if (!connection) {
+      throw new NotFoundError('Bağlantı');
     }
-    
-    // Build request options
-    const requestHeaders: Record<string, string> = {
+
+    // Build URL
+    let url = (connection.host || '').trim();
+    if (endpoint) {
+      url = url.replace(/\/$/, '') + '/' + endpoint.replace(/^\//, '');
+    }
+    if (queryParams) {
+      url += (url.includes('?') ? '&' : '?') + queryParams;
+    }
+
+    // Build headers
+    const fetchHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...headers
+      ...(connection.api_config?.headers || {}),
+      ...(headers || {})
     };
-    
-    // Add auth headers
-    if (authType === 'bearer' && authConfig?.token) {
-      requestHeaders['Authorization'] = `Bearer ${authConfig.token}`;
-    } else if (authType === 'basic' && authConfig?.username && authConfig?.password) {
-      const credentials = Buffer.from(`${authConfig.username}:${authConfig.password}`).toString('base64');
-      requestHeaders['Authorization'] = `Basic ${credentials}`;
-    } else if (authType === 'api_key' && authConfig?.key && authConfig?.value) {
-      requestHeaders[authConfig.key] = authConfig.value;
+
+    // Add API Key if exists
+    if (connection.api_config?.apiKey) {
+      const headerName = connection.api_config?.headerName || 'Authorization';
+      if (headerName === 'Authorization') {
+        fetchHeaders['Authorization'] = `Bearer ${connection.api_config.apiKey}`;
+      } else {
+        fetchHeaders[headerName] = connection.api_config.apiKey;
+      }
     }
-    
+
+    logger.info('API Preview request', { url, method, hasBody: !!requestBody });
+
     const startTime = Date.now();
     
-    const response = await fetch(url, {
+    // Fetch options
+    const fetchOptions: RequestInit = {
       method,
-      headers: requestHeaders,
-      body: method !== 'GET' && body ? JSON.stringify(body) : undefined,
+      headers: fetchHeaders,
       signal: AbortSignal.timeout(30000)
-    });
+    };
     
-    const latency = Date.now() - startTime;
-    const responseText = await response.text();
-    
-    let responseData;
-    try {
-      responseData = JSON.parse(responseText);
-    } catch {
-      responseData = responseText;
+    // Add body for POST/PUT
+    if ((method === 'POST' || method === 'PUT') && requestBody) {
+      try {
+        fetchOptions.body = typeof requestBody === 'string' ? requestBody : JSON.stringify(requestBody);
+      } catch {
+        fetchOptions.body = requestBody;
+      }
     }
     
-    res.json({
-      success: response.ok,
-      data: {
-        status: response.status,
-        statusText: response.statusText,
-        latency,
-        headers: Object.fromEntries(response.headers.entries()),
-        data: responseData,
-        dataType: typeof responseData === 'object' ? 'json' : 'text',
-        rowCount: Array.isArray(responseData) ? responseData.length : 1
+    const response = await fetch(url, fetchOptions);
+
+    const executionTime = Date.now() - startTime;
+    
+    if (!response.ok) {
+      throw new AppError(`API hatası: ${response.status} ${response.statusText}`, response.status, 'API_ERROR');
+    }
+
+    let data = await response.json();
+
+    // Extract nested data using response path
+    if (responsePath) {
+      const paths = responsePath.split('.');
+      for (const p of paths) {
+        if (data && (data as Record<string, unknown>)[p] !== undefined) {
+          data = (data as Record<string, unknown>)[p];
+        }
+      }
+    }
+
+    // Convert to array if not
+    const rows = Array.isArray(data) ? data : [data];
+    
+    // Extract columns
+    const columns = rows.length > 0 
+      ? Object.keys(rows[0]).map(name => ({ name, type: typeof rows[0][name] }))
+      : [];
+
+    res.json({ 
+      success: true, 
+      data: { 
+        rows: rows.slice(0, 100), // Max 100 rows
+        columns,
+        rowCount: rows.length,
+        executionTime
       }
     });
   } catch (error: any) {
-    if (error.name === 'AbortError') {
-      return res.json({ success: false, error: 'İstek zaman aşımına uğradı (30s)' });
-    }
+    logger.error('API Preview error', { error: error.message });
     next(error);
   }
 });

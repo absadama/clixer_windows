@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react'
 import { debounce } from 'lodash'
+import toast from 'react-hot-toast'
 import { useTheme } from '../components/Layout'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'

@@ -183,8 +183,8 @@ function Start-DockerContainers {
     
     Set-Location "$ProjectRoot\docker"
     
-    # Container'lari baslat
-    docker-compose up -d postgres redis clickhouse 2>&1 | Out-Null
+    # Container'lari baslat (--env-file ile .env dosyasını oku)
+    docker-compose --env-file ..\.env up -d postgres redis clickhouse 2>&1 | Out-Null
     
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Docker container'lari baslatilamadi!"

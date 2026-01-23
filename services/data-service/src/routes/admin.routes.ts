@@ -1,13 +1,18 @@
 /**
- * Admin Routes
- * System administration, reconnection, backup
+ * Admin Routes - System Administration
+ * Reconnection, backup, monitoring, service management
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { db, clickhouse, cache, authenticate, authorize, ROLES, createLogger } from '@clixer/shared';
+import { SERVICE_LIST, pingService } from '../helpers/service.helper';
 
 const router = Router();
 const logger = createLogger({ service: 'data-service' });
+
+// ============================================
+// DATABASE RECONNECTION
+// ============================================
 
 /**
  * POST /admin/redis/reconnect
@@ -15,17 +20,25 @@ const logger = createLogger({ service: 'data-service' });
  */
 router.post('/redis/reconnect', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await cache.createRedisClient();
-    const healthy = await cache.checkHealth();
+    logger.info('Redis reconnect requested by user', { userId: req.user?.userId });
     
-    logger.info('Redis reconnected', { user: req.user?.email, healthy });
-    
-    res.json({ 
-      success: healthy, 
-      message: healthy ? 'Redis bağlantısı yenilendi' : 'Redis bağlantısı başarısız' 
+    const Redis = require('ioredis');
+    const redisClient = new Redis({
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT || '6379'),
+      password: process.env.REDIS_PASSWORD,
+      lazyConnect: true
     });
-  } catch (error) {
-    next(error);
+    
+    await redisClient.connect();
+    await redisClient.ping();
+    await redisClient.quit();
+    
+    logger.info('Redis reconnect successful');
+    res.json({ success: true, message: 'Redis bağlantısı yenilendi' });
+  } catch (error: any) {
+    logger.error('Redis reconnect failed', { error: error.message });
+    res.status(500).json({ success: false, message: 'Redis bağlantısı kurulamadı: ' + error.message });
   }
 });
 
@@ -35,18 +48,20 @@ router.post('/redis/reconnect', authenticate, async (req: Request, res: Response
  */
 router.post('/postgres/reconnect', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await db.closePool();
+    logger.info('PostgreSQL reconnect requested by user', { userId: req.user?.userId });
+    
     db.createPool();
     const healthy = await db.checkHealth();
     
-    logger.info('PostgreSQL reconnected', { user: req.user?.email, healthy });
-    
-    res.json({ 
-      success: healthy, 
-      message: healthy ? 'PostgreSQL bağlantısı yenilendi' : 'PostgreSQL bağlantısı başarısız' 
-    });
-  } catch (error) {
-    next(error);
+    if (healthy) {
+      logger.info('PostgreSQL reconnect successful');
+      res.json({ success: true, message: 'PostgreSQL bağlantısı yenilendi' });
+    } else {
+      throw new Error('Health check başarısız');
+    }
+  } catch (error: any) {
+    logger.error('PostgreSQL reconnect failed', { error: error.message });
+    res.status(500).json({ success: false, message: 'PostgreSQL bağlantısı kurulamadı: ' + error.message });
   }
 });
 
@@ -56,121 +71,457 @@ router.post('/postgres/reconnect', authenticate, async (req: Request, res: Respo
  */
 router.post('/clickhouse/reconnect', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    logger.info('ClickHouse reconnect requested by user', { userId: req.user?.userId });
+    
     clickhouse.createClickHouseClient();
     const healthy = await clickhouse.checkHealth();
     
-    logger.info('ClickHouse reconnected', { user: req.user?.email, healthy });
-    
-    res.json({ 
-      success: healthy, 
-      message: healthy ? 'ClickHouse bağlantısı yenilendi' : 'ClickHouse bağlantısı başarısız' 
-    });
-  } catch (error) {
-    next(error);
+    if (healthy) {
+      logger.info('ClickHouse reconnect successful');
+      res.json({ success: true, message: 'ClickHouse bağlantısı yenilendi' });
+    } else {
+      throw new Error('Health check başarısız');
+    }
+  } catch (error: any) {
+    logger.error('ClickHouse reconnect failed', { error: error.message });
+    res.status(500).json({ success: false, message: 'ClickHouse bağlantısı kurulamadı: ' + error.message });
   }
 });
 
+// ============================================
+// SYSTEM STATUS & MONITORING
+// ============================================
+
 /**
  * GET /admin/system/status
- * Get system status
+ * Detailed system status
  */
 router.get('/system/status', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const [pgHealth, chHealth, redisHealth] = await Promise.all([
-      db.checkHealth(),
-      clickhouse.checkHealth(),
-      cache.checkHealth()
-    ]);
+    const dbHealthy = await db.checkHealth();
+    const chHealthy = await clickhouse.checkHealth();
+    
+    let redisHealthy = false;
+    let redisInfo: any = {};
+    try {
+      const Redis = require('ioredis');
+      const redisClient = new Redis({
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD,
+        connectTimeout: 5000
+      });
+      
+      const pong = await redisClient.ping();
+      redisHealthy = pong === 'PONG';
+      
+      if (redisHealthy) {
+        const info = await redisClient.info('memory');
+        const keys = await redisClient.dbsize();
+        redisInfo = { memory: info.match(/used_memory_human:(.+)/)?.[1]?.trim() || 'N/A', keys };
+      }
+      
+      await redisClient.quit();
+    } catch (e: any) {
+      redisInfo = { error: e.message };
+    }
     
     res.json({
       success: true,
       data: {
-        postgres: pgHealth ? 'ok' : 'error',
-        clickhouse: chHealth ? 'ok' : 'error',
-        redis: redisHealth ? 'ok' : 'error',
-        overall: pgHealth && chHealth && redisHealth ? 'healthy' : 'degraded'
+        databases: {
+          postgres: { status: dbHealthy ? 'healthy' : 'error' },
+          clickhouse: { status: chHealthy ? 'healthy' : 'error' },
+          redis: { 
+            status: redisHealthy ? 'healthy' : 'error',
+            ...redisInfo
+          }
+        },
+        timestamp: new Date().toISOString()
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     next(error);
   }
 });
+
+/**
+ * GET /admin/system/stats
+ * System statistics for monitoring
+ */
+router.get('/system/stats', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const connResult = await db.queryOne(`
+      SELECT count(*) as active FROM pg_stat_activity WHERE state = 'active'
+    `);
+    
+    const last24h = await db.queryOne(`
+      SELECT 
+        count(*) as total_logins,
+        count(DISTINCT user_id) as unique_users
+      FROM audit_logs 
+      WHERE action = 'LOGIN' 
+        AND created_at >= NOW() - INTERVAL '24 hours'
+    `);
+    
+    const last7d = await db.queryOne(`
+      SELECT 
+        count(*) as total_logins,
+        count(DISTINCT user_id) as unique_users
+      FROM audit_logs 
+      WHERE action = 'LOGIN' 
+        AND created_at >= NOW() - INTERVAL '7 days'
+    `);
+    
+    let pgSize = 'N/A';
+    let chSize = 'N/A';
+    
+    try {
+      const pgResult = await db.queryOne(`
+        SELECT pg_size_pretty(pg_database_size(current_database())) as size
+      `);
+      pgSize = pgResult?.size || 'N/A';
+    } catch (e) {}
+    
+    try {
+      const chResult = await clickhouse.query(`
+        SELECT formatReadableSize(sum(bytes_on_disk)) as size 
+        FROM system.parts 
+        WHERE database = 'clixer_analytics'
+      `);
+      chSize = chResult?.[0]?.size || 'N/A';
+    } catch (e) {}
+    
+    const recentLogins = await db.queryAll(`
+      SELECT 
+        u.id,
+        u.email,
+        u.name,
+        u.position_code as position_name,
+        u.last_login_at
+      FROM users u
+      WHERE u.last_login_at IS NOT NULL
+      ORDER BY u.last_login_at DESC
+      LIMIT 10
+    `);
+    
+    res.json({
+      success: true,
+      data: {
+        activeConnections: parseInt(connResult?.active || '0'),
+        last24Hours: {
+          logins: parseInt(last24h?.total_logins || '0'),
+          uniqueUsers: parseInt(last24h?.unique_users || '0')
+        },
+        last7Days: {
+          logins: parseInt(last7d?.total_logins || '0'),
+          uniqueUsers: parseInt(last7d?.unique_users || '0')
+        },
+        databaseSize: {
+          postgres: pgSize,
+          clickhouse: chSize
+        },
+        recentLogins
+      }
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+/**
+ * POST /admin/system/restart
+ * Restart all services
+ * SECURITY: Command Injection protection with whitelist
+ */
+router.post('/system/restart', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response) => {
+  const { spawn, exec } = require('child_process');
+  const path = require('path');
+  const fs = require('fs');
+  const isWindows = process.platform === 'win32';
+  
+  const ALLOWED_SCRIPTS: Record<string, string> = {
+    windows: 'restart-local.ps1',
+    linux: 'restart-all.sh'
+  };
+  
+  const scriptName = isWindows ? ALLOWED_SCRIPTS.windows : ALLOWED_SCRIPTS.linux;
+  const scriptsDir = path.resolve(__dirname, '../../../../scripts');
+  const scriptPath = path.resolve(scriptsDir, scriptName);
+  
+  if (!scriptPath.startsWith(scriptsDir)) {
+    logger.error('Path traversal attempt detected', { 
+      attemptedPath: scriptPath, 
+      scriptsDir, 
+      user: req.user?.email 
+    });
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Geçersiz script path' 
+    });
+  }
+  
+  if (!fs.existsSync(scriptPath)) {
+    logger.error('Restart script not found', { scriptPath, user: req.user?.email });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Restart scripti bulunamadı' 
+    });
+  }
+  
+  logger.warn('System restart initiated by user', { 
+    user: req.user?.email, 
+    platform: process.platform,
+    scriptPath 
+  });
+  
+  if (isWindows) {
+    const escapedPath = scriptPath.replace(/"/g, '\\"');
+    const cmd = `powershell.exe -ExecutionPolicy Bypass -File "${escapedPath}"`;
+    spawn('cmd.exe', ['/c', cmd], {
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+  } else {
+    const cmd = `echo "sleep 5 && sudo ${scriptPath}" | at now`;
+    exec(cmd, (err: any) => {
+      if (err) logger.error('Failed to schedule restart with at', { error: err.message });
+    });
+  }
+  
+  res.json({ 
+    success: true, 
+    message: 'Sistem yeniden başlatma sinyali gönderildi. Tüm servislerin ayağa kalkması 30-60 saniye sürebilir.' 
+  });
+});
+
+// ============================================
+// SERVICE MANAGEMENT
+// ============================================
 
 /**
  * GET /admin/services
- * Get all services status
+ * List all services with status
  */
 router.get('/services', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const services = [
-      { name: 'gateway', port: 3000 },
-      { name: 'auth-service', port: 4001 },
-      { name: 'core-service', port: 4002 },
-      { name: 'data-service', port: 4003 },
-      { name: 'notification-service', port: 4004 },
-      { name: 'analytics-service', port: 4005 }
-    ];
-    
-    const results = await Promise.all(
-      services.map(async (service) => {
-        try {
-          const response = await fetch(`http://localhost:${service.port}/health`, { 
-            signal: AbortSignal.timeout(3000) 
-          });
-          return { ...service, status: response.ok ? 'running' : 'error' };
-        } catch {
-          return { ...service, status: 'stopped' };
+    const services = await Promise.all(
+      SERVICE_LIST.map(async (svc) => {
+        let status = 'unknown';
+        let responseTime = 0;
+        
+        if (svc.port) {
+          const startTime = Date.now();
+          const isHealthy = await pingService(`http://localhost:${svc.port}/health`);
+          responseTime = Date.now() - startTime;
+          status = isHealthy ? 'running' : 'stopped';
+        } else {
+          try {
+            const Redis = require('ioredis');
+            const redis = new Redis({
+              host: process.env.REDIS_HOST || 'localhost',
+              port: parseInt(process.env.REDIS_PORT || '6379'),
+              connectTimeout: 2000
+            });
+            const lastHeartbeat = await redis.get('etl:worker:heartbeat');
+            await redis.quit();
+            
+            if (lastHeartbeat) {
+              const lastTime = new Date(lastHeartbeat).getTime();
+              const now = Date.now();
+              status = (now - lastTime < 120000) ? 'running' : 'stopped';
+            } else {
+              status = 'stopped';
+            }
+          } catch {
+            status = 'unknown';
+          }
         }
+        
+        return {
+          ...svc,
+          status,
+          statusText: status === 'running' ? 'Çalışıyor' : status === 'stopped' ? 'Durmuş' : 'Bilinmiyor',
+          responseTime
+        };
       })
     );
     
-    res.json({ success: true, data: results });
-  } catch (error) {
+    const runningCount = services.filter(s => s.status === 'running').length;
+    const stoppedCount = services.filter(s => s.status === 'stopped').length;
+    
+    res.json({
+      success: true,
+      data: {
+        services,
+        summary: {
+          total: services.length,
+          running: runningCount,
+          stopped: stoppedCount
+        }
+      }
+    });
+  } catch (error: any) {
     next(error);
   }
 });
 
+// ============================================
+// SESSION MANAGEMENT
+// ============================================
+
 /**
  * GET /admin/sessions
- * Get active sessions
+ * List active sessions
  */
 router.get('/sessions', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Get session count from Redis pattern
-    const sessionKeys = await cache.get('session:count') || '0';
+    const sessions = await db.queryAll(`
+      SELECT DISTINCT ON (u.id)
+        u.id as user_id,
+        u.email,
+        u.name,
+        u.position_code,
+        u.last_login_at,
+        al.ip_address,
+        al.user_agent,
+        al.created_at as session_start
+      FROM users u
+      LEFT JOIN audit_logs al ON al.user_id = u.id AND al.action = 'user_login'
+      WHERE u.last_login_at > NOW() - INTERVAL '24 hours'
+      ORDER BY u.id, al.created_at DESC
+    `);
     
     res.json({ 
       success: true, 
-      data: { 
-        activeSessions: parseInt(sessionKeys),
-        message: 'Session bilgileri Redis\'ten alındı'
-      } 
+      data: sessions.map((s: any) => ({
+        ...s,
+        isActive: true,
+        duration: s.session_start ? Math.floor((Date.now() - new Date(s.session_start).getTime()) / 60000) : 0
+      }))
     });
-  } catch (error) {
+  } catch (error: any) {
     next(error);
   }
 });
 
 /**
  * DELETE /admin/sessions/:userId
- * Terminate user sessions
+ * Terminate user session
  */
 router.delete('/sessions/:userId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { userId } = req.params;
     
-    await cache.del(`refresh:${userId}`);
-    await cache.invalidate(`session:${userId}:*`, 'admin');
+    await db.query(
+      'UPDATE users SET last_login_at = NULL WHERE id = $1',
+      [userId]
+    );
     
-    logger.info('User sessions terminated', { targetUserId: userId, user: req.user?.email });
+    try {
+      const Redis = require('ioredis');
+      const redis = new Redis({
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379')
+      });
+      await redis.del(`user:${userId}:tokens`);
+      await redis.quit();
+    } catch {}
     
-    res.json({ success: true, message: 'Kullanıcı oturumları sonlandırıldı' });
-  } catch (error) {
+    logger.info('Session terminated', { userId, by: req.user?.id });
+    res.json({ success: true, message: 'Oturum sonlandırıldı' });
+  } catch (error: any) {
     next(error);
   }
 });
 
-// NOTE: Complex endpoints (system/stats, system/restart, backup/list, backup/create)
-// remain in index.ts due to heavy system dependencies
+// ============================================
+// BACKUP MANAGEMENT
+// ============================================
+
+/**
+ * GET /admin/backup/list
+ * List backups
+ */
+router.get('/backup/list', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const backupDir = path.join(process.cwd(), '..', '..', 'backups');
+    
+    let backups: any[] = [];
+    
+    if (fs.existsSync(backupDir)) {
+      const dirs = fs.readdirSync(backupDir).filter((f: string) => {
+        const fullPath = path.join(backupDir, f);
+        return fs.statSync(fullPath).isDirectory();
+      });
+      
+      backups = dirs.map((dir: string) => {
+        const fullPath = path.join(backupDir, dir);
+        const stats = fs.statSync(fullPath);
+        
+        let size = 0;
+        try {
+          const files = fs.readdirSync(fullPath);
+          files.forEach((file: string) => {
+            const filePath = path.join(fullPath, file);
+            const fileStats = fs.statSync(filePath);
+            if (fileStats.isFile()) size += fileStats.size;
+          });
+        } catch {}
+        
+        return {
+          name: dir,
+          createdAt: stats.mtime,
+          size: size,
+          sizeFormatted: size > 1024*1024 ? `${(size/1024/1024).toFixed(1)} MB` : `${(size/1024).toFixed(1)} KB`
+        };
+      }).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    
+    res.json({ success: true, data: backups });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+/**
+ * POST /admin/backup/create
+ * Create new backup
+ */
+router.post('/backup/create', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { exec } = require('child_process');
+    const path = require('path');
+    const fs = require('fs');
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupName = `backup_${timestamp}`;
+    const backupDir = path.join(process.cwd(), '..', '..', 'backups', backupName);
+    
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+    
+    const pgDumpCmd = `docker exec clixer_postgres pg_dump -U clixer -d clixer --no-owner > "${path.join(backupDir, 'postgresql_full.sql')}"`;
+    
+    exec(pgDumpCmd, (error: any) => {
+      if (error) {
+        logger.error('Backup failed', { error: error.message });
+      } else {
+        logger.info('Backup created', { backupName, by: req.user?.id });
+      }
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Yedekleme başlatıldı', 
+      data: { backupName } 
+    });
+  } catch (error: any) {
+    next(error);
+  }
+});
 
 export default router;

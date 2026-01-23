@@ -244,43 +244,97 @@ JWT_SECRET=${JWT_SECRET:?JWT_SECRET environment variable is required}
 
 ## 10. KOD KALİTESİ - MODÜLER YAPI (23 Ocak 2026)
 
-### 10.1 data-service Modülerleştirildi
-- **Başlangıç:** 5121 satır → **Şimdi:** 4889 satır (%4.5 azalma)
+### 10.1 data-service Modülerleştirildi ✅
+- **Başlangıç:** 5121 satır → **Şimdi:** 3833 satır (**-%25 azalma!**)
+- **Taşınan Route'lar:**
+  - `routes/admin.routes.ts` - 11 endpoint (reconnect, backup, services, sessions)
+  - `routes/system.routes.ts` - 8 endpoint (locks, jobs, ETL health)
+  - `routes/api-preview.routes.ts` - API önizleme
+  - `routes/etl.routes.ts` - 5 endpoint (status, jobs, trigger-all, kill)
+- **Helper'lar:**
+  - `helpers/type-mapping.helper.ts` - SQL→ClickHouse tip dönüşümü
+  - `helpers/column-detection.helper.ts` - Otomatik kolon tip algılama
+  - `helpers/service.helper.ts` - Servis listesi ve ping
+
+### 10.2 etl-worker Modülerleştirildi ✅
+- **Başlangıç:** 4337 satır → **Şimdi:** 4067 satır (**-%6 azalma**)
 - **Yapılanlar:**
-  - `/health` route duplicate kaldırıldı
-  - Type mapping helper'a taşındı (`helpers/type-mapping.helper.ts`)
-  - Column detection helper oluşturuldu (`helpers/column-detection.helper.ts`)
-  - Service helper oluşturuldu (`helpers/service.helper.ts`)
-  - Modüler route yapısı düzenlendi (`routes/index.ts`)
+  - `helpers/constants.ts` - Sabitler (BATCH_SIZE, MAX_MEMORY vb.)
+  - `helpers/date-converter.ts` - toClickHouseDateTime, convertToClickHouseDateTime, isDateLikeValue
+  - `helpers/memory-manager.ts` - checkMemory, forceGC
+  - `helpers/sync-utils.ts` - parseColumnMapping, truncateClickHouseTable, updateJobProgress, optimizeClickHouseTable
+  - `helpers/connection-factory.ts` - createMssqlConnection, createPostgresConnection, createMysqlConnection
+  - `types/index.ts` - Interface'ler (ETLJob, TypeMismatch, DataValidationResult)
+  - `sync/` klasörü hazırlandı (gelecek refactoring için)
 
-### 10.2 etl-worker Modülerleştirildi
-- **Başlangıç:** 4337 satır → **Şimdi:** 4320 satır
+### 10.3 analytics-service Duplicate Temizliği ✅
+- **Başlangıç:** 3886 satır → **Şimdi:** 3776 satır (**-%3 azalma**)
 - **Yapılanlar:**
-  - `helpers/` klasörü oluşturuldu
-  - Sabitler ayrıldı (`helpers/constants.ts`)
-  - Interface'ler ayrıldı (`types/index.ts`)
-  - Temel modüler yapı kuruldu
+  - `getDefaultComparisonLabel` → helpers/comparison.helper.ts'den import
+  - `calculatePreviousPeriodDates` → helpers/comparison.helper.ts'den import
+  - `formatDateString` → helpers/format.helper.ts'den import
+  - `escapeValue` → helpers/format.helper.ts'den import
+  - `calculateLFL` - extended store-based fallback mantığı nedeniyle index.ts'de kaldı
 
-### 10.3 analytics-service
-- 3886 satır (modüler yapı mevcut, detaylı refactor sonraki oturumda)
+### 10.4 data-service Helper'lar ✅
+- **Yapılanlar:**
+  - `helpers/db-connection.ts` - getConnectionConfig, createPostgresClient, createMssqlPool, createMysqlConnection, testConnection
 
-### 10.4 Kalan Büyük Dosyalar (Sonraki Oturumlar)
-- [ ] `data-service/src/index.ts` - Route'ları ayrı dosyalara taşı
-- [ ] `etl-worker/src/index.ts` - Sync stratejilerini ayır
-- [ ] `analytics-service/src/index.ts` - Helper duplicate'ları temizle
-- [ ] Frontend büyük sayfalar (DataPage, AdminPage)
+### 10.5 Frontend Modülerleştirme Altyapısı ✅
+- **Yapılanlar:**
+  - `hooks/useDataApi.ts` - DataPage için merkezi API hook'u (~250 satır)
+  - `hooks/useAdminApi.ts` - AdminPage için merkezi API hook'u (~300 satır)
+  - `components/data/ConnectionModal.tsx` - Bağlantı modal componenti (~600 satır)
+  - `components/data/DatasetModal.tsx` - Dataset oluşturma modal componenti (~700 satır) ✅ YENİ
+  - `components/data/index.ts` - Data component barrel export
+  - `components/admin/index.ts` - Admin component barrel export (yapı hazır)
+
+### 10.6 DataPage Component Extraction (23 Ocak 2026)
+- **DatasetModal.tsx** ✅ Başarıyla extract edildi
+  - ~700 satır ayrı component dosyasına taşındı
+  - Kendi internal state'lerini yönetiyor
+  - apiCall internal, onSuccess/onClose props ile bağlı
+  - SQL→ClickHouse tip mapping logic dahil
+  
+- **SettingsModal, ApiPreviewModal, SystemHealthPanel, ETLJobsList** ❌ Atlandı
+  - **Sebep:** Karmaşık state bağımlılıkları
+  - Bu componentler çok sayıda external state ve fonksiyona bağımlı (50+ state/setter)
+  - Proper extraction için Context API veya state management çözümü gerekiyor
+  - Alternatif: Tüm state'leri props olarak geçirmek (prop drilling) - bakım zorluğu yaratır
+
+### 10.7 Kalan İşler - Frontend Refactoring (Gelecek Oturumlar)
+**Öneri:** State management çözümü önce uygulanmalı
+1. [ ] Zustand store'ları genişlet (dataStore, adminStore)
+2. [ ] Component'ler store'dan state alsın (props yerine)
+3. [ ] Ardından component extraction daha kolay olur
+
+**Alternatif yaklaşımlar:**
+- React Context API ile state paylaşımı
+- Custom hooks ile state ve fonksiyonları grupla
+- Compound components pattern
+
+### 10.8 ETL Worker - Sync Stratejileri (Gelecek Oturumlar)
+- [ ] `etl-worker/src/index.ts` - Sync stratejilerini ayır (mssqlSync, mysqlSync, fullRefresh)
 
 ---
 
 ## Özet
 
-**Toplam düzeltilen madde:** 35+
+**Toplam düzeltilen madde:** 40+
 - Kritik Güvenlik: 8
 - Yüksek Öncelik: 8  
 - Orta Öncelik: 8+
 - Production Güvenlik: 6
-- Kod Kalitesi: 5+
+- Kod Kalitesi: 10+ (route modülerleştirme, helper ayrımı)
 
 **Enterprise-grade hazırlık:** ✅ Tamamlandı
 **Production güvenlik:** ✅ Güçlendirildi
-**Modüler yapı:** 🔄 Temel kuruldu, devam edecek
+**Modüler yapı:** ✅ Backend + Frontend altyapı tamamlandı:
+  - data-service: 5121 → 3833 satır (**-%25**)
+  - etl-worker: 4337 → 4067 satır (**-%6**)
+  - analytics-service: 3886 → 3776 satır (**-%3**)
+  - DataPage.tsx: ~7400 → ~6800 satır (**-~600 satır** - DatasetModal extraction)
+  - Frontend: useDataApi, useAdminApi hook'ları + ConnectionModal + DatasetModal componentleri
+  - **Toplam yeni dosya:** 8 helper, 2 hook, 2 component
+  
+**Not:** Büyük modal/panel componentlerinin extraction'ı için state management çözümü gerekiyor (detaylar 10.7'de)

@@ -2826,7 +2826,7 @@ export default function AdminPage() {
                 </div>
               </div>
               <button 
-                onClick={() => { setEditingUser(null); setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '' }); setStoreSearchTerm(''); setShowUserModal(true) }}
+                onClick={() => { setEditingUser(null); setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '', categories: [], canSeeAllCategories: true }); setStoreSearchTerm(''); setShowUserModal(true) }}
                 className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
               >
                 <Plus size={16} /> Kullanıcı Ekle

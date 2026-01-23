@@ -142,7 +142,34 @@ router.post('/jobs/:jobId/kill', authenticate, authorize(ROLES.ADMIN, ROLES.MANA
   }
 });
 
-// NOTE: worker/start, worker/stop, worker/restart, trigger-all endpoints
-// remain in index.ts due to process management dependencies
+/**
+ * POST /etl/trigger-all
+ * Trigger sync for all active datasets
+ */
+router.post('/trigger-all', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const datasets = await db.queryAll(
+      "SELECT id, name FROM datasets WHERE tenant_id = $1 AND status = 'active'",
+      [req.user!.tenantId]
+    );
+    
+    for (const ds of datasets) {
+      await cache.publish('etl:trigger', { datasetId: ds.id, action: 'manual_sync' });
+    }
+    
+    logger.info('ETL triggered for all datasets', { count: datasets.length, user: req.user!.userId });
+    
+    res.json({ 
+      success: true, 
+      message: `${datasets.length} dataset için sync tetiklendi`,
+      data: { triggeredCount: datasets.length }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// NOTE: worker/start, worker/stop, worker/restart endpoints
+// are in etl-worker.routes.ts (uses ServiceManager)
 
 export default router;
