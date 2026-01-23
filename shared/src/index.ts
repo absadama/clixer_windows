@@ -139,3 +139,17 @@ export {
   circuitBreakerRegistry
 } from './circuit-breaker';
 export type { CircuitBreakerConfig, CircuitBreakerStats } from './circuit-breaker';
+
+// Service Manager
+export { default as serviceManager } from './service-manager';
+export {
+  getServiceManager,
+  detectPlatform,
+  WindowsProcessManager,
+  SystemdManager,
+  PM2Manager,
+  ServiceStatus,
+  Platform,
+  SERVICE_CONFIGS
+} from './service-manager';
+export type { IServiceManager, ServiceConfig, ServiceInfo } from './service-manager';

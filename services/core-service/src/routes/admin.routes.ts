@@ -402,32 +402,159 @@ router.get('/services/:serviceId', authenticate, authorize(ROLES.ADMIN), async (
 });
 
 /**
+ * POST /admin/service/:serviceId/start
+ * Start a specific service
+ */
+router.post('/service/:serviceId/start', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { serviceId } = req.params;
+    const { getServiceManager, SERVICE_CONFIGS } = require('@clixer/shared');
+    
+    if (!SERVICE_CONFIGS[serviceId]) {
+      return res.status(404).json({ success: false, message: `Servis bulunamadı: ${serviceId}` });
+    }
+    
+    const manager = getServiceManager();
+    const result = await manager.start(serviceId);
+    
+    // Audit log
+    await audit.log({
+      userId: req.user!.userId,
+      tenantId: req.user!.tenantId,
+      action: 'CREATE',
+      resourceType: 'system_setting',
+      resourceId: serviceId,
+      resourceName: `service_start:${serviceId}`,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
+    logger.info('Service started via UI', { 
+      serviceId, 
+      userId: req.user!.userId, 
+      status: result.status,
+      pid: result.pid
+    });
+    
+    res.json({
+      success: true,
+      message: `${SERVICE_CONFIGS[serviceId].name} başlatıldı`,
+      data: result
+    });
+  } catch (error: any) {
+    logger.error('Service start failed', { serviceId: req.params.serviceId, error: error.message });
+    next(error);
+  }
+});
+
+/**
+ * POST /admin/service/:serviceId/stop
+ * Stop a specific service
+ */
+router.post('/service/:serviceId/stop', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { serviceId } = req.params;
+    const { getServiceManager, SERVICE_CONFIGS } = require('@clixer/shared');
+    
+    if (!SERVICE_CONFIGS[serviceId]) {
+      return res.status(404).json({ success: false, message: `Servis bulunamadı: ${serviceId}` });
+    }
+    
+    const manager = getServiceManager();
+    const result = await manager.stop(serviceId);
+    
+    // Audit log
+    await audit.log({
+      userId: req.user!.userId,
+      tenantId: req.user!.tenantId,
+      action: 'DELETE',
+      resourceType: 'system_setting',
+      resourceId: serviceId,
+      resourceName: `service_stop:${serviceId}`,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
+    logger.info('Service stopped via UI', { 
+      serviceId, 
+      userId: req.user!.userId,
+      status: result.status
+    });
+    
+    res.json({
+      success: true,
+      message: `${SERVICE_CONFIGS[serviceId].name} durduruldu`,
+      data: result
+    });
+  } catch (error: any) {
+    logger.error('Service stop failed', { serviceId: req.params.serviceId, error: error.message });
+    next(error);
+  }
+});
+
+/**
  * POST /admin/service/:serviceId/restart
  * Restart a specific service
  */
 router.post('/service/:serviceId/restart', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { serviceId } = req.params;
-    const config = SERVICE_ENDPOINTS[serviceId];
-    if (!config) return res.status(404).json({ success: false, message: `Servis bulunamadı: ${serviceId}` });
+    const { getServiceManager, SERVICE_CONFIGS } = require('@clixer/shared');
     
-    const status = await checkService(serviceId, config);
-    
-    if (status.status === 'healthy') {
-      return res.json({
-        success: true,
-        message: `${config.name} çalışıyor. Yeniden başlatmak için terminalde ilgili servisi durdurup başlatın.`,
-        instructions: `cd services/${serviceId} && npm run dev`
-      });
+    if (!SERVICE_CONFIGS[serviceId]) {
+      return res.status(404).json({ success: false, message: `Servis bulunamadı: ${serviceId}` });
     }
+    
+    const manager = getServiceManager();
+    const result = await manager.restart(serviceId);
+    
+    // Audit log
+    await audit.log({
+      userId: req.user!.userId,
+      tenantId: req.user!.tenantId,
+      action: 'UPDATE',
+      resourceType: 'system_setting',
+      resourceId: serviceId,
+      resourceName: `service_restart:${serviceId}`,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
+    logger.info('Service restarted via UI', { 
+      serviceId, 
+      userId: req.user!.userId,
+      status: result.status,
+      pid: result.pid
+    });
     
     res.json({
       success: true,
-      message: `${config.name} durmuş. Başlatmak için terminalde şu komutu çalıştırın:`,
-      instructions: `cd services/${serviceId} && npm run dev`,
-      status: 'requires_manual_action'
+      message: `${SERVICE_CONFIGS[serviceId].name} yeniden başlatıldı`,
+      data: result
     });
-  } catch (error) { next(error); }
+  } catch (error: any) {
+    logger.error('Service restart failed', { serviceId: req.params.serviceId, error: error.message });
+    next(error);
+  }
+});
+
+/**
+ * GET /admin/services
+ * Get all services status
+ */
+router.get('/services', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { getServiceManager } = require('@clixer/shared');
+    const manager = getServiceManager();
+    const services = await manager.getAll();
+    
+    res.json({
+      success: true,
+      data: services
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 export default router;

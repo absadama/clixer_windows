@@ -6,7 +6,7 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { Request, Response, NextFunction } from 'express';
-import { AuthenticationError, TokenExpiredError, InvalidTokenError, ForbiddenError, AuthorizationError, ValidationError, NotFoundError } from './errors';
+import { AuthenticationError, TokenExpiredError, InvalidTokenError, ForbiddenError, ValidationError, NotFoundError } from './errors';
 import createLogger from './logger';
 
 const logger = createLogger({ service: 'auth' });
@@ -193,7 +193,7 @@ export function tenantIsolation(req: Request, res: Response, next: NextFunction)
     }
 
     if (!req.user.tenantId) {
-      throw new AuthorizationError('Tenant bilgisi eksik');
+      throw new ForbiddenError('Tenant bilgisi eksik');
     }
 
     // SECURITY FIX: Override client-provided tenantId
