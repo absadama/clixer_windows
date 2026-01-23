@@ -11,8 +11,21 @@ import createLogger from './logger';
 
 const logger = createLogger({ service: 'auth' });
 
-// JWT Config
-const JWT_SECRET = process.env.JWT_SECRET || 'clixer_dev_secret';
+// JWT Config - Production'da JWT_SECRET zorunlu
+const isProduction = process.env.NODE_ENV === 'production';
+const JWT_SECRET = (() => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret && isProduction) {
+    logger.error('CRITICAL: JWT_SECRET environment variable is required in production!');
+    throw new Error('JWT_SECRET environment variable is required in production');
+  }
+  if (!secret) {
+    logger.warn('JWT_SECRET not set, using development fallback. DO NOT use in production!');
+    return 'clixer_dev_secret_DO_NOT_USE_IN_PRODUCTION';
+  }
+  return secret;
+})();
+
 const JWT_ACCESS_EXPIRES = process.env.JWT_ACCESS_EXPIRES || '1h';
 const JWT_REFRESH_EXPIRES = process.env.JWT_REFRESH_EXPIRES || '7d';
 const BCRYPT_ROUNDS = 12;

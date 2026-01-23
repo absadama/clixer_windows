@@ -87,9 +87,15 @@ export {
 } from './audit';
 export type { AuditAction, ResourceType, AuditLogEntry } from './audit';
 
-// Security (SQL Injection koruması, Input validation)
+// Security (SQL Injection koruması, Input validation, Encryption)
 export { default as security } from './security';
 export {
+  // Encryption
+  encrypt,
+  decrypt,
+  isEncrypted,
+  migratePassword,
+  // SQL Injection koruması
   sanitizeTableName,
   sanitizeColumnName,
   sanitizeAggFunction,
@@ -97,6 +103,7 @@ export {
   sanitizeNumber,
   sanitizeLimit,
   sanitizeOffset,
+  // Input validation
   isValidEmail,
   isValidUUID,
   sanitizeString,

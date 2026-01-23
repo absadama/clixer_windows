@@ -11,9 +11,9 @@ import dotenv from 'dotenv';
 
 dotenv.config({ path: '../../.env' });
 
-// SSL sertifika kontrolünü devre dışı bırak (self-signed veya expired sertifikalar için)
-// UYARI: Bu sadece development/internal API'ler için kullanılmalı
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// NOT: SSL sertifika doğrulaması artık connection bazlı yapılıyor
+// Her bağlantı için ssl_verify alanı kullanılarak kontrol edilir
+// Global NODE_TLS_REJECT_UNAUTHORIZED kullanımı güvenlik riski oluşturur
 
 import {
   createLogger,

@@ -3,7 +3,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { db, authenticate, authorize, ROLES, createLogger, AppError, NotFoundError, ValidationError } from '@clixer/shared';
+import { db, authenticate, authorize, ROLES, createLogger, AppError, NotFoundError, ValidationError, encrypt, decrypt } from '@clixer/shared';
 
 const router = Router();
 const logger = createLogger({ service: 'core-service' });
@@ -36,7 +36,7 @@ router.post('/config', authenticate, authorize(ROLES.ADMIN), async (req: Request
       throw new ValidationError('Sunucu URL, Base DN ve Bind DN zorunludur');
     }
     
-    const encryptedPassword = bind_password ? Buffer.from(bind_password).toString('base64') : undefined;
+    const encryptedPassword = bind_password ? encrypt(bind_password) : undefined;
     
     const existing = await db.queryOne('SELECT id, bind_password_encrypted FROM ldap_config WHERE tenant_id = $1', [req.user!.tenantId]);
     
@@ -82,7 +82,7 @@ router.post('/test', authenticate, authorize(ROLES.ADMIN), async (req: Request, 
     if (!password) {
       const config = await db.queryOne('SELECT bind_password_encrypted FROM ldap_config WHERE tenant_id = $1', [req.user!.tenantId]);
       if (config?.bind_password_encrypted) {
-        password = Buffer.from(config.bind_password_encrypted, 'base64').toString('utf-8');
+        password = decrypt(config.bind_password_encrypted);
       }
     }
     if (!password) throw new ValidationError('Şifre gerekli');
@@ -115,7 +115,7 @@ router.get('/groups', authenticate, authorize(ROLES.ADMIN), async (req: Request,
     const config = await db.queryOne('SELECT * FROM ldap_config WHERE tenant_id = $1', [req.user!.tenantId]);
     if (!config) throw new NotFoundError('LDAP yapılandırması');
     
-    const password = Buffer.from(config.bind_password_encrypted, 'base64').toString('utf-8');
+    const password = decrypt(config.bind_password_encrypted);
     const { Client } = await import('ldapts');
     const client = new Client({ url: config.server_url });
     
@@ -254,7 +254,7 @@ router.post('/sync', authenticate, authorize(ROLES.ADMIN), async (req: Request, 
     const stats = { found: 0, created: 0, updated: 0, deactivated: 0, skipped: 0, errors: [] as any[] };
     
     try {
-      const password = Buffer.from(config.bind_password_encrypted, 'base64').toString('utf-8');
+      const password = decrypt(config.bind_password_encrypted);
       const { Client } = await import('ldapts');
       const client = new Client({ url: config.server_url });
       

@@ -23,6 +23,22 @@ export interface DbConfig {
   connectionTimeoutMillis?: number;
 }
 
+// Production'da POSTGRES_PASSWORD zorunlu
+const isProduction = process.env.NODE_ENV === 'production';
+
+function getRequiredEnvVar(name: string, devDefault?: string): string {
+  const value = process.env[name];
+  if (!value && isProduction) {
+    logger.error(`CRITICAL: ${name} environment variable is required in production!`);
+    throw new Error(`${name} environment variable is required in production`);
+  }
+  if (!value && devDefault) {
+    logger.warn(`${name} not set, using development fallback. DO NOT use in production!`);
+    return devDefault;
+  }
+  return value || devDefault || '';
+}
+
 /**
  * PostgreSQL connection pool oluştur
  */
@@ -35,7 +51,7 @@ export function createPool(config?: DbConfig): Pool {
     port: config?.port || parseInt(process.env.POSTGRES_PORT || '5432'),
     database: config?.database || process.env.POSTGRES_DB || 'clixer',
     user: config?.user || process.env.POSTGRES_USER || 'clixer',
-    password: config?.password || process.env.POSTGRES_PASSWORD || 'clixer_secret_2025',
+    password: config?.password || getRequiredEnvVar('POSTGRES_PASSWORD', 'clixer_dev_password'),
     max: config?.max || 50,  // 400+ kullanıcı desteği için artırıldı
     idleTimeoutMillis: config?.idleTimeoutMillis || 30000,
     connectionTimeoutMillis: config?.connectionTimeoutMillis || 5000

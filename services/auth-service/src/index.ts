@@ -313,15 +313,49 @@ app.post('/refresh', async (req: Request, res: Response, next: NextFunction) => 
       throw new AuthenticationError('Geçersiz refresh token');
     }
 
-    // Yeni token oluştur
+    // DB'den güncel kullanıcı bilgilerini çek (yetki değişmiş olabilir)
+    const user = await db.queryOne(
+      `SELECT u.id, u.email, u.role, u.tenant_id, u.filter_value, u.can_see_all_categories, u.is_active,
+              p.filter_level
+       FROM users u
+       LEFT JOIN positions p ON u.position_code = p.code
+       WHERE u.id = $1`,
+      [payload.userId]
+    );
+
+    if (!user || !user.is_active) {
+      throw new AuthenticationError('Kullanıcı bulunamadı veya deaktif');
+    }
+
+    // Kullanıcının güncel rapor kategorilerini çek
+    let categoryIds: string[] = [];
+    if (!user.can_see_all_categories) {
+      const userCategories = await db.queryAll(
+        `SELECT category_id FROM user_report_categories WHERE user_id = $1`,
+        [user.id]
+      );
+      categoryIds = userCategories.map((c: any) => c.category_id);
+    }
+
+    // Yeni token oluştur - güncel yetkilerle
     const newPayload = {
-      userId: payload.userId,
-      tenantId: payload.tenantId,
-      role: payload.role,
-      email: payload.email
+      userId: user.id,
+      tenantId: user.tenant_id,
+      role: user.role,
+      email: user.email,
+      filterLevel: user.filter_level || 'store',
+      filterValue: user.filter_value || null,
+      canSeeAllCategories: user.can_see_all_categories ?? true,
+      categoryIds: categoryIds
     };
 
     const accessToken = generateAccessToken(newPayload);
+
+    logger.info('Token refreshed with updated permissions', { 
+      userId: user.id, 
+      role: user.role,
+      filterLevel: user.filter_level 
+    });
 
     res.json({
       success: true,

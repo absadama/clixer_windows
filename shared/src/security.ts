@@ -1,11 +1,157 @@
 /**
  * Clixer - Security Helpers
- * SQL Injection koruması, Input validation, Sanitization
+ * SQL Injection koruması, Input validation, Sanitization, Encryption
  */
 
+import crypto from 'crypto';
 import createLogger from './logger';
 
 const logger = createLogger({ service: 'security' });
+
+// ============================================
+// ENCRYPTION (AES-256-GCM)
+// ============================================
+
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 16; // 128 bit IV
+const AUTH_TAG_LENGTH = 16; // 128 bit auth tag
+const SALT_LENGTH = 32;
+
+// Encryption key - production'da zorunlu
+const ENCRYPTION_KEY = (() => {
+  const key = process.env.ENCRYPTION_KEY;
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  if (!key && isProduction) {
+    logger.error('CRITICAL: ENCRYPTION_KEY environment variable is required in production!');
+    throw new Error('ENCRYPTION_KEY environment variable is required in production');
+  }
+  
+  if (!key) {
+    logger.warn('ENCRYPTION_KEY not set, using development fallback. DO NOT use in production!');
+    // Development için 32-byte key (256 bit)
+    return crypto.scryptSync('clixer_dev_encryption_key', 'clixer_salt', 32);
+  }
+  
+  // Key 32 byte (256 bit) olmalı - eğer değilse derive et
+  if (Buffer.from(key, 'base64').length === 32) {
+    return Buffer.from(key, 'base64');
+  }
+  return crypto.scryptSync(key, 'clixer_encryption_salt', 32);
+})();
+
+/**
+ * Veriyi AES-256-GCM ile şifrele
+ * Format: base64(iv + authTag + encryptedData)
+ */
+export function encrypt(plaintext: string): string {
+  if (!plaintext) return '';
+  
+  try {
+    const iv = crypto.randomBytes(IV_LENGTH);
+    const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, ENCRYPTION_KEY, iv);
+    
+    let encrypted = cipher.update(plaintext, 'utf8');
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    
+    const authTag = cipher.getAuthTag();
+    
+    // IV + AuthTag + EncryptedData birleştir
+    const combined = Buffer.concat([iv, authTag, encrypted]);
+    
+    return combined.toString('base64');
+  } catch (error: any) {
+    logger.error('Encryption failed', { error: error.message });
+    throw new Error('Şifreleme başarısız');
+  }
+}
+
+/**
+ * AES-256-GCM ile şifrelenmiş veriyi çöz
+ */
+export function decrypt(encryptedData: string): string {
+  if (!encryptedData) return '';
+  
+  try {
+    const combined = Buffer.from(encryptedData, 'base64');
+    
+    // IV, AuthTag ve EncryptedData ayır
+    const iv = combined.subarray(0, IV_LENGTH);
+    const authTag = combined.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
+    const encrypted = combined.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
+    
+    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, ENCRYPTION_KEY, iv);
+    decipher.setAuthTag(authTag);
+    
+    let decrypted = decipher.update(encrypted);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    
+    return decrypted.toString('utf8');
+  } catch (error: any) {
+    // Eski format (base64 encoded plain text) olabilir - backward compatibility
+    try {
+      const decoded = Buffer.from(encryptedData, 'base64').toString('utf8');
+      // Eğer decode edilebiliyorsa ve makul bir string ise, eski format
+      if (decoded && decoded.length > 0 && decoded.length < 1000) {
+        logger.warn('Legacy base64 password detected, should be migrated');
+        return decoded;
+      }
+    } catch {
+      // Base64 decode da başarısız, plain text olabilir
+    }
+    
+    logger.error('Decryption failed', { error: error.message });
+    throw new Error('Şifre çözme başarısız');
+  }
+}
+
+/**
+ * Verinin şifreli olup olmadığını kontrol et
+ * AES-256-GCM formatında mı?
+ */
+export function isEncrypted(data: string): boolean {
+  if (!data) return false;
+  
+  try {
+    const combined = Buffer.from(data, 'base64');
+    // Minimum uzunluk: IV(16) + AuthTag(16) + MinData(1) = 33
+    return combined.length >= 33;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Eski formatı (base64 veya plain text) yeni formata migrate et
+ */
+export function migratePassword(oldPassword: string): string {
+  if (!oldPassword) return '';
+  
+  // Zaten şifreli mi?
+  if (isEncrypted(oldPassword)) {
+    try {
+      decrypt(oldPassword); // Doğrula
+      return oldPassword; // Zaten doğru formatta
+    } catch {
+      // Şifreli gibi görünüyor ama çözülemedi - yeniden şifrele
+    }
+  }
+  
+  // Base64 decode dene
+  let plainPassword = oldPassword;
+  try {
+    const decoded = Buffer.from(oldPassword, 'base64').toString('utf8');
+    // Base64 ise ve makul bir string ise
+    if (decoded && decoded.length > 0 && decoded.length < oldPassword.length) {
+      plainPassword = decoded;
+    }
+  } catch {
+    // Base64 değil, plain text olarak devam et
+  }
+  
+  // Yeni formatla şifrele
+  return encrypt(plainPassword);
+}
 
 // ============================================
 // SQL INJECTION KORUMASI
@@ -366,6 +512,12 @@ export function getPasswordStrength(password: string): number {
 // ============================================
 
 export default {
+  // Encryption
+  encrypt,
+  decrypt,
+  isEncrypted,
+  migratePassword,
+  
   // SQL Injection koruması
   sanitizeTableName,
   sanitizeColumnName,
