@@ -2853,7 +2853,7 @@ app.get('/designs/:designId', authenticate, tenantIsolation, async (req: Request
  */
 app.post('/designs', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name, description, type, layoutConfig, settings, targetRoles, allowedPositions, isDefault } = req.body;
+    const { name, description, type, layoutConfig, settings, targetRoles, allowedPositions, categoryId, isDefault } = req.body;
 
     if (!name) {
       throw new ValidationError('Tasarım adı zorunludur');
@@ -2885,13 +2885,13 @@ app.post('/designs', authenticate, tenantIsolation, async (req: Request, res: Re
     }
 
     const result = await db.queryOne(`
-      INSERT INTO designs (tenant_id, name, description, type, layout_config, settings, target_roles, allowed_positions, is_default, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      INSERT INTO designs (tenant_id, name, description, type, layout_config, settings, target_roles, allowed_positions, category_id, is_default, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING id
     `, [
       req.user!.tenantId, name, description || null, type || 'cockpit',
-      JSON.stringify(layoutConfig || {}), JSON.stringify(settings || {}), JSON.stringify(rolesArray), positionsArray, isDefault || false,
-      req.user!.userId
+      JSON.stringify(layoutConfig || {}), JSON.stringify(settings || {}), JSON.stringify(rolesArray), positionsArray,
+      categoryId || null, isDefault || false, req.user!.userId
     ]);
 
     // Yetki ekle
@@ -2917,7 +2917,7 @@ app.post('/designs', authenticate, tenantIsolation, async (req: Request, res: Re
 app.put('/designs/:designId', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { designId } = req.params;
-    const { name, description, type, layoutConfig, settings, targetRoles, allowedPositions, gridColumns, rowHeight, themeConfig, isActive, isDefault } = req.body;
+    const { name, description, type, layoutConfig, settings, targetRoles, allowedPositions, categoryId, gridColumns, rowHeight, themeConfig, isActive, isDefault } = req.body;
 
     // Eğer varsayılan yapılıyorsa diğerlerini kaldır
     if (isDefault) {
@@ -2956,6 +2956,7 @@ app.put('/designs/:designId', authenticate, tenantIsolation, async (req: Request
         row_height = COALESCE($9, row_height),
         is_active = COALESCE($10, is_active),
         is_default = COALESCE($11, is_default),
+        category_id = $14,
         updated_at = NOW()
       WHERE id = $12 AND tenant_id = $13
     `, [
@@ -2971,7 +2972,8 @@ app.put('/designs/:designId', authenticate, tenantIsolation, async (req: Request
       isActive, 
       isDefault, 
       designId, 
-      req.user!.tenantId
+      req.user!.tenantId,
+      categoryId || null
     ]);
 
     // Cache temizle

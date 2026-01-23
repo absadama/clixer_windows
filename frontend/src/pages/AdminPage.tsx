@@ -32,6 +32,7 @@ import {
   Eraser,
   Tag,
   Save,
+  FolderTree,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { SystemSetting } from '../types'
@@ -49,6 +50,7 @@ const menuItems = [
   { id: 'backup', label: 'Yedekleme', icon: HardDrive, category: 'SİSTEM' },
   { id: 'users', label: 'Kullanıcı Yönetimi', icon: Users, category: 'KULLANICILAR' },
   { id: 'roles', label: 'Rol & Yetkiler', icon: Lock, category: 'KULLANICILAR' },
+  { id: 'report-categories', label: 'Rapor Kategorileri', icon: FolderTree, category: 'KULLANICILAR' },
   { id: 'ldap', label: 'LDAP / SSO', icon: Key, category: 'KULLANICILAR' },
 ]
 
@@ -126,7 +128,9 @@ export default function AdminPage() {
     role: 'USER',  // Sistem rolü (ADMIN, MANAGER, USER, VIEWER)
     position_code: 'VIEWER',
     stores: [] as { store_id: string; store_name: string }[],
-    filter_value: ''  // RLS için filtre değeri (mağaza/bölge/grup kodu)
+    filter_value: '',  // RLS için filtre değeri (mağaza/bölge/grup kodu)
+    categories: [] as string[],  // Rapor kategorisi ID'leri (Güçler Ayrılığı)
+    canSeeAllCategories: false    // Varsayılan: Kategori atanmalı (Güçler Ayrılığı)
   })
   
   // Rol Düzenleme States
@@ -243,6 +247,19 @@ export default function AdminPage() {
   const [labelsSaving, setLabelsSaving] = useState(false)
   const [labelsTab, setLabelsTab] = useState<'menu' | 'position' | 'data'>('menu')
   const [editedLabels, setEditedLabels] = useState<Record<string, string>>({})
+  
+  // Rapor Kategorileri States (Güçler Ayrılığı)
+  const [reportCategories, setReportCategories] = useState<any[]>([])
+  const [reportCategoriesLoading, setReportCategoriesLoading] = useState(false)
+  const [showCategoryModal, setShowCategoryModal] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<any>(null)
+  const [categoryForm, setCategoryForm] = useState({
+    code: '',
+    name: '',
+    description: '',
+    color: '#6366f1',
+    icon: 'Folder'
+  })
   
   // Labels'dan pozisyon ismi çek (dinamik etiket desteği)
   const getPositionLabel = useCallback((positionCode: string, defaultName: string): string => {
@@ -397,6 +414,58 @@ export default function AdminPage() {
       setLabelsLoading(false)
     }
   }, [accessToken, apiCall])
+  
+  // Rapor Kategorilerini yükle
+  const loadReportCategories = useCallback(async () => {
+    if (!accessToken) return
+    setReportCategoriesLoading(true)
+    try {
+      const result = await apiCall('/core/report-categories')
+      setReportCategories(result.data || [])
+    } catch (err) {
+      console.error('Rapor kategorileri yüklenemedi:', err)
+    } finally {
+      setReportCategoriesLoading(false)
+    }
+  }, [accessToken, apiCall])
+  
+  // Kategori kaydet
+  const saveCategory = async () => {
+    try {
+      if (!categoryForm.code || !categoryForm.name) {
+        alert('Kod ve ad zorunludur')
+        return
+      }
+      
+      const url = editingCategory 
+        ? `/core/report-categories/${editingCategory.id}`
+        : '/core/report-categories'
+      
+      await apiCall(url, {
+        method: editingCategory ? 'PUT' : 'POST',
+        body: JSON.stringify(categoryForm)
+      })
+      
+      await loadReportCategories()
+      setShowCategoryModal(false)
+      setEditingCategory(null)
+      setCategoryForm({ code: '', name: '', description: '', color: '#6366f1', icon: 'Folder' })
+    } catch (err: any) {
+      alert('Kaydetme hatası: ' + err.message)
+    }
+  }
+  
+  // Kategori sil
+  const deleteCategory = async (id: string) => {
+    if (!confirm('Bu kategoriyi silmek istediğinizden emin misiniz?')) return
+    
+    try {
+      await apiCall(`/core/report-categories/${id}`, { method: 'DELETE' })
+      await loadReportCategories()
+    } catch (err: any) {
+      alert('Silme hatası: ' + err.message)
+    }
+  }
   
   // Etiketleri kaydet
   const saveLabels = async () => {
@@ -1113,6 +1182,8 @@ export default function AdminPage() {
   const saveUser = async () => {
     setSaving('user')
     try {
+      let userId = editingUser?.id
+      
       if (editingUser) {
         // Güncelle
         await apiCall(`/core/users/${editingUser.id}`, {
@@ -1127,17 +1198,34 @@ export default function AdminPage() {
         })
       } else {
         // Yeni oluştur
-        await apiCall('/core/users', {
+        const result = await apiCall('/core/users', {
           method: 'POST',
           body: JSON.stringify({
             ...userForm,
             role: userForm.role  // Sistem rolü
           })
         })
+        userId = result.data?.id
       }
+      
+      // Kullanıcı kategorilerini kaydet (Güçler Ayrılığı)
+      if (userId) {
+        try {
+          await apiCall(`/core/users/${userId}/categories`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              categoryIds: userForm.categories,
+              canSeeAllCategories: userForm.canSeeAllCategories
+            })
+          })
+        } catch (catErr) {
+          console.error('Kategori ataması başarısız:', catErr)
+        }
+      }
+      
       setShowUserModal(false)
       setEditingUser(null)
-      setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '' })
+      setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '', categories: [], canSeeAllCategories: false })
       loadUsers()
     } catch (err: any) {
       alert('Hata: ' + err.message)
@@ -1157,12 +1245,23 @@ export default function AdminPage() {
     }
   }
 
-  // Kullanıcı düzenle - Detayları API'den çek (stores dahil)
+  // Kullanıcı düzenle - Detayları API'den çek (stores ve categories dahil)
   const editUser = async (user: any) => {
     try {
       // Kullanıcı detaylarını API'den çek (stores bilgisi dahil)
       const result = await apiCall(`/core/users/${user.id}`)
       const userDetail = result.data || user
+      
+      // Kullanıcının kategorilerini de çek
+      let userCategories: string[] = []
+      let canSeeAll = false  // Varsayılan: false (kategori atanmalı)
+      try {
+        const catResult = await apiCall(`/core/users/${user.id}/categories`)
+        userCategories = (catResult.data?.categories || []).map((c: any) => c.id)
+        canSeeAll = catResult.data?.canSeeAllCategories ?? false  // Varsayılan: false
+      } catch {
+        // Kategori yüklenemezse varsayılan değerler (false)
+      }
       
       setEditingUser(userDetail)
       setUserForm({
@@ -1172,7 +1271,9 @@ export default function AdminPage() {
         role: userDetail.role || 'USER',  // Sistem rolü
         filter_value: userDetail.filter_value || '',  // RLS için filtre değeri
         position_code: userDetail.position_code || 'VIEWER',
-        stores: (userDetail.stores || []).map((s: any) => ({ store_id: s.store_id, store_name: s.store_name }))
+        stores: (userDetail.stores || []).map((s: any) => ({ store_id: s.store_id, store_name: s.store_name })),
+        categories: userCategories,
+        canSeeAllCategories: canSeeAll
       })
       setStoreSearchTerm('')
       setShowUserModal(true)
@@ -1187,7 +1288,9 @@ export default function AdminPage() {
         role: user.role || 'USER',
         position_code: user.position_code || 'VIEWER',
         stores: [],
-        filter_value: ''
+        filter_value: '',
+        categories: [],
+        canSeeAllCategories: false
       })
       setStoreSearchTerm('')
       setShowUserModal(true)
@@ -1413,13 +1516,15 @@ export default function AdminPage() {
     loadPerfSettings()
     loadLabels()
     loadLogoInfo()
-  }, [loadSettings, loadUsers, loadPositions, loadStoresAndRegions, loadLdapConfig, loadPositionMappings, loadStoreMappings, loadSyncLogs, loadPerfSettings, loadLabels, loadLogoInfo])
+    loadReportCategories()
+  }, [loadSettings, loadUsers, loadPositions, loadStoresAndRegions, loadLdapConfig, loadPositionMappings, loadStoreMappings, loadSyncLogs, loadPerfSettings, loadLabels, loadLogoInfo, loadReportCategories])
 
   // Tab değiştiğinde ilgili verileri yükle
   useEffect(() => {
     if (activeTab === 'monitor') loadSessions()
     if (activeTab === 'backup') loadBackups()
-  }, [activeTab, loadSessions, loadBackups])
+    if (activeTab === 'report-categories') loadReportCategories()
+  }, [activeTab, loadSessions, loadBackups, loadReportCategories])
 
   // Kategoriye göre grupla
   const groupedMenuItems = menuItems.reduce((acc, item) => {
@@ -3058,6 +3163,68 @@ export default function AdminPage() {
                     </div>
                   </div>
 
+                  {/* Rapor Kategorileri (Güçler Ayrılığı) */}
+                  {reportCategories.length > 0 && (
+                    <div className={clsx('mt-4 p-4 rounded-xl border', 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700')}>
+                      <div className="flex items-center justify-between mb-3">
+                        <label className={clsx('text-sm font-medium flex items-center gap-2', theme.contentText)}>
+                          <FolderTree size={16} className="text-violet-500" />
+                          Rapor Kategorileri
+                          <span className={clsx('text-xs font-normal', theme.contentTextMuted)}>(Güçler Ayrılığı)</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={userForm.canSeeAllCategories}
+                            onChange={(e) => setUserForm({ ...userForm, canSeeAllCategories: e.target.checked, categories: e.target.checked ? [] : userForm.categories })}
+                            className="w-4 h-4 rounded"
+                          />
+                          <span className={clsx('text-xs font-medium', isDark ? 'text-violet-400' : 'text-violet-600')}>Tüm Kategoriler</span>
+                        </label>
+                      </div>
+                      
+                      {!userForm.canSeeAllCategories && (
+                        <div className="grid grid-cols-2 gap-2">
+                          {reportCategories.map(cat => (
+                            <label 
+                              key={cat.id}
+                              className={clsx(
+                                'flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors border',
+                                userForm.categories.includes(cat.id)
+                                  ? 'bg-violet-500/10 border-violet-500'
+                                  : (isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200')
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={userForm.categories.includes(cat.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setUserForm({ ...userForm, categories: [...userForm.categories, cat.id] })
+                                  } else {
+                                    setUserForm({ ...userForm, categories: userForm.categories.filter(c => c !== cat.id) })
+                                  }
+                                }}
+                                className="w-4 h-4 rounded"
+                              />
+                              <div 
+                                className="w-3 h-3 rounded-full"
+                                style={{ backgroundColor: cat.color || '#6366f1' }}
+                              />
+                              <span className={clsx('text-sm', theme.contentText)}>{cat.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {userForm.canSeeAllCategories && (
+                        <p className={clsx('text-xs', theme.contentTextMuted)}>
+                          Bu kullanıcı tüm rapor kategorilerini görebilir.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex justify-end gap-3 mt-6">
                     <button
                       onClick={() => { setShowUserModal(false); setEditingUser(null) }}
@@ -3226,6 +3393,189 @@ export default function AdminPage() {
                     >
                       {saving === 'role' ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
                       Kaydet
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Rapor Kategorileri (Güçler Ayrılığı) */}
+        {activeTab === 'report-categories' && (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-violet-500/20' : 'bg-violet-100')}>
+                  <FolderTree size={24} className={isDark ? 'text-violet-400' : 'text-violet-600'} />
+                </div>
+                <div>
+                  <h1 className={clsx('text-xl font-bold', theme.contentText)}>Rapor Kategorileri</h1>
+                  <p className={clsx('text-sm', theme.contentTextMuted)}>
+                    Güçler ayrılığı: Raporları kategorilere ayırın, kullanıcılara farklı kategoriler atayın
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingCategory(null)
+                  setCategoryForm({ code: '', name: '', description: '', color: '#6366f1', icon: 'Folder' })
+                  setShowCategoryModal(true)
+                }}
+                className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
+              >
+                <Plus size={16} />
+                Yeni Kategori
+              </button>
+            </div>
+
+            {reportCategoriesLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 size={32} className="animate-spin text-indigo-500" />
+              </div>
+            ) : reportCategories.length === 0 ? (
+              <div className={clsx('rounded-2xl p-12 text-center', theme.cardBg)}>
+                <FolderTree size={48} className={clsx('mx-auto mb-4', theme.contentTextMuted)} />
+                <h3 className={clsx('text-lg font-medium mb-2', theme.contentText)}>Henüz kategori yok</h3>
+                <p className={clsx('text-sm mb-4', theme.contentTextMuted)}>
+                  Raporları gruplamak için kategoriler oluşturun. Örn: Finans, Pazarlama, Operasyon
+                </p>
+                <button
+                  onClick={() => setShowCategoryModal(true)}
+                  className={clsx('px-6 py-2 rounded-xl font-medium', theme.buttonPrimary)}
+                >
+                  İlk Kategoriyi Oluştur
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {reportCategories.map(cat => (
+                  <div key={cat.id} className={clsx('rounded-2xl p-5 transition-all border-l-4', theme.cardBg)} style={{ borderLeftColor: cat.color || '#6366f1' }}>
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div 
+                          className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold"
+                          style={{ backgroundColor: cat.color || '#6366f1' }}
+                        >
+                          {cat.name?.charAt(0)?.toUpperCase() || 'K'}
+                        </div>
+                        <div>
+                          <h3 className={clsx('font-bold', theme.contentText)}>{cat.name}</h3>
+                          <p className={clsx('text-xs font-mono', theme.contentTextMuted)}>{cat.code}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setEditingCategory(cat)
+                            setCategoryForm({
+                              code: cat.code || '',
+                              name: cat.name || '',
+                              description: cat.description || '',
+                              color: cat.color || '#6366f1',
+                              icon: cat.icon || 'Folder'
+                            })
+                            setShowCategoryModal(true)
+                          }}
+                          className={clsx('p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700', theme.contentTextMuted)}
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => deleteCategory(cat.id)}
+                          className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                    {cat.description && (
+                      <p className={clsx('text-sm mt-3', theme.contentTextMuted)}>{cat.description}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Kategori Modal */}
+            {showCategoryModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className={clsx('w-full max-w-md rounded-2xl p-6', theme.cardBg)}>
+                  <h2 className={clsx('text-xl font-bold mb-4', theme.contentText)}>
+                    {editingCategory ? 'Kategori Düzenle' : 'Yeni Kategori'}
+                  </h2>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className={clsx('block text-sm font-medium mb-1', theme.contentTextMuted)}>Kod *</label>
+                      <input
+                        type="text"
+                        value={categoryForm.code}
+                        onChange={(e) => setCategoryForm({ ...categoryForm, code: e.target.value.toUpperCase() })}
+                        placeholder="FINANS"
+                        disabled={!!editingCategory}
+                        className={clsx('w-full px-4 py-3 rounded-xl text-sm uppercase', theme.inputBg, theme.inputText, editingCategory && 'opacity-50')}
+                      />
+                    </div>
+                    <div>
+                      <label className={clsx('block text-sm font-medium mb-1', theme.contentTextMuted)}>Ad *</label>
+                      <input
+                        type="text"
+                        value={categoryForm.name}
+                        onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
+                        placeholder="Finans Raporları"
+                        className={clsx('w-full px-4 py-3 rounded-xl text-sm', theme.inputBg, theme.inputText)}
+                      />
+                    </div>
+                    <div>
+                      <label className={clsx('block text-sm font-medium mb-1', theme.contentTextMuted)}>Açıklama</label>
+                      <textarea
+                        value={categoryForm.description}
+                        onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })}
+                        placeholder="Finans departmanı için raporlar"
+                        rows={2}
+                        className={clsx('w-full px-4 py-3 rounded-xl text-sm resize-none', theme.inputBg, theme.inputText)}
+                      />
+                    </div>
+                    <div>
+                      <label className={clsx('block text-sm font-medium mb-1', theme.contentTextMuted)}>Renk</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={categoryForm.color}
+                          onChange={(e) => setCategoryForm({ ...categoryForm, color: e.target.value })}
+                          className="w-12 h-10 rounded-lg cursor-pointer"
+                        />
+                        <div className="flex gap-1 flex-wrap">
+                          {['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'].map(color => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setCategoryForm({ ...categoryForm, color })}
+                              className={clsx('w-8 h-8 rounded-lg transition-all', categoryForm.color === color && 'ring-2 ring-offset-2 ring-indigo-500')}
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 mt-6">
+                    <button
+                      onClick={() => {
+                        setShowCategoryModal(false)
+                        setEditingCategory(null)
+                      }}
+                      className={clsx('px-6 py-2.5 rounded-xl font-medium', theme.buttonSecondary)}
+                    >
+                      İptal
+                    </button>
+                    <button
+                      onClick={saveCategory}
+                      className={clsx('px-6 py-2.5 rounded-xl font-medium text-white bg-indigo-500 hover:bg-indigo-600')}
+                    >
+                      {editingCategory ? 'Güncelle' : 'Oluştur'}
                     </button>
                   </div>
                 </div>

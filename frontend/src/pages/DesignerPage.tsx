@@ -145,6 +145,8 @@ export default function DesignerPage() {
   const [designType, setDesignType] = useState<'cockpit' | 'analysis'>('cockpit')
   const [designRoles, setDesignRoles] = useState<string[]>(['ADMIN'])
   const [allowedPositions, setAllowedPositions] = useState<string[]>(ALL_POSITIONS.map(p => p.code)) // Varsayılan: herkes
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null) // Rapor kategorisi (Güçler Ayrılığı)
+  const [reportCategories, setReportCategories] = useState<any[]>([]) // Mevcut kategoriler
   
   // Layouts state for responsive grid
   const [layouts, setLayouts] = useState<Layouts>({})
@@ -157,12 +159,14 @@ export default function DesignerPage() {
     widgetsRef.current = widgets
   }, [widgets])
   
-  // Initialize - load metrics and designs from API
+  // Initialize - load metrics, designs and categories from API
   useEffect(() => {
     // Load metrics
     loadMetrics()
     // Load saved designs from API
     loadDesigns()
+    // Load report categories
+    loadReportCategories()
   }, [])
   
   // Load metrics from API
@@ -178,6 +182,22 @@ export default function DesignerPage() {
       }
     } catch (err) {
       console.warn('Metrik yükleme hatası:', err)
+    }
+  }
+  
+  // Load report categories from API
+  const loadReportCategories = async () => {
+    if (!accessToken) return
+    try {
+      const res = await fetch(`${API_BASE}/core/report-categories`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setReportCategories(data.data || [])
+      }
+    } catch (err) {
+      console.warn('Kategori yükleme hatası:', err)
     }
   }
   
@@ -222,6 +242,7 @@ export default function DesignerPage() {
               type: d.type || 'cockpit',
               targetRoles: d.target_roles || d.targetRoles || ['ADMIN'],
               allowedPositions: d.allowed_positions || d.allowedPositions || ALL_POSITIONS.map(p => p.code),
+              categoryId: d.category_id || d.categoryId || null,
               widgets
             }
           })
@@ -256,6 +277,7 @@ export default function DesignerPage() {
         type: designType,
         targetRoles: designRoles,
         allowedPositions: allowedPositions, // Pozisyon bazlı yetkilendirme
+        categoryId: selectedCategoryId, // Kategori bazlı yetkilendirme (Güçler Ayrılığı)
         layoutConfig: {
           widgets: currentWidgets.map(w => ({
             id: w.i,
@@ -381,6 +403,7 @@ export default function DesignerPage() {
     setDesignType(design.type)
     setDesignRoles(design.targetRoles || ['ADMIN'])
     setAllowedPositions(design.allowedPositions || ALL_POSITIONS.map(p => p.code))
+    setSelectedCategoryId((design as any).categoryId || null)
     
     // Generate layouts for all breakpoints
     const baseLayout = designWidgets.map(w => ({
@@ -1111,6 +1134,35 @@ export default function DesignerPage() {
                       </button>
                     </div>
                   </div>
+                  
+                  {/* Rapor Kategorisi (Güçler Ayrılığı) */}
+                  {reportCategories.length > 0 && (
+                    <div className={clsx('p-3 rounded-xl', isDark ? 'bg-violet-900/20 border border-violet-500/30' : 'bg-violet-50 border border-violet-200')}>
+                      <h4 className={clsx('text-sm font-bold mb-2 flex items-center gap-2', theme.contentText)}>
+                        <span>📁</span> Rapor Kategorisi
+                      </h4>
+                      <p className={clsx('text-xs mb-2', theme.contentTextMuted)}>
+                        Bu raporu sadece belirli kategorideki kullanıcılar görsün (Güçler Ayrılığı)
+                      </p>
+                      <select
+                        value={selectedCategoryId || ''}
+                        onChange={(e) => setSelectedCategoryId(e.target.value || null)}
+                        className={clsx('w-full px-3 py-2 rounded-lg text-sm border', theme.inputBg, theme.inputText)}
+                      >
+                        <option value="">Tüm Kategoriler (Herkes)</option>
+                        {reportCategories.map(cat => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedCategoryId && (
+                        <p className={clsx('text-xs mt-2', isDark ? 'text-violet-400' : 'text-violet-600')}>
+                          Bu rapor sadece &quot;{reportCategories.find(c => c.id === selectedCategoryId)?.name}&quot; kategorisine atanmış kullanıcılar tarafından görülecek.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   
                   {/* Kaydet & Aç Butonları */}
                   <div className="flex gap-2">

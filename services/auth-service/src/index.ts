@@ -136,11 +136,12 @@ app.post('/login', async (req: Request, res: Response, next: NextFunction) => {
       throw new ValidationError('Email ve şifre gerekli');
     }
 
-    // Kullanıcıyı bul (ldap_dn, filter_level, filter_value, 2FA dahil)
+    // Kullanıcıyı bul (ldap_dn, filter_level, filter_value, 2FA, categories dahil)
     const user = await db.queryOne(
       `SELECT u.id, u.email, u.password_hash, u.role, u.tenant_id, u.name, 
               u.position_code, u.ldap_dn, u.filter_value,
               u.two_factor_enabled, u.two_factor_secret, u.two_factor_backup_codes,
+              u.can_see_all_categories,
               p.filter_level
        FROM users u
        LEFT JOIN positions p ON u.position_code = p.code
@@ -215,14 +216,26 @@ app.post('/login', async (req: Request, res: Response, next: NextFunction) => {
       }
     }
 
-    // Token oluştur (filter_level ve filter_value dahil - RLS için)
+    // Kullanıcının rapor kategorilerini getir (Güçler Ayrılığı)
+    let categoryIds: string[] = [];
+    if (!user.can_see_all_categories) {
+      const userCategories = await db.queryAll(
+        `SELECT category_id FROM user_report_categories WHERE user_id = $1`,
+        [user.id]
+      );
+      categoryIds = userCategories.map((c: any) => c.category_id);
+    }
+
+    // Token oluştur (filter_level, filter_value ve categoryIds dahil - RLS için)
     const payload = {
       userId: user.id,
       tenantId: user.tenant_id,
       role: user.role,
       email: user.email,
       filterLevel: user.filter_level || 'store',   // RLS seviyesi
-      filterValue: user.filter_value || null        // RLS değeri
+      filterValue: user.filter_value || null,       // RLS değeri
+      canSeeAllCategories: user.can_see_all_categories ?? true,
+      categoryIds: categoryIds                       // Güçler Ayrılığı için
     };
 
     const accessToken = generateAccessToken(payload);
@@ -272,7 +285,9 @@ app.post('/login', async (req: Request, res: Response, next: NextFunction) => {
           tenantId: user.tenant_id,
           positionCode: user.position_code || 'VIEWER',
           filterLevel: user.filter_level || 'store',   // RLS için
-          filterValue: user.filter_value || null        // RLS için
+          filterValue: user.filter_value || null,       // RLS için
+          canSeeAllCategories: user.can_see_all_categories ?? true,  // Güçler Ayrılığı
+          categoryIds: categoryIds                       // Güçler Ayrılığı
         }
       }
     });

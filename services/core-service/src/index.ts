@@ -351,6 +351,104 @@ app.delete('/users/:id/stores/:storeId', authenticate, authorize(ROLES.ADMIN), a
 });
 
 // ============================================
+// USER REPORT CATEGORIES (Kullanıcı-Kategori Ataması)
+// ============================================
+
+// Kullanıcının kategorilerini getir
+app.get('/users/:id/categories', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const categories = await db.queryAll(
+      `SELECT rc.id, rc.code, rc.name, rc.color, rc.icon, urc.assigned_at
+       FROM user_report_categories urc
+       JOIN report_categories rc ON urc.category_id = rc.id
+       WHERE urc.user_id = $1 AND rc.is_active = TRUE
+       ORDER BY rc.sort_order, rc.name`,
+      [req.params.id]
+    );
+    
+    // Kullanıcının can_see_all_categories durumunu da getir
+    const user = await db.queryOne(
+      'SELECT can_see_all_categories FROM users WHERE id = $1',
+      [req.params.id]
+    );
+    
+    res.json({ 
+      success: true, 
+      data: {
+        categories,
+        canSeeAllCategories: user?.can_see_all_categories ?? true
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Kullanıcının kategorilerini güncelle (toplu atama)
+app.put('/users/:id/categories', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.params.id;
+    const { categoryIds, canSeeAllCategories } = req.body;
+    
+    // can_see_all_categories güncelle
+    if (typeof canSeeAllCategories === 'boolean') {
+      await db.query(
+        'UPDATE users SET can_see_all_categories = $1 WHERE id = $2',
+        [canSeeAllCategories, userId]
+      );
+    }
+    
+    // Mevcut atamaları sil
+    await db.query('DELETE FROM user_report_categories WHERE user_id = $1', [userId]);
+    
+    // Yeni atamaları ekle
+    if (Array.isArray(categoryIds) && categoryIds.length > 0) {
+      for (const categoryId of categoryIds) {
+        await db.query(
+          `INSERT INTO user_report_categories (user_id, category_id, assigned_by)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, category_id) DO NOTHING`,
+          [userId, categoryId, req.user!.userId]
+        );
+      }
+    }
+    
+    logger.info('User categories updated', { userId, categoryCount: categoryIds?.length || 0, user: req.user!.email });
+    res.json({ success: true, message: 'Kullanıcı kategorileri güncellendi' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Tek kategori ata
+app.post('/users/:id/categories/:categoryId', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await db.query(
+      `INSERT INTO user_report_categories (user_id, category_id, assigned_by)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, category_id) DO NOTHING`,
+      [req.params.id, req.params.categoryId, req.user!.userId]
+    );
+    res.json({ success: true, message: 'Kategori atandı' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Kategori atamasını kaldır
+app.delete('/users/:id/categories/:categoryId', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await db.query(
+      'DELETE FROM user_report_categories WHERE user_id = $1 AND category_id = $2',
+      [req.params.id, req.params.categoryId]
+    );
+    res.json({ success: true, message: 'Kategori ataması kaldırıldı' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
 // STORE FINANCE SETTINGS (Mağaza Finansal Ayarları)
 // ============================================
 
@@ -762,6 +860,130 @@ app.delete('/ownership-groups/:id', authenticate, authorize(ROLES.ADMIN), async 
     if (!result) throw new NotFoundError('Sahiplik grubu');
     logger.info('Ownership group deleted', { id, user: req.user!.email });
     res.json({ success: true, message: 'Sahiplik grubu silindi' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// REPORT CATEGORIES (Rapor Kategorileri - Güçler Ayrılığı)
+// ============================================
+
+// Tüm kategorileri listele
+app.get('/report-categories', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const categories = await db.queryAll(
+      `SELECT id, code, name, description, color, icon, sort_order, is_active, created_at
+       FROM report_categories 
+       WHERE tenant_id = $1 AND is_active = TRUE 
+       ORDER BY sort_order, name`,
+      [req.user!.tenantId]
+    );
+    res.json({ success: true, data: categories });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Tek kategori getir
+app.get('/report-categories/:id', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const category = await db.queryOne(
+      `SELECT id, code, name, description, color, icon, sort_order, is_active, created_at
+       FROM report_categories 
+       WHERE id = $1 AND tenant_id = $2`,
+      [req.params.id, req.user!.tenantId]
+    );
+    if (!category) throw new NotFoundError('Rapor kategorisi');
+    res.json({ success: true, data: category });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Yeni kategori oluştur
+app.post('/report-categories', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { code, name, description, color, icon, sort_order } = req.body;
+    
+    if (!code || !name) {
+      throw new ValidationError('Kategori kodu ve adı zorunludur');
+    }
+    
+    const result = await db.queryOne(
+      `INSERT INTO report_categories (tenant_id, code, name, description, color, icon, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [req.user!.tenantId, code.toUpperCase(), name, description, color || '#6366f1', icon || 'Folder', sort_order || 0]
+    );
+    
+    logger.info('Report category created', { code, name, user: req.user!.email });
+    res.status(201).json({ success: true, data: result });
+  } catch (error: any) {
+    if (error.code === '23505') {
+      next(new ValidationError('Bu kategori kodu zaten kullanılıyor'));
+    } else {
+      next(error);
+    }
+  }
+});
+
+// Kategori güncelle
+app.put('/report-categories/:id', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { code, name, description, color, icon, sort_order, is_active } = req.body;
+    
+    const result = await db.queryOne(
+      `UPDATE report_categories SET 
+        code = COALESCE($3, code),
+        name = COALESCE($4, name),
+        description = COALESCE($5, description),
+        color = COALESCE($6, color),
+        icon = COALESCE($7, icon),
+        sort_order = COALESCE($8, sort_order),
+        is_active = COALESCE($9, is_active),
+        updated_at = NOW()
+       WHERE id = $1 AND tenant_id = $2
+       RETURNING *`,
+      [id, req.user!.tenantId, code?.toUpperCase(), name, description, color, icon, sort_order, is_active]
+    );
+    
+    if (!result) throw new NotFoundError('Rapor kategorisi');
+    logger.info('Report category updated', { id, name, user: req.user!.email });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Kategori sil
+app.delete('/report-categories/:id', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    
+    // Önce bu kategoriye atanmış design var mı kontrol et
+    const designCount = await db.queryOne(
+      'SELECT COUNT(*) as count FROM designs WHERE category_id = $1',
+      [id]
+    );
+    
+    if (designCount && parseInt(designCount.count) > 0) {
+      throw new ValidationError(`Bu kategori ${designCount.count} rapora atanmış. Önce raporları başka kategoriye taşıyın.`);
+    }
+    
+    // Kullanıcı atamalarını sil
+    await db.query('DELETE FROM user_report_categories WHERE category_id = $1', [id]);
+    
+    // Kategoriyi sil
+    const result = await db.queryOne(
+      'DELETE FROM report_categories WHERE id = $1 AND tenant_id = $2 RETURNING id, name',
+      [id, req.user!.tenantId]
+    );
+    
+    if (!result) throw new NotFoundError('Rapor kategorisi');
+    logger.info('Report category deleted', { id, name: result.name, user: req.user!.email });
+    res.json({ success: true, message: 'Rapor kategorisi silindi' });
   } catch (error) {
     next(error);
   }

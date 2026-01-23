@@ -1,10 +1,10 @@
 # CLİXER - Enterprise Analytics Platform
 # "Olağanüstü Veri Hızı" - Power BI / Tableau / Qlik Rakibi
-# Versiyon: v4.32 | Tarih: 19 Ocak 2026
+# Versiyon: v4.33 | Tarih: 22 Ocak 2026
 
 ---
 
-## DOKÜMANTASYON YAPISI (19 Ocak 2026)
+## DOKÜMANTASYON YAPISI (22 Ocak 2026)
 
 Bu dosya optimize edilmiştir. Detaylı bilgiler aşağıdaki dosyalarda:
 
@@ -56,7 +56,7 @@ Commit sonrası MUTLAKA `git push origin master` yap. Push edilmemiş kod = Prod
 | `frontend/src/pages/AnalysisPage.tsx` | Filtre entegrasyonu |
 | `services/analytics-service/src/index.ts` | storeIds/regionIds/groupIds ve LFL mantığı |
 
-**Stabil Versiyon:** v4.32 (19 Ocak 2026)
+**Stabil Versiyon:** v4.33 (22 Ocak 2026)
 
 ---
 
@@ -97,8 +97,10 @@ Müşteri DB → ETL → ClickHouse → Redis Cache → Dashboard
 ## MÜŞTERİ DEPLOY KOMUTU
 
 ```bash
-cd /opt/clixer && sudo git fetch origin && sudo git reset --hard origin/master && sudo bash scripts/stop-all.sh && cd frontend && sudo rm -rf dist && sudo npm run build && sudo chown -R www-data:www-data dist && sudo systemctl restart nginx && cd /opt/clixer && sudo bash scripts/start-all.sh && echo "Deploy tamamlandı!"
+cd /opt/clixer && sudo git fetch origin && sudo git reset --hard origin/master && sudo bash scripts/stop-all.sh && sudo bash scripts/migrate-report-categories.sh && cd frontend && sudo rm -rf dist && sudo npm run build && sudo chown -R www-data:www-data dist && sudo systemctl restart nginx && cd /opt/clixer && sudo bash scripts/start-all.sh && echo "Deploy tamamlandı!"
 ```
+
+**NOT:** `migrate-report-categories.sh` (v4.33) veritabanı şemasını (Rapor Kategorileri / Güçler Ayrılığı) otomatik günceller.
 
 ---
 

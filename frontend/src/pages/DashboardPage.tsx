@@ -160,22 +160,39 @@ export default function DashboardPage() {
     })
   }, [widgets])
 
-  // Kullanıcı pozisyon kodu
+  // Kullanıcı pozisyon kodu ve kategori bilgileri
   const userPositionCode = user?.positionCode || 'VIEWER'
+  const userCategoryIds = (user as any)?.categoryIds || []
+  const canSeeAllCategories = (user as any)?.canSeeAllCategories ?? true
 
-  // Pozisyon bazlı tasarım filtreleme
+  // Pozisyon ve kategori bazlı tasarım filtreleme (Güçler Ayrılığı)
   const getAccessibleDesigns = () => {
     return designs.filter(d => {
-      // allowedPositions alanı varsa kontrol et
+      // 1. Pozisyon kontrolü
       const allowedPositions = (d as any).allowed_positions || (d as any).allowedPositions
       
-      // Eğer allowedPositions tanımlı değilse veya boş array ise herkese açık
-      if (!allowedPositions || !Array.isArray(allowedPositions) || allowedPositions.length === 0) {
+      // Eğer allowedPositions tanımlı ve dolu ise kontrol et
+      if (allowedPositions && Array.isArray(allowedPositions) && allowedPositions.length > 0) {
+        if (!allowedPositions.includes(userPositionCode)) {
+          return false
+        }
+      }
+      
+      // 2. Kategori kontrolü (Güçler Ayrılığı)
+      const reportCategoryId = (d as any).category_id || (d as any).categoryId
+      
+      // Raporda kategori tanımlı değilse herkese açık
+      if (!reportCategoryId) {
         return true
       }
       
-      // Kullanıcının pozisyonu izin listesinde mi?
-      return allowedPositions.includes(userPositionCode)
+      // Kullanıcı tüm kategorileri görebiliyorsa geç
+      if (canSeeAllCategories) {
+        return true
+      }
+      
+      // Kullanıcının kategorileri ile raporun kategorisi eşleşmeli
+      return userCategoryIds.includes(reportCategoryId)
     })
   }
 

@@ -9,6 +9,10 @@ interface User {
   role: string
   tenantId: string
   positionCode?: string
+  filterLevel?: string      // RLS için
+  filterValue?: string      // RLS için
+  canSeeAllCategories?: boolean  // Güçler Ayrılığı - tüm kategorilere erişim
+  categoryIds?: string[]         // Güçler Ayrılığı - atanan kategori ID'leri
 }
 
 interface AuthState {
