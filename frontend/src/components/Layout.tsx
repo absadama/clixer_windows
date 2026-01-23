@@ -1,5 +1,6 @@
 import { ReactNode, useState, createContext, useContext, useEffect, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { ErrorBoundary } from './ErrorBoundary'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFilterStore } from '../stores/filterStore'
@@ -534,7 +535,9 @@ export default function Layout({ children }: LayoutProps) {
 
         {/* Page content */}
           <main className={clsx('p-4 lg:p-8 min-h-[calc(100vh-4rem)]', theme.contentText)}>
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
         </main>
       </div>
     </div>
