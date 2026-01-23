@@ -25,6 +25,8 @@ import geographicRoutes from './geographic.routes';
 import adminRoutes from './admin.routes';
 import ldapRoutes from './ldap.routes';
 import importRoutes from './import.routes';
+import gridDesignsRoutes from './grid-designs.routes';
+import whitelabelRoutes from './whitelabel.routes';
 
 const router = Router();
 
@@ -58,5 +60,11 @@ router.use('/ldap', ldapRoutes);
 
 // Import routes (Excel/Dataset)
 router.use('/', importRoutes);  // /stores/import, /regions/import
+
+// Grid designs (DataGrid state persistence)
+router.use('/grid-designs', gridDesignsRoutes);
+
+// WhiteLabel routes (logo upload, manifest.json)
+router.use('/', whitelabelRoutes);  // /upload/logo, /logo-info, /manifest.json
 
 export default router;
