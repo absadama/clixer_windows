@@ -461,8 +461,10 @@ export default function Layout({ children }: LayoutProps) {
             <button 
               onClick={() => setSidebarOpen(true)}
               className={clsx('lg:hidden p-2 rounded-xl transition-colors', theme.buttonSecondary)}
+              aria-label="Menüyü aç"
+              aria-expanded={sidebarOpen}
             >
-              <Menu className={clsx('h-6 w-6', theme.headerText)} />
+              <Menu className={clsx('h-6 w-6', theme.headerText)} aria-hidden="true" />
             </button>
 
             {/* Mobil: Orta - Logo (absolute ile tam ortada) */}
@@ -485,8 +487,9 @@ export default function Layout({ children }: LayoutProps) {
               <button
                 onClick={() => setMobileFilterOpen(true)}
                 className={clsx('lg:hidden p-2 rounded-xl transition-colors ml-auto', theme.buttonSecondary)}
+                aria-label="Filtreleri aç"
               >
-                <SlidersHorizontal className={clsx('h-5 w-5', theme.headerText)} />
+                <SlidersHorizontal className={clsx('h-5 w-5', theme.headerText)} aria-hidden="true" />
               </button>
             )}
 
@@ -497,10 +500,11 @@ export default function Layout({ children }: LayoutProps) {
                 theme.inputBg,
                 'focus-within:border-indigo-500'
               )}>
-                <Search className={clsx('h-4 w-4', theme.contentTextMuted)} />
+                <Search className={clsx('h-4 w-4', theme.contentTextMuted)} aria-hidden="true" />
                 <input
-                  type="text"
+                  type="search"
                   placeholder="Dashboard, metrik veya ayar ara..."
+                  aria-label="Ara"
                   className={clsx(
                     'flex-1 ml-3 bg-transparent text-sm outline-none',
                     theme.inputText,

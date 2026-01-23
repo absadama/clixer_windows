@@ -465,10 +465,17 @@ app.post('/2fa/setup', authenticate, async (req: Request, res: Response, next: N
     // QR kod oluştur
     const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url!);
     
-    // Yedek kodlar oluştur
-    const backupCodes = Array.from({ length: 8 }, () => 
-      Math.random().toString(36).substring(2, 8).toUpperCase()
-    );
+    // Yedek kodlar oluştur - SECURITY: 12 karakter, 10 adet (daha güçlü)
+    const backupCodes = Array.from({ length: 10 }, () => {
+      // Crypto-secure random generation
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Karışıklık önlemek için 0,O,1,I,L çıkarıldı
+      let code = '';
+      for (let i = 0; i < 12; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+        if (i === 3 || i === 7) code += '-'; // XXXX-XXXX-XXXX formatı
+      }
+      return code;
+    });
     
     await db.query(
       'UPDATE users SET two_factor_backup_codes = $1 WHERE id = $2',

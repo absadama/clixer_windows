@@ -230,23 +230,54 @@ const proxyOptions = (target: string): Options => ({
 });
 
 // ============================================
+// API VERSIONING
+// ============================================
+
+// Current API version
+const API_VERSION = 'v1';
+
+// Version middleware - /api/v1/* yollarını /api/* olarak yönlendir
+app.use('/api/v1', (req: Request, res: Response, next: NextFunction) => {
+  // Add version header
+  res.setHeader('X-API-Version', API_VERSION);
+  next();
+});
+
+// Rewrite /api/v1/* to /api/*
+app.use('/api/v1', (req, res, next) => {
+  req.url = req.url; // URL zaten /api/v1 prefix'i kaldırılmış olarak gelir
+  next('route');
+});
+
+// ============================================
 // ROUTES
 // ============================================
 
+// API version info
+app.get('/api/version', (req: Request, res: Response) => {
+  res.json({
+    version: API_VERSION,
+    supported: ['v1'],
+    deprecated: [],
+    current: 'v1'
+  });
+});
+
 // Gateway health
-app.get(['/health', '/api/health'], (req: Request, res: Response) => {
+app.get(['/health', '/api/health', '/api/v1/health'], (req: Request, res: Response) => {
   res.json({
     service: 'gateway',
     status: 'healthy',
+    version: API_VERSION,
     services: SERVICES,
     timestamp: new Date().toISOString()
   });
 });
 
 // Auth routes (brute-force korumalı)
-app.use('/api/auth', authLimiter, createProxyMiddleware({
+app.use(['/api/auth', '/api/v1/auth'], authLimiter, createProxyMiddleware({
   ...proxyOptions(SERVICES.AUTH),
-  pathRewrite: { '^/api/auth': '' }
+  pathRewrite: { '^/api/v1/auth': '', '^/api/auth': '' }
 }));
 
 // ============================================

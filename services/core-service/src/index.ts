@@ -150,11 +150,14 @@ async function cleanupStuckJobs() {
 // START SERVER
 // ============================================
 
+// Track intervals for cleanup
+const intervals: NodeJS.Timeout[] = [];
+
 const server = app.listen(PORT, () => {
   logger.info(`Core Service started on port ${PORT}`);
   
   // Start stuck job cleanup interval (every 2 minutes)
-  setInterval(cleanupStuckJobs, 2 * 60 * 1000);
+  intervals.push(setInterval(cleanupStuckJobs, 2 * 60 * 1000));
 });
 
 // ============================================
@@ -163,6 +166,10 @@ const server = app.listen(PORT, () => {
 
 async function gracefulShutdown(signal: string) {
   logger.info(`${signal} received, starting graceful shutdown...`);
+  
+  // Clear all intervals to prevent memory leaks
+  intervals.forEach(interval => clearInterval(interval));
+  logger.info('Intervals cleared');
   
   // Stop accepting new connections
   server.close(async () => {
