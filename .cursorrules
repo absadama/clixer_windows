@@ -1,10 +1,84 @@
 # CLİXER - Enterprise Analytics Platform
 # "Olağanüstü Veri Hızı" - Power BI / Tableau / Qlik Rakibi
-# Versiyon: v4.33 | Tarih: 22 Ocak 2026
+# Versiyon: v4.34 | Tarih: 23 Ocak 2026
 
 ---
 
-## DOKÜMANTASYON YAPISI (22 Ocak 2026)
+## KRİTİK REFACTORING (23 Ocak 2026)
+
+### Yapılan Değişiklikler Özeti
+
+| Alan | Değişiklik | Etkilenen Dosyalar |
+|------|------------|-------------------|
+| Backend Helpers | ETL sync utilities çıkarıldı | `etl-worker/src/helpers/sync-utils.ts` |
+| Backend Helpers | DB connection factory oluşturuldu | `etl-worker/src/helpers/connection-factory.ts` |
+| Backend Helpers | Data service DB helpers | `data-service/src/helpers/db-connection.ts` |
+| Backend Helpers | Analytics comparison/format helpers | `analytics-service/src/helpers/*.ts` |
+| Frontend Hooks | API hooks oluşturuldu | `frontend/src/hooks/useDataApi.ts`, `useAdminApi.ts` |
+| Frontend Components | Modal componentleri çıkarıldı | `frontend/src/components/data/ConnectionModal.tsx`, `DatasetModal.tsx` |
+| API Routes | ETL Jobs endpoint düzeltildi | `data-service/src/routes/etl.routes.ts` |
+| Security | Helmet.js + Rate limiting eklendi | `gateway/src/index.ts` |
+| Toast System | Alert → Toast geçişi yapıldı | Tüm sayfa dosyaları |
+
+### Hata Durumunda Bakılacak Yerler
+
+| Hata Tipi | Kontrol Edilecek Dosya | Açıklama |
+|-----------|----------------------|----------|
+| ETL Job 404 | `data-service/src/routes/etl.routes.ts` | Root `/` handler ve `/etl-jobs` alias kontrolü |
+| ETL Job 404 | `data-service/src/routes/index.ts` | `router.use('/etl-jobs', etlRoutes)` alias |
+| DB Connection | `etl-worker/src/helpers/connection-factory.ts` | MSSQL/PostgreSQL/MySQL bağlantı factory |
+| DB Connection | `data-service/src/helpers/db-connection.ts` | Data service DB helpers |
+| Toast Hatası | `frontend/src/components/Toast.tsx` | `globalToast` null kontrolü |
+| Toast Hatası | `frontend/src/hooks/useToast.ts` | Custom toast hook |
+| API Hatası | `frontend/src/hooks/useDataApi.ts` | Data page API calls |
+| API Hatası | `frontend/src/hooks/useAdminApi.ts` | Admin page API calls |
+| Gateway Routing | `gateway/src/index.ts` | Proxy path'leri: `/api/data`, `/api/etl-jobs` |
+| Frontend Proxy | `frontend/vite.config.ts` | Dev server `/api` proxy → localhost:4000 |
+
+### Yeni Helper Modülleri
+
+```
+services/etl-worker/src/helpers/
+├── index.ts              # Barrel export
+├── sync-utils.ts         # parseColumnMapping, truncateClickHouseTable, updateJobProgress, optimizeClickHouseTable
+└── connection-factory.ts # createMssqlConnection, createPostgresConnection, createMysqlConnection, executeQuery
+
+services/data-service/src/helpers/
+├── index.ts              # Barrel export
+├── type-mapping.helper.ts
+└── db-connection.ts      # isAzureSql, getConnectionConfig, createPostgresClient, createMssqlPool
+
+services/analytics-service/src/helpers/
+├── index.ts              # Barrel export
+├── comparison.helper.ts  # getDefaultComparisonLabel, calculatePreviousPeriodDates
+├── format.helper.ts      # formatDateString, escapeValue
+└── rls.helper.ts         # Row-level security helpers
+```
+
+### Yeni Frontend Componentleri
+
+```
+frontend/src/components/data/
+├── index.ts              # Barrel export
+├── ConnectionModal.tsx   # Bağlantı oluşturma/düzenleme modal
+└── DatasetModal.tsx      # Dataset oluşturma modal
+
+frontend/src/hooks/
+├── useDataApi.ts         # DataPage API hook
+├── useAdminApi.ts        # AdminPage API hook
+└── useToast.ts           # Toast notification hook
+```
+
+### TypeScript Build Kontrolleri
+
+Build hatası alındığında sırayla kontrol et:
+1. `frontend/src/components/Toast.tsx` - void expression kontrolü
+2. `frontend/src/pages/AdminPage.tsx` - userForm state'inde `categories`, `canSeeAllCategories` var mı?
+3. `frontend/src/pages/DesignerPage.tsx` - `import toast from 'react-hot-toast'` var mı?
+
+---
+
+## DOKÜMANTASYON YAPISI (23 Ocak 2026)
 
 Bu dosya optimize edilmiştir. Detaylı bilgiler aşağıdaki dosyalarda:
 
@@ -55,8 +129,11 @@ Commit sonrası MUTLAKA `git push origin master` yap. Push edilmemiş kod = Prod
 | `frontend/src/pages/DashboardPage.tsx` | Filtre entegrasyonu |
 | `frontend/src/pages/AnalysisPage.tsx` | Filtre entegrasyonu |
 | `services/analytics-service/src/index.ts` | storeIds/regionIds/groupIds ve LFL mantığı |
+| `services/etl-worker/src/helpers/*` | 23 Ocak refactoring - sync utilities |
+| `services/data-service/src/helpers/*` | 23 Ocak refactoring - DB connection helpers |
+| `frontend/src/components/data/*` | 23 Ocak refactoring - Extracted modals |
 
-**Stabil Versiyon:** v4.33 (22 Ocak 2026)
+**Stabil Versiyon:** v4.34 (23 Ocak 2026)
 
 ---
 
@@ -134,6 +211,42 @@ Sudoers gerekli: `clixer ALL=(ALL) NOPASSWD: /opt/clixer/scripts/restart-all.sh`
 |---------|----------|-------|-------|
 | Tavuk Dünyası (TD) | v4.32 | 19 Ocak 2026 | STABİL |
 | Nişantaşı Üniv | v4.32 | 19 Ocak 2026 | STABİL |
+
+---
+
+## HIZLI SORUN GİDERME (23 Ocak 2026)
+
+### Servis Sağlık Kontrolü
+```powershell
+# Tüm servisleri kontrol et
+@(4000,4001,4002,4003,4005,3000) | ForEach-Object { 
+  try { Invoke-WebRequest "http://localhost:$_/health" -TimeoutSec 2 | Out-Null; "OK: $_" } 
+  catch { "FAIL: $_" } 
+}
+```
+
+### API Test (Login + Token)
+```powershell
+$body = '{"email":"admin@clixer","password":"Admin1234!"}'
+$login = Invoke-RestMethod -Uri "http://localhost:4000/api/auth/login" -Method POST -Body $body -ContentType "application/json"
+$token = $login.data.accessToken
+$headers = @{ Authorization = "Bearer $token" }
+
+# Test endpoints
+Invoke-RestMethod "http://localhost:4000/api/data/etl-jobs" -Headers $headers
+Invoke-RestMethod "http://localhost:4000/api/data/connections" -Headers $headers
+Invoke-RestMethod "http://localhost:4000/api/analytics/designs" -Headers $headers
+```
+
+### Sık Karşılaşılan Hatalar
+
+| Hata | Sebep | Çözüm |
+|------|-------|-------|
+| 404 /api/data/etl-jobs | Route alias eksik | `etl.routes.ts` root handler kontrol |
+| JSON parse error (<!DOCTYPE) | Backend kapalı | `CLIXER-BASLAT.bat` çalıştır |
+| Toast undefined | globalToast null | `Toast.tsx` if-else kontrolü |
+| TS2345 AdminPage | userForm eksik field | `categories`, `canSeeAllCategories` ekle |
+| TS2304 toast | Import eksik | `import toast from 'react-hot-toast'` |
 
 ---
 
