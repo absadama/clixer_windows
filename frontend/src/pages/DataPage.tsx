@@ -3743,9 +3743,8 @@ export default function DataPage() {
                         onClick={async () => {
                           setSystemActionLoading(`restart-${service.id}`)
                           try {
-                            const result = await apiCall('/admin/service/restart', {
-                              method: 'POST',
-                              body: JSON.stringify({ serviceId: service.id })
+                            const result = await apiCall(`/admin/service/${service.id}/restart`, {
+                              method: 'POST'
                             })
                             alert(result.message || `${service.name} yeniden başlatıldı`)
                             // 2 saniye bekle ve durumu yenile

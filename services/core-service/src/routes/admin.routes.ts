@@ -557,4 +557,65 @@ router.get('/services', authenticate, authorize(ROLES.ADMIN), async (req: Reques
   }
 });
 
+/**
+ * POST /admin/system/restart
+ * Restart ALL services (Emergency restart - Acil Müdahale)
+ */
+router.post('/system/restart', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { getServiceManager, SERVICE_CONFIGS } = require('@clixer/shared');
+    const manager = getServiceManager();
+    
+    logger.info('System-wide restart initiated', { userId: req.user!.userId });
+    
+    // Restart order: Stop backend services first, then restart gateway last
+    const restartOrder = ['etl-worker', 'analytics-service', 'notification-service', 'data-service', 'auth-service', 'core-service'];
+    const results: Array<{ serviceId: string; status: string; error?: string }> = [];
+    
+    for (const serviceId of restartOrder) {
+      if (!SERVICE_CONFIGS[serviceId]) continue;
+      
+      try {
+        // Skip core-service (we're running on it!)
+        if (serviceId === 'core-service') {
+          results.push({ serviceId, status: 'skipped' });
+          continue;
+        }
+        
+        await manager.restart(serviceId);
+        results.push({ serviceId, status: 'restarted' });
+        
+        // Wait 2 seconds between restarts
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (err: any) {
+        results.push({ serviceId, status: 'error', error: err.message });
+        logger.error('Service restart failed during system restart', { serviceId, error: err.message });
+      }
+    }
+    
+    // Audit log
+    await audit.log({
+      userId: req.user!.userId,
+      tenantId: req.user!.tenantId,
+      action: 'UPDATE',
+      resourceType: 'system_setting',
+      resourceId: 'system',
+      resourceName: 'system_restart',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
+    logger.info('System restart completed', { userId: req.user!.userId, results });
+    
+    res.json({
+      success: true,
+      message: 'Tüm servisler yeniden başlatıldı',
+      data: results
+    });
+  } catch (error: any) {
+    logger.error('System restart failed', { error: error.message });
+    next(error);
+  }
+});
+
 export default router;
