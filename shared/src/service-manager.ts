@@ -223,11 +223,15 @@ export class WindowsProcessManager implements IServiceManager {
     return new Promise((resolve, reject) => {
       const workDir = path.join(this.projectRoot, config.workDir);
       
-      logger.info('Starting ETL Worker', { workerPath: workDir });
+      // Windows: npx/npm are batch files, need .cmd extension
+      const command = process.platform === 'win32'
+        ? config.startCommand.replace(/^npx /, 'npx.cmd ').replace(/^npm /, 'npm.cmd ')
+        : config.startCommand;
+      
+      logger.info('Starting service', { serviceId, workDir, command });
 
-      // Windows: Use exec with detached process for proper shell handling
-      // exec automatically uses shell and resolves PATH correctly
-      const child = exec(config.startCommand, {
+      // Use exec for proper shell handling on all platforms
+      const child = exec(command, {
         cwd: workDir,
         env: { ...process.env, ...config.env },
         windowsHide: true
