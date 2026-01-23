@@ -172,6 +172,29 @@ export const SERVICE_CONFIGS: Record<string, ServiceConfig> = {
 };
 
 // ============================================
+// FIND PROJECT ROOT
+// ============================================
+
+function findProjectRoot(): string {
+  // Start from shared module location and go up to find project root
+  let dir = __dirname;
+  
+  // If running from dist, go up: shared/dist -> shared -> project_root
+  // If running from src, go up: shared/src -> shared -> project_root
+  for (let i = 0; i < 5; i++) {
+    // Check if this looks like project root (has 'services' folder and package.json)
+    if (fs.existsSync(path.join(dir, 'services')) && 
+        fs.existsSync(path.join(dir, 'package.json'))) {
+      return dir;
+    }
+    dir = path.dirname(dir);
+  }
+  
+  // Fallback: use environment variable or cwd
+  return process.env.CLIXER_PROJECT_ROOT || process.cwd();
+}
+
+// ============================================
 // WINDOWS PROCESS MANAGER
 // ============================================
 
@@ -179,8 +202,9 @@ export class WindowsProcessManager implements IServiceManager {
   private processes: Map<string, ChildProcess> = new Map();
   private projectRoot: string;
 
-  constructor(projectRoot: string = process.cwd()) {
-    this.projectRoot = projectRoot;
+  constructor(projectRoot?: string) {
+    this.projectRoot = projectRoot || findProjectRoot();
+    logger.info('WindowsProcessManager initialized', { projectRoot: this.projectRoot });
   }
 
   async start(serviceId: string): Promise<ServiceInfo> {
