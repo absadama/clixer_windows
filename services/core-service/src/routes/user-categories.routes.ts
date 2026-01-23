@@ -6,7 +6,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { db, authenticate, authorize, ROLES, createLogger, NotFoundError } from '@clixer/shared';
+import { db, authenticate, authorize, ROLES, createLogger, NotFoundError, ValidationError } from '@clixer/shared';
 
 const router = Router();
 const logger = createLogger({ service: 'core-service' });
@@ -21,6 +21,38 @@ async function verifyUserTenant(userId: string, tenantId: string): Promise<boole
     [userId, tenantId]
   );
   return !!user;
+}
+
+/**
+ * Verify category belongs to current tenant
+ * SECURITY: Prevents assigning categories from other tenants
+ */
+async function verifyCategoryTenant(categoryId: string, tenantId: string): Promise<boolean> {
+  const category = await db.queryOne(
+    'SELECT id FROM report_categories WHERE id = $1 AND tenant_id = $2',
+    [categoryId, tenantId]
+  );
+  return !!category;
+}
+
+/**
+ * Verify multiple categories belong to current tenant
+ */
+async function verifyCategoriesTenant(categoryIds: string[], tenantId: string): Promise<{ valid: boolean; invalidIds: string[] }> {
+  if (!categoryIds || categoryIds.length === 0) {
+    return { valid: true, invalidIds: [] };
+  }
+  
+  const placeholders = categoryIds.map((_, i) => `$${i + 1}`).join(',');
+  const validCategories = await db.queryAll(
+    `SELECT id FROM report_categories WHERE id IN (${placeholders}) AND tenant_id = $${categoryIds.length + 1}`,
+    [...categoryIds, tenantId]
+  );
+  
+  const validIds = new Set(validCategories.map((c: any) => c.id));
+  const invalidIds = categoryIds.filter(id => !validIds.has(id));
+  
+  return { valid: invalidIds.length === 0, invalidIds };
 }
 
 /**
@@ -87,6 +119,19 @@ router.put('/:id/categories', authenticate, authorize(ROLES.ADMIN), async (req: 
       );
     }
     
+    // SECURITY FIX: Verify all categoryIds belong to current tenant
+    if (Array.isArray(categoryIds) && categoryIds.length > 0) {
+      const { valid, invalidIds } = await verifyCategoriesTenant(categoryIds, req.user!.tenantId);
+      if (!valid) {
+        logger.warn('Cross-tenant category assignment attempt', { 
+          userId, 
+          invalidCategoryIds: invalidIds, 
+          attemptedBy: req.user!.email 
+        });
+        throw new ValidationError(`Geçersiz kategori ID'leri: ${invalidIds.join(', ')}`);
+      }
+    }
+    
     // Delete existing assignments
     await db.query('DELETE FROM user_report_categories WHERE user_id = $1', [userId]);
     
@@ -120,6 +165,17 @@ router.post('/:id/categories/:categoryId', authenticate, authorize(ROLES.ADMIN),
     const userExists = await verifyUserTenant(req.params.id, req.user!.tenantId);
     if (!userExists) {
       throw new NotFoundError('Kullanıcı');
+    }
+
+    // SECURITY FIX: Verify category belongs to current tenant
+    const categoryExists = await verifyCategoryTenant(req.params.categoryId, req.user!.tenantId);
+    if (!categoryExists) {
+      logger.warn('Cross-tenant category assignment attempt', { 
+        userId: req.params.id, 
+        categoryId: req.params.categoryId, 
+        attemptedBy: req.user!.email 
+      });
+      throw new NotFoundError('Kategori');
     }
 
     await db.query(

@@ -87,6 +87,8 @@ app.use(compression());
 // ============================================
 
 // Genel rate limit - Tüm endpointler için
+// SECURITY FIX: x-user-id header kaldırıldı - client tarafından manipüle edilebilirdi
+// Sadece IP kullanılıyor, reverse proxy arkasında x-forwarded-for destekleniyor
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 dakika
   max: process.env.NODE_ENV === 'development' ? 500 : 200, // Dev'de 500, prod'da 200
@@ -98,9 +100,12 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    // IP + User ID kombinasyonu (eğer varsa)
-    const userId = (req.headers['x-user-id'] as string) || '';
-    return `${req.ip}-${userId}`;
+    // Sadece IP kullan - x-forwarded-for reverse proxy için
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const clientIp = forwardedFor 
+      ? (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor.split(',')[0].trim())
+      : req.ip;
+    return clientIp || req.ip || 'unknown';
   }
 });
 
@@ -490,7 +495,29 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 // START SERVER
 // ============================================
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info(`🚀 API Gateway running on port ${PORT}`);
   logger.info('Service endpoints:', SERVICES);
 });
+
+// ============================================
+// GRACEFUL SHUTDOWN
+// ============================================
+
+function gracefulShutdown(signal: string) {
+  logger.info(`${signal} received, starting graceful shutdown...`);
+  
+  server.close(() => {
+    logger.info('HTTP server closed');
+    logger.info('Graceful shutdown completed');
+    process.exit(0);
+  });
+  
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

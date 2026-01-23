@@ -6,7 +6,7 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { Request, Response, NextFunction } from 'express';
-import { AuthenticationError, TokenExpiredError, InvalidTokenError, ForbiddenError } from './errors';
+import { AuthenticationError, TokenExpiredError, InvalidTokenError, ForbiddenError, AuthorizationError, ValidationError, NotFoundError } from './errors';
 import createLogger from './logger';
 
 const logger = createLogger({ service: 'auth' });
@@ -177,6 +177,7 @@ export function authorize(...allowedRoles: string[]) {
 
 /**
  * Tenant isolation middleware
+ * SECURITY: Override any client-provided tenantId to prevent manipulation
  */
 export function tenantIsolation(req: Request, res: Response, next: NextFunction): void {
   try {
@@ -184,18 +185,70 @@ export function tenantIsolation(req: Request, res: Response, next: NextFunction)
       throw new AuthenticationError();
     }
 
-    // tenantId'yi query/body'ye otomatik ekle
-    if (req.user.tenantId) {
-      req.query.tenantId = req.user.tenantId;
-      if (req.body) {
-        req.body.tenantId = req.user.tenantId;
-      }
+    if (!req.user.tenantId) {
+      throw new AuthorizationError('Tenant bilgisi eksik');
+    }
+
+    // SECURITY FIX: Override client-provided tenantId
+    // Client tarafından gönderilen tenantId manipüle edilebilir
+    req.query.tenantId = req.user.tenantId;
+    if (req.body && typeof req.body === 'object') {
+      req.body.tenantId = req.user.tenantId;
     }
 
     next();
   } catch (error) {
     next(error);
   }
+}
+
+/**
+ * Verify entity belongs to current tenant
+ * Use this in routes to verify ownership before operations
+ * @param tableName - Database table name
+ * @param entityId - Entity ID to verify
+ * @param tenantId - Current user's tenant ID
+ * @param db - Database instance
+ * @returns Entity if found and owned by tenant, throws NotFoundError otherwise
+ */
+export async function verifyTenantOwnership(
+  tableName: string,
+  entityId: string,
+  tenantId: string,
+  db: any
+): Promise<any> {
+  // Whitelist of allowed table names to prevent SQL injection
+  const allowedTables = [
+    'users', 'stores', 'regions', 'ownership_groups', 'positions',
+    'report_categories', 'designs', 'data_connections', 'datasets',
+    'metrics', 'user_report_categories', 'ldap_connections', 'notifications'
+  ];
+  
+  if (!allowedTables.includes(tableName)) {
+    throw new ValidationError(`Invalid table name: ${tableName}`);
+  }
+  
+  const entity = await db.queryOne(
+    `SELECT id, tenant_id FROM ${tableName} WHERE id = $1`,
+    [entityId]
+  );
+  
+  if (!entity) {
+    throw new NotFoundError(tableName);
+  }
+  
+  if (entity.tenant_id !== tenantId) {
+    // Log attempted cross-tenant access
+    logger.warn('Cross-tenant access attempt', { 
+      tableName, 
+      entityId, 
+      requestedTenantId: tenantId,
+      actualTenantId: entity.tenant_id 
+    });
+    throw new NotFoundError(tableName); // Don't reveal entity exists in other tenant
+  }
+  
+  return entity;
 }
 
 // ============================================
@@ -223,5 +276,6 @@ export default {
   optionalAuth,
   authorize,
   tenantIsolation,
+  verifyTenantOwnership,
   ROLES
 };

@@ -35,7 +35,13 @@ const PORT = process.env.CORE_SERVICE_PORT || 4002;
 // ============================================
 
 app.use(helmet());
-app.use(cors());
+
+// CORS - Servisler gateway arkasında, sadece internal erişim
+const corsOrigins = process.env.NODE_ENV === 'production' 
+  ? ['http://localhost:3000', 'http://127.0.0.1:3000'] // Gateway
+  : true; // Development'ta tüm originler
+app.use(cors({ origin: corsOrigins, credentials: true }));
+
 app.use(compression());
 app.use(express.json());
 app.use(requestLogger(logger));
@@ -144,11 +150,49 @@ async function cleanupStuckJobs() {
 // START SERVER
 // ============================================
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info(`Core Service started on port ${PORT}`);
   
   // Start stuck job cleanup interval (every 2 minutes)
   setInterval(cleanupStuckJobs, 2 * 60 * 1000);
 });
+
+// ============================================
+// GRACEFUL SHUTDOWN
+// ============================================
+
+async function gracefulShutdown(signal: string) {
+  logger.info(`${signal} received, starting graceful shutdown...`);
+  
+  // Stop accepting new connections
+  server.close(async () => {
+    logger.info('HTTP server closed');
+    
+    try {
+      // Close database connections
+      await db.closePool();
+      logger.info('Database pool closed');
+      
+      // Close Redis connection
+      await cache.close();
+      logger.info('Redis connection closed');
+      
+      logger.info('Graceful shutdown completed');
+      process.exit(0);
+    } catch (error: any) {
+      logger.error('Error during shutdown', { error: error.message });
+      process.exit(1);
+    }
+  });
+  
+  // Force exit after 30 seconds
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 export default app;

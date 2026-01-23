@@ -615,7 +615,13 @@ interface MetricResult {
 // ============================================
 
 app.use(helmet());
-app.use(cors());
+
+// CORS - Servisler gateway arkasında, sadece internal erişim
+const corsOrigins = process.env.NODE_ENV === 'production' 
+  ? ['http://localhost:3000', 'http://127.0.0.1:3000'] // Gateway
+  : true; // Development'ta tüm originler
+app.use(cors({ origin: corsOrigins, credentials: true }));
+
 app.use(compression());
 app.use(express.json());
 app.use(requestLogger(logger));
@@ -3705,6 +3711,8 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 // START SERVER
 // ============================================
 
+let server: any;
+
 async function start() {
   try {
     db.createPool();
@@ -3726,7 +3734,7 @@ async function start() {
       await cache.invalidate(`dashboard:*`, 'etl');
     });
 
-    app.listen(PORT, () => {
+    server = app.listen(PORT, () => {
       logger.info(`📊 Analytics Service running on port ${PORT}`);
     });
   } catch (error) {
@@ -3734,5 +3742,41 @@ async function start() {
     process.exit(1);
   }
 }
+
+// ============================================
+// GRACEFUL SHUTDOWN
+// ============================================
+
+async function gracefulShutdown(signal: string) {
+  logger.info(`${signal} received, starting graceful shutdown...`);
+  
+  if (server) {
+    server.close(async () => {
+      logger.info('HTTP server closed');
+      
+      try {
+        await db.closePool();
+        logger.info('Database pool closed');
+        
+        await cache.close();
+        logger.info('Redis connection closed');
+        
+        logger.info('Graceful shutdown completed');
+        process.exit(0);
+      } catch (error: any) {
+        logger.error('Error during shutdown', { error: error.message });
+        process.exit(1);
+      }
+    });
+  }
+  
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 start();

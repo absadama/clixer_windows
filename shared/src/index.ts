@@ -67,6 +67,7 @@ export {
   optionalAuth,
   authorize,
   tenantIsolation,
+  verifyTenantOwnership,
   ROLES
 } from './auth';
 export type { TokenPayload, AuthenticatedUser, Role } from './auth';
