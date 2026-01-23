@@ -206,7 +206,8 @@ export class WindowsProcessManager implements IServiceManager {
         cwd: workDir,
         env: { ...process.env, ...config.env },
         detached: false,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: false  // cmd.exe already is the shell
       });
 
       this.processes.set(serviceId, child);
