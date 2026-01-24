@@ -58,6 +58,7 @@ import { useClickHouseManagement } from '../hooks/useClickHouseManagement'
 import { useSqlEditor } from '../hooks/useSqlEditor'
 import { useApiPreviewState } from '../hooks/useApiPreviewState'
 import { useSystemState } from '../hooks/useSystemState'
+import { useDataApi } from '../hooks/useDataApi'
 
 // API Base URL
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -159,277 +160,31 @@ export default function DataPage() {
     closeApiPreview
   } = apiPreview
 
-  // ============================================
-  // API CALLS
-  // ============================================
+  // Data API Hook
+  const dataApi = useDataApi({
+    setConnections, setDatasets, setETLJobs, setSchedules, setWorkerStatus,
+    setError, setSqlConnectionId, sqlConnectionId,
+    setSystemHealth, setSystemHealthLoading, setSystemActionLoading, setEtlMonitoring,
+    setPerformanceData, setPerformanceLoading, setPerformanceActionLoading,
+    setClickhouseTables, setClickhouseLoading
+  })
+  
+  const {
+    apiCall, loadConnections, loadDatasets, loadETLJobs, loadSchedules,
+    loadWorkerStatus, loadSystemHealth, loadEtlMonitoring, deleteLock, deleteAllLocks,
+    cancelJob, loadClickhouseTables, loadPostgresPerformance, loadClickhousePerformance,
+    loadEtlPerformance, loadConnectionPerformance, loadAllPerformance, runVacuum, runReindex,
+    optimizeChTable: optimizeChTablePerf
+  } = dataApi
 
-  const apiCall = async (endpoint: string, options: RequestInit = {}) => {
-    // Token henüz yüklenmemiş olabilir, bekle
-    if (!accessToken) {
-      throw new Error('Token yükleniyor...')
-    }
-    
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-        ...options.headers
-      }
-    })
-    
-    // 401 Unauthorized - Token geçersiz veya süresi dolmuş
-    if (response.status === 401) {
-      logout()
-      window.location.href = '/login'
-      throw new Error('Oturum süresi doldu, lütfen tekrar giriş yapın')
-    }
-    
-    const data = await response.json()
-    if (!response.ok) throw new Error(data.message || 'API hatası')
-    return data
-  }
-
-  // Load connections
-  const loadConnections = async () => {
-    try {
-      const result = await apiCall('/data/connections')
-      setConnections(result.data || [])
-      if (result.data?.length > 0 && !sqlConnectionId) {
-        setSqlConnectionId(result.data[0].id)
-      }
-    } catch (err: any) {
-      console.error('Load connections error:', err)
-      setError(err.message)
-    }
-  }
+  // ============================================
+  // REMAINING API CALLS (not yet in hook)
+  // ============================================
 
   // Edit connection - bağlantıyı düzenleme modunda aç
   const editConnection = (conn: Connection) => {
     setEditingConnection(conn)
     setShowConnectionModal(true)
-  }
-
-  // Load datasets
-  const loadDatasets = async () => {
-    try {
-      const result = await apiCall('/data/datasets')
-      setDatasets(result.data || [])
-    } catch (err: any) {
-      console.error('Load datasets error:', err)
-      setError(err.message)
-    }
-  }
-
-  // Load ETL jobs
-  const loadETLJobs = async () => {
-    try {
-      const result = await apiCall('/data/etl-jobs?limit=20')
-      setETLJobs(result.data || [])
-    } catch (err: any) {
-      console.error('Load ETL jobs error:', err)
-      setError(err.message)
-    }
-  }
-
-  // Load schedules
-  const loadSchedules = async () => {
-    try {
-      const result = await apiCall('/data/schedules')
-      setSchedules(result.data || [])
-    } catch (err: any) {
-      console.error('Load schedules error:', err)
-    }
-  }
-
-  // Load ETL Worker status
-  const loadWorkerStatus = async () => {
-    try {
-      const result = await apiCall('/data/etl/status')
-      setWorkerStatus(result.data || null)
-    } catch (err: any) {
-      console.error('Load worker status error:', err)
-      setWorkerStatus({ status: 'unknown', lastHeartbeat: null, activeJobs: 0, workerInfo: null })
-    }
-  }
-
-  // Load System Health
-  const loadSystemHealth = async (showLoading = false) => {
-    if (showLoading) setSystemHealthLoading(true)
-    try {
-      const result = await apiCall('/admin/health')
-      setSystemHealth(result.data || null)
-      
-      // ETL Monitoring verilerini de yükle
-      await loadEtlMonitoring()
-    } catch (err: any) {
-      console.error('Load system health error:', err)
-      setSystemHealth(null)
-    } finally {
-      setSystemHealthLoading(false)
-    }
-  }
-
-  // Load ETL Monitoring (Locks, Stuck Jobs, Running Jobs)
-  const loadEtlMonitoring = async () => {
-    try {
-      const [locksRes, stuckRes, runningRes] = await Promise.all([
-        apiCall('/data/system/locks').catch(() => ({ data: [] })),
-        apiCall('/data/system/stuck-jobs').catch(() => ({ data: [] })),
-        apiCall('/data/system/running-jobs').catch(() => ({ data: [] }))
-      ])
-      
-      setEtlMonitoring({
-        locks: locksRes.data || [],
-        stuckJobs: stuckRes.data || [],
-        runningJobs: runningRes.data || []
-      })
-    } catch (err: any) {
-      console.error('Load ETL monitoring error:', err)
-    }
-  }
-  
-  // Delete specific lock
-  const deleteLock = async (datasetId: string) => {
-    if (!confirm('Bu lock silinecek. Devam etmek istiyor musunuz?')) return
-    setSystemActionLoading(`lock-${datasetId}`)
-    try {
-      await apiCall(`/data/system/locks/${datasetId}`, { method: 'DELETE' })
-      await loadEtlMonitoring()
-    } catch (err: any) {
-      toast.error('Lock silinemedi: ' + err.message)
-    } finally {
-      setSystemActionLoading(null)
-    }
-  }
-  
-  // Delete all locks
-  const deleteAllLocks = async () => {
-    if (!confirm('TÜM lock\'lar silinecek. Bu işlem tehlikeli olabilir. Devam etmek istiyor musunuz?')) return
-    setSystemActionLoading('all-locks')
-    try {
-      await apiCall('/data/system/locks', { method: 'DELETE' })
-      await loadEtlMonitoring()
-    } catch (err: any) {
-      toast.error('Lock\'lar silinemedi: ' + err.message)
-    } finally {
-      setSystemActionLoading(null)
-    }
-  }
-  
-  // Cancel specific job
-  const cancelJob = async (jobId: string) => {
-    if (!confirm('Bu job iptal edilecek. Devam etmek istiyor musunuz?')) return
-    setSystemActionLoading(`job-${jobId}`)
-    try {
-      await apiCall(`/data/system/jobs/${jobId}/cancel`, { method: 'POST' })
-      await loadEtlMonitoring()
-      await loadETLJobs()
-    } catch (err: any) {
-      toast.error('Job iptal edilemedi: ' + err.message)
-    } finally {
-      setSystemActionLoading(null)
-    }
-  }
-
-  // ============================================
-  // PERFORMANS DANIŞMANI FONKSİYONLARI
-  // ============================================
-
-  // Load PostgreSQL Performance
-  const loadPostgresPerformance = async () => {
-    setPerformanceLoading('postgres')
-    try {
-      const result = await apiCall('/data/performance/postgres')
-      setPerformanceData(prev => ({ ...prev, postgres: result.data }))
-    } catch (err: any) {
-      console.error('PostgreSQL performance error:', err)
-    } finally {
-      setPerformanceLoading(null)
-    }
-  }
-
-  // Load ClickHouse Performance
-  const loadClickhousePerformance = async () => {
-    setPerformanceLoading('clickhouse')
-    try {
-      const result = await apiCall('/data/performance/clickhouse')
-      setPerformanceData(prev => ({ ...prev, clickhouse: result.data }))
-    } catch (err: any) {
-      console.error('ClickHouse performance error:', err)
-    } finally {
-      setPerformanceLoading(null)
-    }
-  }
-
-  // Load ETL Performance
-  const loadEtlPerformance = async () => {
-    setPerformanceLoading('etl')
-    try {
-      const result = await apiCall('/data/performance/etl')
-      setPerformanceData(prev => ({ ...prev, etl: result.data }))
-    } catch (err: any) {
-      console.error('ETL performance error:', err)
-    } finally {
-      setPerformanceLoading(null)
-    }
-  }
-
-  // Load Connection Performance
-  const loadConnectionPerformance = async (connectionId: string) => {
-    setPerformanceLoading(`connection-${connectionId}`)
-    try {
-      const result = await apiCall(`/data/performance/connections/${connectionId}`)
-      setPerformanceData(prev => ({
-        ...prev,
-        connections: { ...prev.connections, [connectionId]: result.data }
-      }))
-    } catch (err: any) {
-      console.error('Connection performance error:', err)
-    } finally {
-      setPerformanceLoading(null)
-    }
-  }
-
-  // Load All Performance Data
-  const loadAllPerformance = async () => {
-    // Tüm performans verilerini sıfırla ve yeniden yükle
-    setPerformanceData({ postgres: null, clickhouse: null, etl: null, connections: {} })
-    setPerformanceLoading('all')
-    try {
-      // Paralel yükleme - her biri kendi state'ini set eder
-      const [pgResult, chResult, etlResult] = await Promise.all([
-        apiCall('/data/performance/postgres').catch(() => ({ data: null })),
-        apiCall('/data/performance/clickhouse').catch(() => ({ data: null })),
-        apiCall('/data/performance/etl').catch(() => ({ data: null }))
-      ])
-      
-      setPerformanceData({
-        postgres: pgResult.data,
-        clickhouse: chResult.data,
-        etl: etlResult.data,
-        connections: {}
-      })
-    } catch (err: any) {
-      console.error('Load all performance error:', err)
-    } finally {
-      setPerformanceLoading(null)
-    }
-  }
-
-  // PostgreSQL VACUUM
-  const runVacuum = async (tableName: string, analyze = false) => {
-    if (!confirm(`${tableName} tablosunda VACUUM ${analyze ? 'ANALYZE ' : ''}çalıştırılacak. Devam?`)) return
-    setPerformanceActionLoading(`vacuum-${tableName}`)
-    try {
-      const result = await apiCall(`/data/performance/postgres/vacuum/${tableName}?analyze=${analyze}`, { method: 'POST' })
-      toast.success(result.message)
-      loadPostgresPerformance()
-    } catch (err: any) {
-      toast.error('VACUUM başarısız: ' + err.message)
-    } finally {
-      setPerformanceActionLoading(null)
-    }
   }
 
   // PostgreSQL Index Sil
@@ -463,20 +218,6 @@ export default function DataPage() {
     }
   }
 
-  // Metni panoya kopyala
-  // Load ClickHouse tables
-  const loadClickhouseTables = async () => {
-    setClickhouseLoading(true)
-    try {
-      const result = await apiCall('/data/clickhouse/tables')
-      setClickhouseTables(result.data || [])
-    } catch (err: any) {
-      console.error('Load ClickHouse tables error:', err)
-    } finally {
-      setClickhouseLoading(false)
-    }
-  }
-  
   // View ClickHouse table details
   const viewChTableDetails = async (tableName: string) => {
     try {

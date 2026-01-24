@@ -1,266 +1,359 @@
 /**
- * Data API Hook
- * Centralized API calls for DataPage
+ * Clixer - Data API Hook
+ * DataPage için merkezi API çağrıları
  */
 
 import { useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../stores/authStore'
+import type { Connection, Dataset, ETLJob, Schedule, ETLWorkerStatus } from '../types/data'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
-interface ApiOptions extends RequestInit {
-  showSuccessToast?: boolean
-  showErrorToast?: boolean
-  successMessage?: string
+interface UseDataApiProps {
+  // Setters
+  setConnections: (v: Connection[]) => void
+  setDatasets: (v: Dataset[]) => void
+  setETLJobs: (v: ETLJob[]) => void
+  setSchedules: (v: Schedule[]) => void
+  setWorkerStatus: (v: ETLWorkerStatus | null) => void
+  setError: (v: string | null) => void
+  setSqlConnectionId: (v: string) => void
+  sqlConnectionId: string
+  // System setters
+  setSystemHealth: (v: any) => void
+  setSystemHealthLoading: (v: boolean) => void
+  setSystemActionLoading: (v: string | null) => void
+  setEtlMonitoring: (v: any) => void
+  // Performance setters
+  setPerformanceData: (v: any) => void
+  setPerformanceLoading: (v: string | null) => void
+  setPerformanceActionLoading: (v: string | null) => void
+  // ClickHouse setters
+  setClickhouseTables: (v: any[]) => void
+  setClickhouseLoading: (v: boolean) => void
 }
 
-interface ApiResponse<T = any> {
-  success: boolean
-  data?: T
-  message?: string
-}
+export function useDataApi(props: UseDataApiProps) {
+  const { accessToken, logout } = useAuthStore()
+  const {
+    setConnections, setDatasets, setETLJobs, setSchedules, setWorkerStatus,
+    setError, setSqlConnectionId, sqlConnectionId,
+    setSystemHealth, setSystemHealthLoading, setSystemActionLoading, setEtlMonitoring,
+    setPerformanceData, setPerformanceLoading, setPerformanceActionLoading,
+    setClickhouseTables, setClickhouseLoading
+  } = props
 
-export function useDataApi() {
-  const { accessToken } = useAuthStore()
-
-  /**
-   * Generic API call with error handling
-   */
-  const apiCall = useCallback(async <T = any>(
-    endpoint: string, 
-    options: ApiOptions = {}
-  ): Promise<ApiResponse<T>> => {
-    const { 
-      showSuccessToast = false, 
-      showErrorToast = true,
-      successMessage,
-      ...fetchOptions 
-    } = options
-
-    try {
-      const response = await fetch(`${API_BASE}${endpoint}`, {
-        ...fetchOptions,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-          ...fetchOptions.headers,
-        },
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.message || 'API hatası')
-      }
-
-      if (showSuccessToast && successMessage) {
-        toast.success(successMessage)
-      }
-
-      return { success: true, data: data.data, message: data.message }
-    } catch (err: any) {
-      if (showErrorToast) {
-        toast.error(err.message || 'Bir hata oluştu')
-      }
-      return { success: false, message: err.message }
+  // Base API call
+  const apiCall = useCallback(async (endpoint: string, options: RequestInit = {}) => {
+    if (!accessToken) {
+      throw new Error('Token yükleniyor...')
     }
-  }, [accessToken])
-
-  // ============================================
-  // CONNECTION API
-  // ============================================
-
-  const getConnections = useCallback(async () => {
-    return apiCall('/data/connections')
-  }, [apiCall])
-
-  const createConnection = useCallback(async (data: any) => {
-    return apiCall('/data/connections', {
-      method: 'POST',
-      body: JSON.stringify(data),
-      showSuccessToast: true,
-      successMessage: 'Bağlantı oluşturuldu'
+    
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        ...options.headers
+      }
     })
-  }, [apiCall])
+    
+    if (response.status === 401) {
+      logout()
+      window.location.href = '/login'
+      throw new Error('Oturum süresi doldu, lütfen tekrar giriş yapın')
+    }
+    
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.message || 'API hatası')
+    return data
+  }, [accessToken, logout])
 
-  const updateConnection = useCallback(async (id: string, data: any) => {
-    return apiCall(`/data/connections/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-      showSuccessToast: true,
-      successMessage: 'Bağlantı güncellendi'
-    })
-  }, [apiCall])
+  // Load connections
+  const loadConnections = useCallback(async () => {
+    try {
+      const result = await apiCall('/data/connections')
+      setConnections(result.data || [])
+      if (result.data?.length > 0 && !sqlConnectionId) {
+        setSqlConnectionId(result.data[0].id)
+      }
+    } catch (err: any) {
+      console.error('Load connections error:', err)
+      setError(err.message)
+    }
+  }, [apiCall, setConnections, setSqlConnectionId, sqlConnectionId, setError])
 
-  const deleteConnection = useCallback(async (id: string) => {
-    return apiCall(`/data/connections/${id}`, {
-      method: 'DELETE',
-      showSuccessToast: true,
-      successMessage: 'Bağlantı silindi'
-    })
-  }, [apiCall])
+  // Load datasets
+  const loadDatasets = useCallback(async () => {
+    try {
+      const result = await apiCall('/data/datasets')
+      setDatasets(result.data || [])
+    } catch (err: any) {
+      console.error('Load datasets error:', err)
+      setError(err.message)
+    }
+  }, [apiCall, setDatasets, setError])
 
-  const testConnection = useCallback(async (data: any) => {
-    return apiCall('/data/connections/test', {
-      method: 'POST',
-      body: JSON.stringify(data),
-      showErrorToast: false
-    })
-  }, [apiCall])
+  // Load ETL jobs
+  const loadETLJobs = useCallback(async () => {
+    try {
+      const result = await apiCall('/data/etl-jobs?limit=20')
+      setETLJobs(result.data || [])
+    } catch (err: any) {
+      console.error('Load ETL jobs error:', err)
+      setError(err.message)
+    }
+  }, [apiCall, setETLJobs, setError])
 
-  const getConnectionTables = useCallback(async (connectionId: string) => {
-    return apiCall(`/data/connections/${connectionId}/tables`)
-  }, [apiCall])
+  // Load schedules
+  const loadSchedules = useCallback(async () => {
+    try {
+      const result = await apiCall('/data/schedules')
+      setSchedules(result.data || [])
+    } catch (err: any) {
+      console.error('Load schedules error:', err)
+    }
+  }, [apiCall, setSchedules])
 
-  const getTableColumns = useCallback(async (connectionId: string, tableName: string) => {
-    return apiCall(`/data/connections/${connectionId}/tables/${encodeURIComponent(tableName)}/columns`)
-  }, [apiCall])
+  // Load ETL Worker status
+  const loadWorkerStatus = useCallback(async () => {
+    try {
+      const result = await apiCall('/data/etl/status')
+      setWorkerStatus(result.data || null)
+    } catch (err: any) {
+      console.error('Load worker status error:', err)
+      setWorkerStatus({ status: 'unknown', lastHeartbeat: null, activeJobs: 0, workerInfo: null })
+    }
+  }, [apiCall, setWorkerStatus])
 
-  // ============================================
-  // DATASET API
-  // ============================================
+  // Load ETL Monitoring
+  const loadEtlMonitoring = useCallback(async () => {
+    try {
+      const [locksRes, stuckRes, runningRes] = await Promise.all([
+        apiCall('/data/system/locks').catch(() => ({ data: [] })),
+        apiCall('/data/system/stuck-jobs').catch(() => ({ data: [] })),
+        apiCall('/data/system/running-jobs').catch(() => ({ data: [] }))
+      ])
+      
+      setEtlMonitoring({
+        locks: locksRes.data || [],
+        stuckJobs: stuckRes.data || [],
+        runningJobs: runningRes.data || []
+      })
+    } catch (err: any) {
+      console.error('Load ETL monitoring error:', err)
+    }
+  }, [apiCall, setEtlMonitoring])
 
-  const getDatasets = useCallback(async () => {
-    return apiCall('/data/datasets')
-  }, [apiCall])
+  // Load System Health
+  const loadSystemHealth = useCallback(async (showLoading = false) => {
+    if (showLoading) setSystemHealthLoading(true)
+    try {
+      const result = await apiCall('/admin/health')
+      setSystemHealth(result.data || null)
+      await loadEtlMonitoring()
+    } catch (err: any) {
+      console.error('Load system health error:', err)
+      setSystemHealth(null)
+    } finally {
+      setSystemHealthLoading(false)
+    }
+  }, [apiCall, setSystemHealth, setSystemHealthLoading, loadEtlMonitoring])
 
-  const createDataset = useCallback(async (data: any) => {
-    return apiCall('/data/datasets', {
-      method: 'POST',
-      body: JSON.stringify(data),
-      showSuccessToast: true,
-      successMessage: 'Dataset oluşturuldu'
-    })
-  }, [apiCall])
+  // Delete lock
+  const deleteLock = useCallback(async (datasetId: string) => {
+    if (!confirm('Bu lock silinecek. Devam etmek istiyor musunuz?')) return
+    setSystemActionLoading(`lock-${datasetId}`)
+    try {
+      await apiCall(`/data/system/locks/${datasetId}`, { method: 'DELETE' })
+      await loadEtlMonitoring()
+    } catch (err: any) {
+      toast.error('Lock silinemedi: ' + err.message)
+    } finally {
+      setSystemActionLoading(null)
+    }
+  }, [apiCall, setSystemActionLoading, loadEtlMonitoring])
 
-  const updateDataset = useCallback(async (id: string, data: any) => {
-    return apiCall(`/data/datasets/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-      showSuccessToast: true,
-      successMessage: 'Dataset güncellendi'
-    })
-  }, [apiCall])
+  // Delete all locks
+  const deleteAllLocks = useCallback(async () => {
+    if (!confirm('TÜM lock\'lar silinecek. Bu işlem tehlikeli olabilir. Devam etmek istiyor musunuz?')) return
+    setSystemActionLoading('all-locks')
+    try {
+      await apiCall('/data/system/locks', { method: 'DELETE' })
+      await loadEtlMonitoring()
+    } catch (err: any) {
+      toast.error('Lock\'lar silinemedi: ' + err.message)
+    } finally {
+      setSystemActionLoading(null)
+    }
+  }, [apiCall, setSystemActionLoading, loadEtlMonitoring])
 
-  const deleteDataset = useCallback(async (id: string) => {
-    return apiCall(`/data/datasets/${id}`, {
-      method: 'DELETE',
-      showSuccessToast: true,
-      successMessage: 'Dataset silindi'
-    })
-  }, [apiCall])
+  // Cancel job
+  const cancelJob = useCallback(async (jobId: string) => {
+    if (!confirm('Bu job iptal edilecek. Devam etmek istiyor musunuz?')) return
+    setSystemActionLoading(`job-${jobId}`)
+    try {
+      await apiCall(`/data/system/jobs/${jobId}/cancel`, { method: 'POST' })
+      await loadEtlMonitoring()
+      await loadETLJobs()
+    } catch (err: any) {
+      toast.error('Job iptal edilemedi: ' + err.message)
+    } finally {
+      setSystemActionLoading(null)
+    }
+  }, [apiCall, setSystemActionLoading, loadEtlMonitoring, loadETLJobs])
 
-  const syncDataset = useCallback(async (id: string) => {
-    return apiCall(`/data/datasets/${id}/sync`, {
-      method: 'POST',
-      showSuccessToast: true,
-      successMessage: 'Sync başlatıldı'
-    })
-  }, [apiCall])
+  // Load ClickHouse tables
+  const loadClickhouseTables = useCallback(async () => {
+    setClickhouseLoading(true)
+    try {
+      const result = await apiCall('/data/clickhouse/tables')
+      setClickhouseTables(result.data || [])
+    } catch (err: any) {
+      console.error('Load ClickHouse tables error:', err)
+    } finally {
+      setClickhouseLoading(false)
+    }
+  }, [apiCall, setClickhouseTables, setClickhouseLoading])
 
-  const getDatasetPreview = useCallback(async (id: string, params?: { limit?: number, offset?: number }) => {
-    const query = params ? `?limit=${params.limit || 100}&offset=${params.offset || 0}` : ''
-    return apiCall(`/data/datasets/${id}/preview${query}`)
-  }, [apiCall])
+  // Performance functions
+  const loadPostgresPerformance = useCallback(async () => {
+    setPerformanceLoading('postgres')
+    try {
+      const result = await apiCall('/data/performance/postgres')
+      setPerformanceData((prev: any) => ({ ...prev, postgres: result.data }))
+    } catch (err: any) {
+      console.error('PostgreSQL performance error:', err)
+    } finally {
+      setPerformanceLoading(null)
+    }
+  }, [apiCall, setPerformanceData, setPerformanceLoading])
 
-  // ============================================
-  // ETL JOBS API
-  // ============================================
+  const loadClickhousePerformance = useCallback(async () => {
+    setPerformanceLoading('clickhouse')
+    try {
+      const result = await apiCall('/data/performance/clickhouse')
+      setPerformanceData((prev: any) => ({ ...prev, clickhouse: result.data }))
+    } catch (err: any) {
+      console.error('ClickHouse performance error:', err)
+    } finally {
+      setPerformanceLoading(null)
+    }
+  }, [apiCall, setPerformanceData, setPerformanceLoading])
 
-  const getETLJobs = useCallback(async () => {
-    return apiCall('/data/etl/jobs')
-  }, [apiCall])
+  const loadEtlPerformance = useCallback(async () => {
+    setPerformanceLoading('etl')
+    try {
+      const result = await apiCall('/data/performance/etl')
+      setPerformanceData((prev: any) => ({ ...prev, etl: result.data }))
+    } catch (err: any) {
+      console.error('ETL performance error:', err)
+    } finally {
+      setPerformanceLoading(null)
+    }
+  }, [apiCall, setPerformanceData, setPerformanceLoading])
 
-  const cancelETLJob = useCallback(async (id: string) => {
-    return apiCall(`/data/system/jobs/${id}/cancel`, {
-      method: 'POST',
-      showSuccessToast: true,
-      successMessage: 'Job iptal edildi'
-    })
-  }, [apiCall])
+  const loadConnectionPerformance = useCallback(async (connectionId: string) => {
+    setPerformanceLoading(`connection-${connectionId}`)
+    try {
+      const result = await apiCall(`/data/performance/connections/${connectionId}`)
+      setPerformanceData((prev: any) => ({
+        ...prev,
+        connections: { ...prev.connections, [connectionId]: result.data }
+      }))
+    } catch (err: any) {
+      console.error('Connection performance error:', err)
+    } finally {
+      setPerformanceLoading(null)
+    }
+  }, [apiCall, setPerformanceData, setPerformanceLoading])
 
-  // ============================================
-  // CLICKHOUSE API
-  // ============================================
+  const loadAllPerformance = useCallback(async () => {
+    setPerformanceData({ postgres: null, clickhouse: null, etl: null, connections: {} })
+    setPerformanceLoading('all')
+    try {
+      const [pgResult, chResult, etlResult] = await Promise.all([
+        apiCall('/data/performance/postgres').catch(() => ({ data: null })),
+        apiCall('/data/performance/clickhouse').catch(() => ({ data: null })),
+        apiCall('/data/performance/etl').catch(() => ({ data: null }))
+      ])
+      
+      setPerformanceData({
+        postgres: pgResult.data,
+        clickhouse: chResult.data,
+        etl: etlResult.data,
+        connections: {}
+      })
+    } catch (err: any) {
+      console.error('Load all performance error:', err)
+    } finally {
+      setPerformanceLoading(null)
+    }
+  }, [apiCall, setPerformanceData, setPerformanceLoading])
 
-  const getClickHouseTables = useCallback(async () => {
-    return apiCall('/data/clickhouse/tables')
-  }, [apiCall])
+  const runVacuum = useCallback(async (tableName: string, analyze = false) => {
+    if (!confirm(`${tableName} tablosunda VACUUM ${analyze ? 'ANALYZE ' : ''}çalıştırılacak. Devam?`)) return
+    setPerformanceActionLoading(`vacuum-${tableName}`)
+    try {
+      const result = await apiCall(`/data/performance/postgres/vacuum/${tableName}?analyze=${analyze}`, { method: 'POST' })
+      toast.success(result.message)
+      loadPostgresPerformance()
+    } catch (err: any) {
+      toast.error('VACUUM başarısız: ' + err.message)
+    } finally {
+      setPerformanceActionLoading(null)
+    }
+  }, [apiCall, setPerformanceActionLoading, loadPostgresPerformance])
 
-  const deleteClickHouseData = useCallback(async (tableName: string, options: { startDate?: string, endDate?: string, deleteAll?: boolean }) => {
-    return apiCall(`/data/clickhouse/tables/${encodeURIComponent(tableName)}/data`, {
-      method: 'DELETE',
-      body: JSON.stringify(options),
-      showSuccessToast: true,
-      successMessage: 'Veriler silindi'
-    })
-  }, [apiCall])
+  const runReindex = useCallback(async (tableName: string) => {
+    if (!confirm(`${tableName} tablosunda REINDEX çalıştırılacak. Bu işlem zaman alabilir. Devam?`)) return
+    setPerformanceActionLoading(`reindex-${tableName}`)
+    try {
+      const result = await apiCall(`/data/performance/postgres/reindex/${tableName}`, { method: 'POST' })
+      toast.success(result.message)
+      loadPostgresPerformance()
+    } catch (err: any) {
+      toast.error('REINDEX başarısız: ' + err.message)
+    } finally {
+      setPerformanceActionLoading(null)
+    }
+  }, [apiCall, setPerformanceActionLoading, loadPostgresPerformance])
 
-  const optimizeClickHouseTable = useCallback(async (tableName: string) => {
-    return apiCall(`/data/clickhouse/tables/${encodeURIComponent(tableName)}/optimize`, {
-      method: 'POST',
-      showSuccessToast: true,
-      successMessage: 'Tablo optimize edildi'
-    })
-  }, [apiCall])
-
-  // ============================================
-  // SYSTEM API
-  // ============================================
-
-  const getSystemStatus = useCallback(async () => {
-    return apiCall('/data/admin/system/status')
-  }, [apiCall])
-
-  const getSystemStats = useCallback(async () => {
-    return apiCall('/data/admin/system/stats')
-  }, [apiCall])
-
-  const clearCache = useCallback(async (pattern?: string) => {
-    return apiCall('/data/cache/clear', {
-      method: 'POST',
-      body: JSON.stringify({ pattern }),
-      showSuccessToast: true,
-      successMessage: 'Cache temizlendi'
-    })
-  }, [apiCall])
+  const optimizeChTable = useCallback(async (tableName: string) => {
+    if (!confirm(`${tableName} tablosu optimize edilecek. Devam?`)) return
+    setPerformanceActionLoading(`optimize-${tableName}`)
+    try {
+      const result = await apiCall(`/data/performance/clickhouse/optimize/${tableName}`, { method: 'POST' })
+      toast.success(result.message)
+      loadClickhousePerformance()
+    } catch (err: any) {
+      toast.error('Optimize başarısız: ' + err.message)
+    } finally {
+      setPerformanceActionLoading(null)
+    }
+  }, [apiCall, setPerformanceActionLoading, loadClickhousePerformance])
 
   return {
-    // Generic
     apiCall,
-    
-    // Connections
-    getConnections,
-    createConnection,
-    updateConnection,
-    deleteConnection,
-    testConnection,
-    getConnectionTables,
-    getTableColumns,
-    
-    // Datasets
-    getDatasets,
-    createDataset,
-    updateDataset,
-    deleteDataset,
-    syncDataset,
-    getDatasetPreview,
-    
-    // ETL Jobs
-    getETLJobs,
-    cancelETLJob,
-    
-    // ClickHouse
-    getClickHouseTables,
-    deleteClickHouseData,
-    optimizeClickHouseTable,
-    
-    // System
-    getSystemStatus,
-    getSystemStats,
-    clearCache
+    loadConnections,
+    loadDatasets,
+    loadETLJobs,
+    loadSchedules,
+    loadWorkerStatus,
+    loadSystemHealth,
+    loadEtlMonitoring,
+    deleteLock,
+    deleteAllLocks,
+    cancelJob,
+    loadClickhouseTables,
+    loadPostgresPerformance,
+    loadClickhousePerformance,
+    loadEtlPerformance,
+    loadConnectionPerformance,
+    loadAllPerformance,
+    runVacuum,
+    runReindex,
+    optimizeChTable,
   }
 }
-
-export type DataApi = ReturnType<typeof useDataApi>
