@@ -57,6 +57,7 @@ import { useDatasetSettings } from '../hooks/useDatasetSettings'
 import { useClickHouseManagement } from '../hooks/useClickHouseManagement'
 import { useSqlEditor } from '../hooks/useSqlEditor'
 import { useApiPreviewState } from '../hooks/useApiPreviewState'
+import { useSystemState } from '../hooks/useSystemState'
 
 // API Base URL
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -76,6 +77,7 @@ export default function DataPage() {
   const chManagement = useClickHouseManagement()
   const sqlEditor = useSqlEditor()
   const apiPreview = useApiPreviewState()
+  const systemState = useSystemState()
   
   // Core State
   const [activeTab, setActiveTab] = useState<'connections' | 'datasets' | 'etl' | 'sql' | 'clickhouse' | 'system' | 'performance'>('connections')
@@ -102,28 +104,13 @@ export default function DataPage() {
   const [previewData, setPreviewData] = useState<{ columns: { name: string; type?: string }[], rows: Record<string, any>[], totalRows?: number } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
 
-  // Sistem Sağlığı state
-  const [systemHealth, setSystemHealth] = useState<any>(null)
-  const [systemHealthLoading, setSystemHealthLoading] = useState(false)
-  const [systemActionLoading, setSystemActionLoading] = useState<string | null>(null)
-  const [systemAutoRefresh, setSystemAutoRefresh] = useState(true)
-  
-  // Performans Danışmanı state
-  const [performanceData, setPerformanceData] = useState<{
-    postgres: any | null
-    clickhouse: any | null
-    etl: any | null
-    connections: Record<string, any>
-  }>({ postgres: null, clickhouse: null, etl: null, connections: {} })
-  const [performanceLoading, setPerformanceLoading] = useState<string | null>(null)
-  const [performanceActionLoading, setPerformanceActionLoading] = useState<string | null>(null)
-  
-  // ETL Monitoring state
-  const [etlMonitoring, setEtlMonitoring] = useState<{
-    locks: { key: string; datasetId: string; pid: number; startedAt: string; ttlSeconds: number }[];
-    stuckJobs: { id: string; dataset_name: string; runningMinutes: number; rows_processed: number }[];
-    runningJobs: { id: string; dataset_name: string; runningMinutes: number; rows_processed: number; status: string }[];
-  }>({ locks: [], stuckJobs: [], runningJobs: [] })
+  // System state from hook
+  const {
+    systemHealth, systemHealthLoading, systemActionLoading, systemAutoRefresh,
+    performanceData, performanceLoading, performanceActionLoading, etlMonitoring,
+    setSystemHealth, setSystemHealthLoading, setSystemActionLoading, setSystemAutoRefresh,
+    setPerformanceData, setPerformanceLoading, setPerformanceActionLoading, setEtlMonitoring
+  } = systemState
   
   // Destructure hook values for easier access
   const {
