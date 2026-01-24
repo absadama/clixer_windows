@@ -1,29 +1,27 @@
 /**
- * Connection Modal Component
- * Modal for creating and editing database/API connections
+ * Clixer - Connection Modal Component
+ * DataPage'den çıkarıldı - Yeni bağlantı oluşturma/düzenleme
  */
 
 import { useState, useEffect } from 'react'
 import { 
-  Database, 
-  Globe, 
+  Database,
+  Globe,
   FileSpreadsheet,
-  RefreshCw,
   X,
-  CheckCircle,
-  AlertCircle,
   Zap,
+  RefreshCw,
   Save,
-  Server
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react'
 import clsx from 'clsx'
-import { useDataApi } from '../../hooks/useDataApi'
+import { useAuthStore } from '../../stores/authStore'
 
-// ============================================
-// TYPES
-// ============================================
+// API Base URL
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
-export interface Connection {
+interface Connection {
   id: string
   name: string
   description?: string
@@ -58,12 +56,8 @@ type ConnectionCategory = 'database' | 'api' | 'excel'
 type DbType = 'postgresql' | 'mssql' | 'mysql'
 type ApiAuthType = 'none' | 'api_key' | 'bearer' | 'basic'
 
-// ============================================
-// COMPONENT
-// ============================================
-
 export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection, theme, isDark }: ConnectionModalProps) {
-  const { apiCall } = useDataApi()
+  const { accessToken } = useAuthStore()
   
   // Ana kategori: database, api, excel
   const [category, setCategory] = useState<ConnectionCategory>('database')
@@ -99,6 +93,23 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // API call helper
+  const apiCall = async (endpoint: string, options: RequestInit = {}) => {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        ...options.headers,
+      },
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.message || 'API hatası')
+    }
+    return data
+  }
+
   // Düzenleme modunda form alanlarını doldur
   useEffect(() => {
     if (editingConnection) {
@@ -108,6 +119,7 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
       if (editingConnection.type === 'api') {
         setCategory('api')
         setApiBaseUrl(editingConnection.host || '')
+        // API auth config'i parse et
         const authConfig = (editingConnection.api_auth_config || {}) as any
         if (authConfig.type) {
           setApiAuthType(authConfig.type as ApiAuthType)
@@ -125,12 +137,14 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
         setCategory('excel')
         setFilePath(editingConnection.host || '')
       } else {
+        // Database
         setCategory('database')
         setDbType((editingConnection.type as DbType) || 'postgresql')
         setHost(editingConnection.host || '')
         setPort(String(editingConnection.port || 5432))
         setDatabase(editingConnection.database_name || '')
         setUsername(editingConnection.username || '')
+        // Şifre güvenlik nedeniyle dolmuyor, kullanıcı yeniden girmeli
       }
     }
   }, [editingConnection])
@@ -138,9 +152,10 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
   // DB type değişince port güncelle
   useEffect(() => {
     if (!editingConnection) {
-      if (dbType === 'postgresql') setPort('5432')
-      else if (dbType === 'mssql') setPort('1433')
-      else if (dbType === 'mysql') setPort('3306')
+      // Sadece yeni bağlantıda port otomatik değişsin
+    if (dbType === 'postgresql') setPort('5432')
+    else if (dbType === 'mssql') setPort('1433')
+    else if (dbType === 'mysql') setPort('3306')
     }
   }, [dbType, editingConnection])
 
@@ -189,15 +204,9 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
       
       const result = await apiCall('/data/connections/test', {
         method: 'POST',
-        body: JSON.stringify(testPayload),
-        showErrorToast: false
+        body: JSON.stringify(testPayload)
       })
-      
-      if (result.success) {
-        setTestResult({ success: true, message: result.data?.message || 'Bağlantı başarılı!' })
-      } else {
-        setTestResult({ success: false, message: result.message || 'Bağlantı başarısız' })
-      }
+      setTestResult({ success: true, message: result.data?.message || 'Bağlantı başarılı!' })
     } catch (err: any) {
       setTestResult({ success: false, message: err.message })
     } finally {
@@ -263,25 +272,18 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
       }
       
       // Düzenleme modunda PUT, yeni bağlantıda POST
-      const result = editingConnection 
-        ? await apiCall(`/data/connections/${editingConnection.id}`, {
-            method: 'PUT',
-            body: JSON.stringify(savePayload),
-            showSuccessToast: true,
-            successMessage: 'Bağlantı güncellendi'
-          })
-        : await apiCall('/data/connections', {
-            method: 'POST',
-            body: JSON.stringify(savePayload),
-            showSuccessToast: true,
-            successMessage: 'Bağlantı oluşturuldu'
-          })
-      
-      if (result.success) {
-        onSuccess()
+      if (editingConnection) {
+        await apiCall(`/data/connections/${editingConnection.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(savePayload)
+        })
       } else {
-        setError(result.message || 'Kayıt başarısız')
+      await apiCall('/data/connections', {
+        method: 'POST',
+        body: JSON.stringify(savePayload)
+      })
       }
+      onSuccess()
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -291,256 +293,166 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
 
   if (!isOpen) return null
 
-  const dbSources = [
-    { type: 'postgresql' as DbType, icon: Database, label: 'PostgreSQL', color: 'text-blue-500', desc: 'Open source RDBMS' },
-    { type: 'mssql' as DbType, icon: Server, label: 'SQL Server', color: 'text-red-500', desc: 'Microsoft SQL / Azure' },
-    { type: 'mysql' as DbType, icon: Database, label: 'MySQL', color: 'text-orange-500', desc: 'MySQL / MariaDB' },
-  ]
-
-  const isFormValid = category === 'database' 
-    ? (host && database && username)
-    : category === 'api' 
-    ? apiBaseUrl 
-    : filePath
+  const getCategoryIcon = () => {
+    if (category === 'database') return <Database className="h-5 w-5 text-white" />
+    if (category === 'api') return <Globe className="h-5 w-5 text-white" />
+    return <FileSpreadsheet className="h-5 w-5 text-white" />
+  }
+  
+  const getCategoryGradient = () => {
+    if (category === 'database') return 'from-blue-500 to-indigo-600'
+    if (category === 'api') return 'from-emerald-500 to-teal-600'
+    return 'from-green-500 to-lime-600'
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className={clsx(
-        'w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden',
-        theme.cardBg
-      )}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className={clsx('relative w-full max-w-2xl rounded-2xl shadow-2xl', theme.cardBg)}>
         {/* Header */}
         <div className={clsx('px-6 py-4 border-b flex items-center justify-between', isDark ? 'border-slate-700' : 'border-slate-200')}>
-          <h2 className={clsx('text-xl font-bold', theme.cardTitle)}>
-            {editingConnection ? 'Bağlantıyı Düzenle' : 'Yeni Bağlantı'}
-          </h2>
-          <button onClick={onClose} className={clsx('p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700', theme.contentText)}>
+          <div className="flex items-center gap-3">
+            <div className={clsx('w-10 h-10 bg-gradient-to-br rounded-xl flex items-center justify-center', getCategoryGradient())}>
+              {getCategoryIcon()}
+            </div>
+            <div>
+              <h2 className={clsx('text-lg font-bold', theme.contentText)}>
+                {editingConnection ? 'Bağlantıyı Düzenle' : 'Yeni Bağlantı'}
+              </h2>
+              <p className={clsx('text-sm', theme.contentTextMuted)}>
+                {editingConnection ? 'Bağlantı ayarlarını güncelleyin' : 'Veri kaynağı bağlantısı ekle'}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className={clsx('p-2 rounded-lg', theme.buttonSecondary)}>
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-          {/* Error message */}
+        {/* Body */}
+        <div className="p-6 space-y-5 max-h-[65vh] overflow-y-auto">
           {error && (
             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
               {error}
             </div>
           )}
 
-          {/* Category Selection */}
+          {/* Kaynak Tipi Seçimi */}
           <div>
-            <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Bağlantı Tipi</label>
+            <label className={clsx('block text-sm font-medium mb-3', theme.contentText)}>Kaynak Tipi *</label>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { type: 'database' as ConnectionCategory, icon: Database, label: 'Veritabanı', desc: 'PostgreSQL, SQL Server, MySQL' },
-                { type: 'api' as ConnectionCategory, icon: Globe, label: 'REST API', desc: 'HTTP/HTTPS endpoints' },
-                { type: 'excel' as ConnectionCategory, icon: FileSpreadsheet, label: 'Excel/CSV', desc: 'Dosya veya URL' },
-              ].map(({ type, icon: Icon, label, desc }) => (
+                { type: 'database' as ConnectionCategory, label: 'Veritabanı', icon: Database, color: 'blue', desc: 'PostgreSQL, MSSQL, MySQL' },
+                { type: 'api' as ConnectionCategory, label: 'REST API', icon: Globe, color: 'emerald', desc: 'Web servisleri' },
+                { type: 'excel' as ConnectionCategory, label: 'Excel / CSV', icon: FileSpreadsheet, color: 'green', desc: 'Dosya kaynakları' },
+              ].map(({ type, label, icon: Icon, color, desc }) => (
                 <button
                   key={type}
                   onClick={() => setCategory(type)}
                   className={clsx(
-                    'p-4 rounded-xl border-2 text-left transition-all',
-                    category === type
-                      ? 'border-indigo-500 bg-indigo-500/10'
+                    'p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2',
+                    category === type 
+                      ? `border-${color}-500 bg-${color}-500/10` 
                       : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
                   )}
                 >
-                  <Icon className={clsx('h-6 w-6 mb-2', category === type ? 'text-indigo-500' : 'text-slate-400')} />
-                  <div className={clsx('font-semibold text-sm', theme.contentText)}>{label}</div>
-                  <div className="text-xs text-slate-500 mt-1">{desc}</div>
+                  <Icon className={clsx('h-6 w-6', category === type ? `text-${color}-500` : theme.contentTextMuted)} />
+                  <span className={clsx('font-bold text-sm', theme.contentText)}>{label}</span>
+                  <span className={clsx('text-xs', theme.contentTextMuted)}>{desc}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Connection Name */}
+          {/* Bağlantı Adı - Her tip için ortak */}
           <div>
             <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Bağlantı Adı *</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Örn: Production DB"
+              placeholder="Örn: Ana Veritabanı, Satış API, Günlük Rapor"
               className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
             />
           </div>
 
-          {/* Database Fields */}
+          {/* DATABASE ALANLARI */}
           {category === 'database' && (
             <>
               <div className={clsx('border-t pt-4', isDark ? 'border-slate-700' : 'border-slate-200')}>
                 <h4 className={clsx('text-sm font-bold flex items-center gap-2 mb-4', theme.contentText)}>
-                  <Database className="h-4 w-4 text-indigo-500" /> Veritabanı Seçimi
+                  <Database className="h-4 w-4 text-blue-500" /> Veritabanı Ayarları
                 </h4>
-                <div className="grid grid-cols-3 gap-3">
-                  {dbSources.map(({ type, icon: Icon, label, color, desc }) => (
-                    <button
-                      key={type}
-                      onClick={() => setDbType(type)}
-                      className={clsx(
-                        'p-3 rounded-lg border-2 text-left transition-all',
-                        dbType === type
-                          ? 'border-indigo-500 bg-indigo-500/10'
-                          : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
-                      )}
-                    >
-                      <Icon className={clsx('h-5 w-5 mb-1', color)} />
-                      <div className={clsx('font-medium text-sm', theme.contentText)}>{label}</div>
-                      <div className="text-xs text-slate-500">{desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Host *</label>
-                  <input
-                    type="text"
-                    value={host}
-                    onChange={(e) => setHost(e.target.value)}
-                    placeholder="localhost veya IP"
-                    className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  />
-                </div>
-                <div>
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Port</label>
-                  <input
-                    type="text"
-                    value={port}
-                    onChange={(e) => setPort(e.target.value)}
-                    className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Veritabanı Adı *</label>
-                <input
-                  type="text"
-                  value={database}
-                  onChange={(e) => setDatabase(e.target.value)}
-                  placeholder="my_database"
-                  className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Kullanıcı Adı *</label>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="postgres"
-                    className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  />
-                </div>
-                <div>
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Şifre</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  />
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* API Fields */}
-          {category === 'api' && (
-            <div className={clsx('border-t pt-4', isDark ? 'border-slate-700' : 'border-slate-200')}>
-              <h4 className={clsx('text-sm font-bold flex items-center gap-2 mb-4', theme.contentText)}>
-                <Globe className="h-4 w-4 text-emerald-500" /> API Ayarları
-              </h4>
-              
-              <div className="mb-4">
-                <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Base URL *</label>
-                <input
-                  type="text"
-                  value={apiBaseUrl}
-                  onChange={(e) => setApiBaseUrl(e.target.value)}
-                  placeholder="https://api.example.com/v1"
-                  className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                />
-              </div>
-
-              <div className="mb-4">
-                <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Kimlik Doğrulama</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { type: 'none' as ApiAuthType, label: 'Yok' },
-                    { type: 'api_key' as ApiAuthType, label: 'API Key' },
-                    { type: 'bearer' as ApiAuthType, label: 'Bearer Token' },
-                    { type: 'basic' as ApiAuthType, label: 'Basic Auth' },
-                  ].map(({ type, label }) => (
-                    <button
-                      key={type}
-                      onClick={() => setApiAuthType(type)}
-                      className={clsx(
-                        'p-2 rounded-lg border-2 text-xs font-medium transition-all',
-                        apiAuthType === type
-                          ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
-                          : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {apiAuthType === 'api_key' && (
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div>
-                    <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>API Key</label>
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="sk_live_..."
-                      className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                    />
-                  </div>
-                  <div>
-                    <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Header Adı</label>
-                    <input
-                      type="text"
-                      value={apiKeyHeader}
-                      onChange={(e) => setApiKeyHeader(e.target.value)}
-                      placeholder="X-API-Key"
-                      className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {apiAuthType === 'bearer' && (
+                
+                {/* DB Type */}
                 <div className="mb-4">
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Bearer Token</label>
-                  <input
-                    type="password"
-                    value={bearerToken}
-                    onChange={(e) => setBearerToken(e.target.value)}
-                    placeholder="eyJhbGciOiJIUzI1NiIs..."
-                    className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  />
+                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Veritabanı Tipi</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { type: 'postgresql' as DbType, label: 'PostgreSQL' },
+                      { type: 'mssql' as DbType, label: 'SQL Server' },
+                      { type: 'mysql' as DbType, label: 'MySQL' },
+                    ].map(({ type, label }) => (
+                      <button
+                        key={type}
+                        onClick={() => setDbType(type)}
+                        className={clsx(
+                          'p-2 rounded-lg border-2 text-sm font-medium transition-all',
+                          dbType === type
+                            ? 'border-blue-500 bg-blue-500/10 text-blue-600'
+                            : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              )}
 
-              {apiAuthType === 'basic' && (
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div>
-                    <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Kullanıcı Adı</label>
+                {/* Host & Port */}
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="col-span-2">
+                    <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Host *</label>
                     <input
                       type="text"
-                      value={basicUsername}
-                      onChange={(e) => setBasicUsername(e.target.value)}
+                      value={host}
+                      onChange={(e) => setHost(e.target.value)}
+                      placeholder="localhost veya IP"
+                      className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                    />
+                  </div>
+                  <div>
+                    <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Port</label>
+                    <input
+                      type="text"
+                      value={port}
+                      onChange={(e) => setPort(e.target.value)}
+                      className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                    />
+                  </div>
+                </div>
+
+                {/* Database Name */}
+                <div className="mb-4">
+                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Veritabanı Adı *</label>
+                  <input
+                    type="text"
+                    value={database}
+                    onChange={(e) => setDatabase(e.target.value)}
+                    placeholder="database_name"
+                    className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                  />
+                </div>
+
+                {/* Username & Password */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Kullanıcı Adı *</label>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="username"
                       className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
                     />
                   </div>
@@ -548,91 +460,211 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
                     <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Şifre</label>
                     <input
                       type="password"
-                      value={basicPassword}
-                      onChange={(e) => setBasicPassword(e.target.value)}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
                       className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
                     />
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            </>
           )}
 
-          {/* Excel Fields */}
-          {category === 'excel' && (
-            <div className={clsx('border-t pt-4', isDark ? 'border-slate-700' : 'border-slate-200')}>
-              <h4 className={clsx('text-sm font-bold flex items-center gap-2 mb-4', theme.contentText)}>
-                <FileSpreadsheet className="h-4 w-4 text-green-500" /> Excel / CSV Ayarları
-              </h4>
-              
-              <div className="mb-4">
-                <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Dosya Tipi</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setFileType('xlsx')}
-                    className={clsx(
-                      'p-2 rounded-lg border-2 text-sm font-medium transition-all',
-                      fileType === 'xlsx'
-                        ? 'border-green-500 bg-green-500/10 text-green-600'
-                        : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
-                    )}
-                  >
-                    Excel (.xlsx)
-                  </button>
-                  <button
-                    onClick={() => setFileType('csv')}
-                    className={clsx(
-                      'p-2 rounded-lg border-2 text-sm font-medium transition-all',
-                      fileType === 'csv'
-                        ? 'border-green-500 bg-green-500/10 text-green-600'
-                        : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
-                    )}
-                  >
-                    CSV (.csv)
-                  </button>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Dosya Yolu veya URL</label>
-                <input
-                  type="text"
-                  value={filePath}
-                  onChange={(e) => setFilePath(e.target.value)}
-                  placeholder="/data/sales.xlsx veya https://..."
-                  className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                />
-              </div>
-
-              {fileType === 'xlsx' && (
+          {/* API ALANLARI */}
+          {category === 'api' && (
+            <>
+              <div className={clsx('border-t pt-4', isDark ? 'border-slate-700' : 'border-slate-200')}>
+                <h4 className={clsx('text-sm font-bold flex items-center gap-2 mb-4', theme.contentText)}>
+                  <Globe className="h-4 w-4 text-emerald-500" /> API Ayarları
+                </h4>
+                
+                {/* Base URL */}
                 <div className="mb-4">
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Sayfa Adı (Opsiyonel)</label>
+                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Base URL *</label>
                   <input
                     type="text"
-                    value={sheetName}
-                    onChange={(e) => setSheetName(e.target.value)}
-                    placeholder="Sheet1 (boş bırakılırsa ilk sayfa)"
-                    className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                    value={apiBaseUrl}
+                    onChange={(e) => setApiBaseUrl(e.target.value)}
+                    placeholder="https://api.example.com/v1"
+                    className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
                   />
                 </div>
-              )}
 
-              <label className={clsx(
-                'flex items-center gap-3 p-3 rounded-lg border cursor-pointer',
-                isDark ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-50'
-              )}>
-                <input
-                  type="checkbox"
-                  checked={hasHeader}
-                  onChange={(e) => setHasHeader(e.target.checked)}
-                  className="w-5 h-5 text-green-600 rounded"
-                />
-                <span className={clsx('font-medium text-sm', theme.contentText)}>İlk satır başlık satırı</span>
-              </label>
-            </div>
+                {/* Auth Type */}
+                <div className="mb-4">
+                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Kimlik Doğrulama</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { type: 'none' as ApiAuthType, label: 'Yok' },
+                      { type: 'api_key' as ApiAuthType, label: 'API Key' },
+                      { type: 'bearer' as ApiAuthType, label: 'Bearer Token' },
+                      { type: 'basic' as ApiAuthType, label: 'Basic Auth' },
+                    ].map(({ type, label }) => (
+                      <button
+                        key={type}
+                        onClick={() => setApiAuthType(type)}
+                        className={clsx(
+                          'p-2 rounded-lg border-2 text-xs font-medium transition-all',
+                          apiAuthType === type
+                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
+                            : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* API Key alanları */}
+                {apiAuthType === 'api_key' && (
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                      <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>API Key</label>
+                      <input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder="sk_live_..."
+                        className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
+                      />
+                    </div>
+                    <div>
+                      <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Header Adı</label>
+                      <input
+                        type="text"
+                        value={apiKeyHeader}
+                        onChange={(e) => setApiKeyHeader(e.target.value)}
+                        placeholder="X-API-Key"
+                        className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Bearer Token alanı */}
+                {apiAuthType === 'bearer' && (
+                  <div className="mb-4">
+                    <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Bearer Token</label>
+                    <input
+                      type="password"
+                      value={bearerToken}
+                      onChange={(e) => setBearerToken(e.target.value)}
+                      placeholder="eyJhbGciOiJIUzI1NiIs..."
+                      className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
+                    />
+                  </div>
+                )}
+
+                {/* Basic Auth alanları */}
+                {apiAuthType === 'basic' && (
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                      <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Kullanıcı Adı</label>
+                      <input
+                        type="text"
+                        value={basicUsername}
+                        onChange={(e) => setBasicUsername(e.target.value)}
+                        className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                      />
+                    </div>
+                    <div>
+                      <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Şifre</label>
+                      <input
+                        type="password"
+                        value={basicPassword}
+                        onChange={(e) => setBasicPassword(e.target.value)}
+                        className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
           )}
 
-          {/* Description */}
+          {/* EXCEL/CSV ALANLARI */}
+          {category === 'excel' && (
+            <>
+              <div className={clsx('border-t pt-4', isDark ? 'border-slate-700' : 'border-slate-200')}>
+                <h4 className={clsx('text-sm font-bold flex items-center gap-2 mb-4', theme.contentText)}>
+                  <FileSpreadsheet className="h-4 w-4 text-green-500" /> Excel / CSV Ayarları
+                </h4>
+                
+                {/* File Type */}
+                <div className="mb-4">
+                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Dosya Tipi</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setFileType('xlsx')}
+                      className={clsx(
+                        'p-2 rounded-lg border-2 text-sm font-medium transition-all',
+                        fileType === 'xlsx'
+                          ? 'border-green-500 bg-green-500/10 text-green-600'
+                          : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
+                      )}
+                    >
+                      Excel (.xlsx)
+                    </button>
+                    <button
+                      onClick={() => setFileType('csv')}
+                      className={clsx(
+                        'p-2 rounded-lg border-2 text-sm font-medium transition-all',
+                        fileType === 'csv'
+                          ? 'border-green-500 bg-green-500/10 text-green-600'
+                          : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
+                      )}
+                    >
+                      CSV (.csv)
+                    </button>
+                  </div>
+                </div>
+
+                {/* File Path */}
+                <div className="mb-4">
+                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Dosya Yolu veya URL</label>
+                  <input
+                    type="text"
+                    value={filePath}
+                    onChange={(e) => setFilePath(e.target.value)}
+                    placeholder="/data/sales.xlsx veya https://..."
+                    className={clsx('w-full px-3 py-2 rounded-lg border font-mono text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
+                  />
+                </div>
+
+                {/* Sheet Name (only for xlsx) */}
+                {fileType === 'xlsx' && (
+                  <div className="mb-4">
+                    <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Sayfa Adı (Opsiyonel)</label>
+                    <input
+                      type="text"
+                      value={sheetName}
+                      onChange={(e) => setSheetName(e.target.value)}
+                      placeholder="Sheet1 (boş bırakılırsa ilk sayfa)"
+                      className={clsx('w-full px-3 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
+                    />
+                  </div>
+                )}
+
+                {/* Has Header */}
+                <label className={clsx(
+                  'flex items-center gap-3 p-3 rounded-lg border cursor-pointer',
+                  isDark ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-50'
+                )}>
+                  <input
+                    type="checkbox"
+                    checked={hasHeader}
+                    onChange={(e) => setHasHeader(e.target.checked)}
+                    className="w-5 h-5 text-green-600 rounded"
+                  />
+                  <span className={clsx('font-medium text-sm', theme.contentText)}>İlk satır başlık satırı</span>
+                </label>
+              </div>
+            </>
+          )}
+
+          {/* Açıklama - Her tip için ortak */}
           <div>
             <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Açıklama</label>
             <textarea
@@ -662,10 +694,12 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
         <div className={clsx('px-6 py-4 border-t flex items-center justify-between', isDark ? 'border-slate-700' : 'border-slate-200')}>
           <button
             onClick={handleTest}
-            disabled={testing || !isFormValid}
+            disabled={testing || (category === 'database' ? (!host || !database || !username) : (category === 'api' ? !apiBaseUrl : !filePath))}
             className={clsx(
               'px-4 py-2 rounded-lg flex items-center gap-2 transition-colors',
-              (testing || !isFormValid) ? 'opacity-50 cursor-not-allowed' : '',
+              (testing || (category === 'database' ? (!host || !database || !username) : (category === 'api' ? !apiBaseUrl : !filePath)))
+                ? 'opacity-50 cursor-not-allowed'
+                : '',
               theme.buttonSecondary
             )}
           >
@@ -682,10 +716,10 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || !name || !isFormValid}
+              disabled={saving || !name || (category === 'database' ? (!host || !database || !username) : (category === 'api' ? !apiBaseUrl : !filePath))}
               className={clsx(
                 'px-4 py-2 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 flex items-center gap-2',
-                (saving || !name || !isFormValid) && 'opacity-50 cursor-not-allowed'
+                (saving || !name || (category === 'database' ? (!host || !database || !username) : (category === 'api' ? !apiBaseUrl : !filePath))) && 'opacity-50 cursor-not-allowed'
               )}
             >
               {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -697,5 +731,3 @@ export function ConnectionModal({ isOpen, onClose, onSuccess, editingConnection,
     </div>
   )
 }
-
-export default ConnectionModal

@@ -3,9 +3,6 @@
  * Re-exports all data-related components
  */
 
-export { ConnectionModal } from './ConnectionModal'
-export type { Connection } from './ConnectionModal'
-
 export { DatasetModal } from './DatasetModal'
 export type { DatasetModalProps } from './DatasetModal'
 
@@ -19,3 +16,4 @@ export { PerformanceTab } from './PerformanceTab'
 export { PreviewModal } from './PreviewModal'
 export { SettingsModal } from './SettingsModal'
 export { ApiPreviewModal } from './ApiPreviewModal'
+export { ConnectionModal } from './ConnectionModal'
