@@ -4,3 +4,4 @@
  */
 
 export { LabelsTab } from './LabelsTab'
+export { RolesTab } from './RolesTab'
