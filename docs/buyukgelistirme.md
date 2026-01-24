@@ -332,7 +332,7 @@ JWT_SECRET=${JWT_SECRET:?JWT_SECRET environment variable is required}
 
 **Başlangıç:** 5,022 satır → **Şimdi:** 3,592 satır (**%28.5 azalma!**)
 
-#### Çıkarılan Tab Componentleri (7/10):
+#### Çıkarılan Tab Componentleri (8/11):
 - ✅ `LabelsTab.tsx` - Dinamik etiket yönetimi (~205 satır)
 - ✅ `RolesTab.tsx` - Rol ve yetki yönetimi (~144 satır)
 - ✅ `ReportCategoriesTab.tsx` - Rapor kategorileri (~178 satır)
@@ -340,14 +340,15 @@ JWT_SECRET=${JWT_SECRET:?JWT_SECRET environment variable is required}
 - ✅ `MonitorTab.tsx` - Sistem izleme (~126 satır)
 - ✅ `LdapTab.tsx` - LDAP entegrasyonu (~421 satır)
 - ✅ `PerformanceTab.tsx` - Cache ve performans ayarları (~285 satır)
-- 🔄 `MasterDataTab.tsx` - Master veriler (sırada, ~360 satır)
-- 🔄 `UsersTab.tsx` - Kullanıcı yönetimi (sırada, ~530 satır)
-- 🔄 `SettingsTab.tsx` - Genel ayarlar (sırada, ~260 satır)
+- 🔄 `MasterDataTab.tsx` - Master veriler (karmaşık, ~360 satır, çok fazla state/modal)
+- 🔄 `UsersTab.tsx` - Kullanıcı yönetimi (karmaşık, ~530 satır)
+- 🔄 `SettingsTab.tsx` - Genel ayarlar (karmaşık, ~260 satır, logo upload dahil)
 
 #### Toplam Kazanım:
 - **Satır azalması:** 1,430 satır (%28.5)
-- **Yeni component dosyaları:** 7 adet
-- **Kalan hedef:** ~800 satır (3 tab daha çıkarılacak)
+- **Yeni component dosyaları:** 8 adet
+- **Kalan hedef:** ~800-1000 satır (3 karmaşık tab daha çıkarılacak)
+- **Not:** Kalan 3 tab (MasterData, Users, Settings) çok karmaşık ve birçok state/modal paylaşıyor
 
 ### 10.8 Kalan İşler - Frontend Refactoring
 - [ ] AdminPage.tsx - MasterDataTab, UsersTab, SettingsTab çıkarılacak
