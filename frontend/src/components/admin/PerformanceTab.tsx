@@ -104,7 +104,9 @@ export function PerformanceTab({ theme, isDark }: PerformanceTabProps) {
   const clearCache = async (type: 'all' | 'dashboard' | 'metrics') => {
     setCacheClearLoading(true)
     try {
-      await apiCall(`/analytics/cache/clear?type=${type}`, { method: 'POST' })
+      // Analytics service DELETE /cache endpoint'i kullanıyor
+      const pattern = type === 'all' ? '*' : type === 'dashboard' ? 'dashboard:*' : 'metric:*'
+      await apiCall(`/analytics/cache?pattern=${encodeURIComponent(pattern)}`, { method: 'DELETE' })
       toast.success(`${type === 'all' ? 'Tüm' : type} cache temizlendi`)
       loadPerfSettings() // Redis info güncelle
     } catch (err: any) {

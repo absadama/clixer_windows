@@ -230,7 +230,7 @@ interface AdminActions {
   setActiveTab: (tab: AdminTab) => void
   
   // Settings
-  setSettings: (settings: SystemSetting[]) => void
+  setSettings: (settings: SystemSetting[] | ((prev: SystemSetting[]) => SystemSetting[])) => void
   setSearchQuery: (query: string) => void
   setLoading: (loading: boolean) => void
   setSaving: (saving: string | null) => void
@@ -526,7 +526,11 @@ export const useAdminStore = create<AdminState & AdminActions>((set) => ({
   // Actions
   setActiveTab: (activeTab) => set({ activeTab }),
   
-  setSettings: (settings) => set({ settings }),
+  setSettings: (settingsOrUpdater) => set((state) => ({
+    settings: typeof settingsOrUpdater === 'function' 
+      ? settingsOrUpdater(state.settings) 
+      : settingsOrUpdater
+  })),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setLoading: (loading) => set({ loading }),
   setSaving: (saving) => set({ saving }),

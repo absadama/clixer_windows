@@ -48,6 +48,7 @@ import {
 // Play ve Zap zaten import edilmiş
 import clsx from 'clsx'
 import { useAuthStore } from '../stores/authStore'
+import { useDataStore } from '../stores/dataStore'
 import { DatasetModal, ConnectionsTab, SqlEditorTab, DatasetsTab, ETLHistoryTab, ClickHouseTab, SystemHealthTab, PerformanceTab, PreviewModal, SettingsModal, ApiPreviewModal, ConnectionModal } from '../components/data'
 import { sqlToClickHouseType, getTypeCompatibilityInfo, getTypeColor } from '../services/typeMapping'
 import { copyToClipboard, translateErrorMessage, formatTimeAgo, formatDuration } from '../services/formatters'
@@ -81,30 +82,28 @@ export default function DataPage() {
   const apiPreview = useApiPreviewState()
   const systemState = useSystemState()
   
-  // Core State
+  // Zustand Store - Enterprise standart (17 state store'da)
+  const {
+    connections, setConnections,
+    datasets, setDatasets,
+    etlJobs, setETLJobs,
+    schedules, setSchedules,
+    workerStatus, setWorkerStatus,
+    error, setError,
+    triggeringAll, setTriggeringAll,
+    showConnectionModal, setShowConnectionModal,
+    showDatasetModal, setShowDatasetModal,
+    showPreviewModal, setShowPreviewModal,
+    showSettingsModal, setShowSettingsModal,
+    selectedConnection, setSelectedConnection,
+    editingConnection, setEditingConnection,
+    selectedDataset, setSelectedDataset,
+    previewData, setPreviewData,
+    previewLoading, setPreviewLoading,
+  } = useDataStore()
+  
+  // Lokal UI State (1 useState - limit 10'un altında)
   const [activeTab, setActiveTab] = useState<'connections' | 'datasets' | 'etl' | 'sql' | 'clickhouse' | 'system' | 'performance'>('connections')
-  const [connections, setConnections] = useState<Connection[]>([])
-  const [datasets, setDatasets] = useState<Dataset[]>([])
-  const [etlJobs, setETLJobs] = useState<ETLJob[]>([])
-  const [schedules, setSchedules] = useState<Schedule[]>([])
-  const [error, setError] = useState<string | null>(null)
-  
-  // ETL Worker Status
-  const [workerStatus, setWorkerStatus] = useState<ETLWorkerStatus | null>(null)
-  const [triggeringAll, setTriggeringAll] = useState(false)
-
-  // Modals
-  const [showConnectionModal, setShowConnectionModal] = useState(false)
-  const [showDatasetModal, setShowDatasetModal] = useState(false)
-  const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null)
-  const [editingConnection, setEditingConnection] = useState<Connection | null>(null)
-  
-  // Dataset Preview & Settings
-  const [showPreviewModal, setShowPreviewModal] = useState(false)
-  const [showSettingsModal, setShowSettingsModal] = useState(false)
-  const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null)
-  const [previewData, setPreviewData] = useState<{ columns: { name: string; type?: string }[], rows: Record<string, any>[], totalRows?: number } | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
 
   // System state from hook
   const {
@@ -602,8 +601,8 @@ export default function DataPage() {
     }
   }
 
-  // Sync durumu takibi
-  const [syncingDatasetId, setSyncingDatasetId] = useState<string | null>(null)
+  // Sync durumu - store'dan
+  const { syncingDatasetId, setSyncingDatasetId } = useDataStore()
 
   // Trigger sync
   const triggerSync = async (datasetId: string, action: string = 'manual_sync') => {
@@ -910,8 +909,9 @@ export default function DataPage() {
   }, [accessToken, activeTab])
 
   // Auto-refresh for running ETL jobs - faster refresh for progress bar
+  const hasRunningJobs = etlJobs.some(j => j.status === 'running' || j.status === 'pending')
+  
   useEffect(() => {
-    const hasRunningJobs = etlJobs.some(j => j.status === 'running' || j.status === 'pending')
     if (!hasRunningJobs) return
     
     const interval = setInterval(() => {
@@ -921,7 +921,7 @@ export default function DataPage() {
     
     return () => clearInterval(interval)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etlJobs.length]) // etlJobs.length daha stabil, gereksiz re-render önler
+  }, [hasRunningJobs]) // Running job varlığına göre interval başlat/durdur
 
   useEffect(() => {
     if (sqlConnectionId && accessToken) {

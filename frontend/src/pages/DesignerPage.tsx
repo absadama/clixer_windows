@@ -5,6 +5,7 @@ import { useTheme } from '../components/Layout'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 import { useAuthStore } from '../stores/authStore'
+import { useDesignerStore } from '../stores/designerStore'
 import RGL, { WidthProvider, Layout as GridLayout, Layouts } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
@@ -132,33 +133,34 @@ export default function DesignerPage() {
   const { theme, isDark } = useTheme()
   const { accessToken } = useAuthStore()
   
-  // State
+  // Zustand Store - Enterprise standart (17 state store'da)
+  const {
+    currentDesign, setCurrentDesign,
+    designs, setDesigns,
+    widgets, setWidgets,
+    selectedWidget, setSelectedWidget,
+    metrics, setMetrics,
+    saving, setSaving,
+    designName, setDesignName,
+    designType, setDesignType,
+    designRoles, setDesignRoles,
+    allowedPositions, setAllowedPositions,
+    selectedCategoryId, setSelectedCategoryId,
+    reportCategories, setReportCategories,
+    designsLoading, setDesignsLoading,
+    metricsLoading, setMetricsLoading,
+    designLoading, setDesignLoading,
+    layouts, setLayouts,
+    resetDesign, loadDesign,
+  } = useDesignerStore()
+  
+  // Lokal UI State (6 useState - limit 10'un altında)
   const [activeTab, setActiveTab] = useState<'studio' | 'metrics'>('studio')
-  const [currentDesign, setCurrentDesign] = useState<Design | null>(null)
-  const [designs, setDesigns] = useState<Design[]>([])
-  const [widgets, setWidgets] = useState<DesignWidget[]>([])
-  const [selectedWidget, setSelectedWidget] = useState<string | null>(null)
   const [showGridLines, setShowGridLines] = useState(true)
   const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop')
   const [currentBreakpoint, setCurrentBreakpoint] = useState<string>('lg')
   const [showWidgetPanel, setShowWidgetPanel] = useState(true)
   const [showDesignDropdown, setShowDesignDropdown] = useState(false)
-  const [metrics, setMetrics] = useState<Metric[]>([])
-  const [saving, setSaving] = useState(false)
-  const [designName, setDesignName] = useState('Yeni Tasarım')
-  const [designType, setDesignType] = useState<'cockpit' | 'analysis'>('cockpit')
-  const [designRoles, setDesignRoles] = useState<string[]>(['ADMIN'])
-  const [allowedPositions, setAllowedPositions] = useState<string[]>([]) // GÜVENLİ VARSAYILAN: kimse (kullanıcı açıkça seçmeli)
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null) // Rapor kategorisi (Güçler Ayrılığı)
-  const [reportCategories, setReportCategories] = useState<any[]>([]) // Mevcut kategoriler
-  
-  // Loading states - kullanıcı deneyimi için
-  const [designsLoading, setDesignsLoading] = useState(false)
-  const [metricsLoading, setMetricsLoading] = useState(false)
-  const [designLoading, setDesignLoading] = useState(false)
-  
-  // Layouts state for responsive grid
-  const [layouts, setLayouts] = useState<Layouts>({})
   
   // Ref to track latest widget positions (for save)
   const widgetsRef = useRef<DesignWidget[]>([])
@@ -416,8 +418,8 @@ export default function DesignerPage() {
     }
   }, [activeTab])
   
-  // Load design
-  const loadDesign = (design: Design) => {
+  // Load design into editor (local function, different from store's loadDesign)
+  const selectDesign = (design: Design) => {
     setCurrentDesign(design)
     
     // Load widgets from design - handle different formats
@@ -480,7 +482,7 @@ export default function DesignerPage() {
       widgets: []
     }
     setDesigns(prev => [...prev, newDesign])
-    loadDesign(newDesign)
+    selectDesign(newDesign)
   }
   
   // Add widget
@@ -738,7 +740,7 @@ export default function DesignerPage() {
                         )}
                       >
                         <button
-                          onClick={() => loadDesign(design)}
+                          onClick={() => selectDesign(design)}
                           className="flex-1 flex items-center text-left"
                         >
                           <LayoutGrid size={14} className="mr-2 shrink-0" />

@@ -1,6 +1,6 @@
 # CLİXER - Enterprise Analytics Platform
 # "Olağanüstü Veri Hızı" - Power BI / Tableau / Qlik Rakibi
-# Versiyon: v4.35 | Tarih: 23 Ocak 2026
+# Versiyon: v4.36 | Tarih: 24 Ocak 2026
 
 ---
 
@@ -73,7 +73,101 @@ Her PR'da kontrol et:
 
 ---
 
-## KRİTİK REFACTORING (23 Ocak 2026)
+## PROAKTİF MODÜLARİZASYON (24 Ocak 2026)
+
+> **ÖNEMLİ: Kod büyümeden ÖNCE böl! Büyüdükten sonra refactoring maliyetli.**
+
+### Yeni Özellik Ekleme Algoritması
+
+```
+1. Yeni özellik eklemeden ÖNCE hedef dosyanın satır sayısını kontrol et
+2. Eğer 400+ satırsa → YENİ DOSYA oluştur
+3. Eğer useState 8+ ise → ZUSTAND STORE kullan
+4. Eğer aynı kod 2. kez yazılacaksa → ORTAK MODÜLE taşı
+5. HİÇBİR ZAMAN "sonra refactor ederiz" deme → ŞİMDİ yap
+```
+
+### Zustand Store Kullanım Kuralları
+
+| Durum | Aksiyon |
+|-------|---------|
+| 5+ birbiriyle ilişkili useState | Store oluştur |
+| State birden fazla component'te kullanılıyor | Store oluştur |
+| Form state'i karmaşık | Store oluştur |
+| Loading/Error state'leri çoğalıyor | Store oluştur |
+
+### Store Pattern (Best Practice)
+
+```typescript
+// stores/[feature]Store.ts
+interface FeatureState {
+  // Data
+  items: Item[]
+  selectedItem: Item | null
+  // UI State
+  loading: boolean
+  error: string | null
+  // Modal State
+  showModal: boolean
+}
+
+interface FeatureActions {
+  // Setters - Functional update desteği
+  setItems: (items: Item[] | ((prev: Item[]) => Item[])) => void
+  // ... diğer actions
+  // Reset
+  reset: () => void
+}
+
+export const useFeatureStore = create<FeatureState & FeatureActions>((set) => ({
+  // Initial state
+  items: [],
+  selectedItem: null,
+  loading: false,
+  error: null,
+  showModal: false,
+  
+  // Actions with functional update support
+  setItems: (itemsOrUpdater) => set((state) => ({
+    items: typeof itemsOrUpdater === 'function' 
+      ? itemsOrUpdater(state.items) 
+      : itemsOrUpdater
+  })),
+  
+  reset: () => set({ items: [], selectedItem: null, loading: false, error: null })
+}))
+```
+
+### Auto-Refresh Pattern (ETL Progress vb.)
+
+```typescript
+// YANLIŞ - etlJobs.length değişmezse interval yenilenmez
+}, [etlJobs.length])
+
+// DOĞRU - Running job varlığına göre interval kontrol edilir
+const hasRunningJobs = etlJobs.some(j => j.status === 'running' || j.status === 'pending')
+useEffect(() => {
+  if (!hasRunningJobs) return
+  const interval = setInterval(() => loadData(), 2000)
+  return () => clearInterval(interval)
+}, [hasRunningJobs])
+```
+
+### Dosya Büyüme Önleme Matrisi
+
+| Mevcut Satır | Yeni Özellik Boyutu | Aksiyon |
+|--------------|---------------------|---------|
+| 0-300 | Küçük (50-) | Aynı dosyaya ekle |
+| 0-300 | Orta (50-150) | Aynı dosyaya ekle |
+| 0-300 | Büyük (150+) | YENİ DOSYA |
+| 300-400 | Küçük (50-) | Aynı dosyaya ekle |
+| 300-400 | Orta (50-150) | YENİ DOSYA |
+| 300-400 | Büyük (150+) | YENİ DOSYA |
+| 400+ | HERHANGİ | MUTLAKA YENİ DOSYA |
+
+---
+
+## KRİTİK REFACTORING (23-24 Ocak 2026)
 
 ### Yapılan Değişiklikler Özeti
 
@@ -103,6 +197,41 @@ Her PR'da kontrol et:
 | API Hatası | `frontend/src/hooks/useAdminApi.ts` | Admin page API calls |
 | Gateway Routing | `gateway/src/index.ts` | Proxy path'leri: `/api/data`, `/api/etl-jobs` |
 | Frontend Proxy | `frontend/vite.config.ts` | Dev server `/api` proxy → localhost:4000 |
+
+### ETL Worker Modülarizasyonu (24 Ocak 2026)
+
+`services/etl-worker/src/index.ts` dosyası 3,922 satırdan ~1,500 satıra düşürüldü.
+
+```
+services/etl-worker/src/
+├── index.ts                          # Ana setup (azaltılmış)
+├── sync/
+│   ├── shared.ts                     # Ortak utilities (logger, db, cache, parseColumnMapping, transformBatch)
+│   ├── strategies/
+│   │   ├── timestamp-sync.ts         # syncByTimestamp()
+│   │   ├── id-sync.ts                # syncById()
+│   │   ├── missing-ranges-sync.ts    # syncMissingRanges()
+│   │   ├── new-records-sync.ts       # syncNewRecordsAfterMaxId()
+│   │   ├── date-delete-insert-sync.ts# syncByDateDeleteInsert()
+│   │   ├── date-partition-sync.ts    # syncByDatePartition()
+│   │   ├── full-refresh-sync.ts      # fullRefresh()
+│   │   └── index.ts                  # Barrel export
+│   ├── databases/
+│   │   ├── postgresql-sync.ts        # streamingPostgreSQLSync()
+│   │   └── index.ts                  # Barrel export
+│   └── index.ts                      # Main sync module export
+├── validation/
+│   ├── type-validator.ts             # validateTypeCompatibility(), areTypesCompatible()
+│   ├── data-validator.ts             # validateDataConsistency(), checkPartitionDuplicates()
+│   └── index.ts                      # Barrel export
+├── locks/
+│   ├── lock-manager.ts               # acquireDatasetLock(), releaseDatasetLock(), isJobCancelled()
+│   └── index.ts                      # Barrel export
+└── scheduler/
+    ├── ldap-scheduler.ts             # checkLDAPSchedules()
+    ├── etl-scheduler.ts              # checkScheduledJobs()
+    └── index.ts                      # Barrel export
+```
 
 ### Yeni Helper Modülleri
 
@@ -145,6 +274,58 @@ Build hatası alındığında sırayla kontrol et:
 2. `frontend/src/pages/AdminPage.tsx` - userForm state'inde `categories`, `canSeeAllCategories` var mı?
 3. `frontend/src/pages/DesignerPage.tsx` - `import toast from 'react-hot-toast'` var mı?
 
+### Frontend useState Azaltma (24 Ocak 2026)
+
+> **KRİTİK BAŞARI:** useState ihlalleri düzeltildi, enterprise standartlara uyum sağlandı.
+
+| Sayfa | Önce | Sonra | Store |
+|-------|------|-------|-------|
+| AdminPage.tsx | 76 useState | 8 useState | `adminStore.ts` |
+| DesignerPage.tsx | 23 useState | 6 useState | `designerStore.ts` (YENİ) |
+| DataPage.tsx | 18 useState | 1 useState | `dataStore.ts` (YENİ) |
+
+### Yeni Frontend Stores (24 Ocak 2026)
+
+```
+frontend/src/stores/
+├── adminStore.ts      # Admin panel state (mevcut, genişletildi)
+├── designerStore.ts   # Designer page state (YENİ)
+├── dataStore.ts       # Data page state (YENİ)
+├── authStore.ts       # Auth state
+├── filterStore.ts     # Filter state
+├── themeStore.ts      # Theme state
+└── settingsStore.ts   # Settings state
+```
+
+#### designerStore.ts İçeriği
+- `designs`, `widgets`, `layouts` - Design data
+- `selectedDesign`, `selectedWidget` - Selection state
+- `metrics`, `reportCategories` - Reference data
+- `loading`, `error` - Async state
+- Tüm setter'lar functional update destekli
+
+#### dataStore.ts İçeriği
+- `connections`, `datasets`, `etlJobs`, `schedules` - Data
+- `workerStatus`, `systemHealth` - Status
+- Modal state'leri (`showConnectionModal`, `showDatasetModal` vb.)
+- Re-exported types: `Connection`, `Dataset`, `ETLJob`, `Schedule`, vb.
+
+### Auto-Refresh Düzeltmesi (24 Ocak 2026)
+
+**Problem:** ETL progress bar canlı güncellenmiyor
+**Sebep:** `[etlJobs.length]` dependency array - job sayısı değişmezse interval yenilenmiyordu
+**Çözüm:** `hasRunningJobs` boolean değerine göre interval kontrol
+
+```typescript
+// DataPage.tsx - düzeltilmiş
+const hasRunningJobs = etlJobs.some(j => j.status === 'running' || j.status === 'pending')
+useEffect(() => {
+  if (!hasRunningJobs) return
+  const interval = setInterval(() => loadETLJobs(), 2000)
+  return () => clearInterval(interval)
+}, [hasRunningJobs])
+```
+
 ---
 
 ## DOKÜMANTASYON YAPISI (23 Ocak 2026)
@@ -185,6 +366,76 @@ Kullanıcıdan "başarılı/çalıştı" mesajı gelmeden .cursorrules'a güncel
 ### 7. Git Push Zorunlu
 Commit sonrası MUTLAKA `git push origin master` yap. Push edilmemiş kod = Production'da YOK.
 
+### 8. Proaktif Modülarizasyon (24 Ocak 2026)
+Yeni özellik eklerken:
+1. **ÖNCE** hedef dosyanın satır sayısını kontrol et
+2. **400+ satır** varsa MUTLAKA yeni dosya oluştur
+3. **8+ useState** varsa MUTLAKA Zustand store kullan
+4. **"Sonra refactor ederiz"** DEMEKTİ YASAK - hemen yap
+5. Mevcut dosyayı şişirmek yerine **yeni modül oluştur**
+
+### 9. Store Setter Pattern
+Zustand setter'lar hem doğrudan değer hem functional update desteklemeli:
+```typescript
+setItems: (itemsOrUpdater) => set((state) => ({
+  items: typeof itemsOrUpdater === 'function' 
+    ? itemsOrUpdater(state.items) 
+    : itemsOrUpdater
+}))
+```
+
+### 10. useEffect Dependency Dikkat
+Array state'lerde `.length` yerine gerçek kontrol değerini kullan:
+```typescript
+// YANLIŞ: jobs.length
+// DOĞRU: jobs.some(j => j.status === 'running')
+```
+
+### 11. API Routing Kuralları (Gateway → Service Mapping)
+Frontend'de API çağrısı yaparken doğru servis prefix'ini kullan:
+```typescript
+// Gateway routing:
+// /api/auth/*     → Auth Service (4001)
+// /api/core/*     → Core Service (4002)
+// /api/data/*     → Data Service (4003)
+// /api/analytics/* → Analytics Service (4005)
+// /api/admin/redis|postgres|clickhouse|system/* → Data Service
+// /api/admin/*    → Core Service (catch-all)
+
+// ÖRNEK - Backup endpoint:
+// YANLIŞ: apiCall('/core/backups')      // Core Service'te yok!
+// DOĞRU:  apiCall('/data/admin/backup/list')  // Data Service'te var
+
+// ÖRNEK - Sessions endpoint:
+// YANLIŞ: apiCall('/core/sessions')     // Core Service'te yok!
+// DOĞRU:  apiCall('/data/admin/sessions')    // Data Service'te var
+```
+
+### 12. Component Mount Data Loading Pattern
+Her Tab/Page component'i mount olduğunda veri yüklemeli:
+```typescript
+// ZORUNLU: useEffect ile ilk yükleme
+useEffect(() => {
+  loadData()
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [])
+
+// YANLIŞ: Sadece "Yenile" butonuna bağlı bırakmak
+// Kullanıcı sayfaya girince boş ekran görür!
+```
+
+### 13. Store Type Re-Export Kuralı
+Store'dan dışa aktarılan tipler, tüketen component'lerde import edilebilmeli:
+```typescript
+// stores/dataStore.ts
+export type { Connection, Dataset, ETLJob } from '../types/data'
+
+// Component'te kullanım:
+import { useDataStore, Connection, Dataset } from '../stores/dataStore'
+// VEYA
+import type { Connection } from '../stores/dataStore'
+```
+
 ---
 
 ## DOKUNMA! KORUNAN DOSYALAR
@@ -201,8 +452,11 @@ Commit sonrası MUTLAKA `git push origin master` yap. Push edilmemiş kod = Prod
 | `services/etl-worker/src/helpers/*` | 23 Ocak refactoring - sync utilities |
 | `services/data-service/src/helpers/*` | 23 Ocak refactoring - DB connection helpers |
 | `frontend/src/components/data/*` | 23 Ocak refactoring - Extracted modals |
+| `frontend/src/stores/designerStore.ts` | 24 Ocak - Designer state management |
+| `frontend/src/stores/dataStore.ts` | 24 Ocak - Data page state management |
+| `frontend/src/stores/adminStore.ts` | 24 Ocak - Admin state (genişletildi) |
 
-**Stabil Versiyon:** v4.34 (23 Ocak 2026)
+**Stabil Versiyon:** v4.36 (24 Ocak 2026)
 
 ---
 
@@ -280,6 +534,8 @@ Sudoers gerekli: `clixer ALL=(ALL) NOPASSWD: /opt/clixer/scripts/restart-all.sh`
 |---------|----------|-------|-------|
 | Tavuk Dünyası (TD) | v4.32 | 19 Ocak 2026 | STABİL |
 | Nişantaşı Üniv | v4.32 | 19 Ocak 2026 | STABİL |
+
+**Not:** v4.36 refactoring (23-24 Ocak) henüz production'a deploy edilmedi. Deploy öncesi test gerekli.
 
 ---
 

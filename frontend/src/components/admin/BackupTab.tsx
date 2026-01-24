@@ -59,7 +59,7 @@ export function BackupTab({ theme, isDark }: BackupTabProps) {
   const loadBackups = useCallback(async () => {
     setBackupsLoading(true)
     try {
-      const result = await apiCall('/core/backups')
+      const result = await apiCall('/data/admin/backup/list')
       setBackups(result.data || [])
     } catch (err: any) {
       toast.error('Yedekler yüklenemedi: ' + err.message)
@@ -72,7 +72,7 @@ export function BackupTab({ theme, isDark }: BackupTabProps) {
   const createBackup = async () => {
     setBackupCreating(true)
     try {
-      await apiCall('/core/backups', { method: 'POST' })
+      await apiCall('/data/admin/backup/create', { method: 'POST' })
       toast.success('Yedek oluşturuldu')
       loadBackups()
     } catch (err: any) {

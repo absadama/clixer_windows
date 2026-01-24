@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useEffect, useCallback, useState } from 'react'
 import DOMPurify from 'dompurify'
 import toast from 'react-hot-toast'
 import { useTheme } from '../components/Layout'
 import { useAuthStore } from '../stores/authStore'
+import { useAdminStore, defaultSettings } from '../stores/adminStore'
 import { 
   Shield,
   Settings,
@@ -38,12 +39,12 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { SystemSetting } from '../types'
-import { LabelsTab, RolesTab, ReportCategoriesTab, BackupTab, MonitorTab, LdapTab, PerformanceTab, UsersTab } from '../components/admin'
+import { LabelsTab, RolesTab, ReportCategoriesTab, BackupTab, MonitorTab, LdapTab, PerformanceTab, UsersTab, MasterDataTab } from '../components/admin'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
-
-// Menü öğeleri - Sadeleştirilmiş
+// Menü öğeleri - icon component'leri gerektiği için burada tanımlı
+// defaultSettings ise adminStore'dan import ediliyor
 const menuItems = [
   { id: 'settings', label: 'Sistem Ayarları', icon: Settings, category: 'SİSTEM' },
   { id: 'labels', label: 'Etiketler', icon: Tag, category: 'SİSTEM' },
@@ -57,182 +58,84 @@ const menuItems = [
   { id: 'ldap', label: 'LDAP / SSO', icon: Key, category: 'KULLANICILAR' },
 ]
 
-// Varsayılan sistem ayarları (DB boşsa kullanılacak)
-const defaultSettings: SystemSetting[] = [
-  // GENEL
-  { key: 'app_name', category: 'general', value: 'Clixer', label: 'Uygulama Adı', description: 'Uygulamanın görünen adı', type: 'string' },
-  { key: 'app_logo', category: 'general', value: '/logo.png', label: 'Logo URL', description: 'Ana logo dosyası yolu', type: 'string' },
-  { key: 'app_favicon', category: 'general', value: '/favicon.ico', label: 'Favicon', description: 'Tarayıcı sekmesi ikonu', type: 'string' },
-  { key: 'app_tagline', category: 'general', value: 'Olağanüstü Veri Hızı', label: 'Slogan', description: 'Uygulama sloganı', type: 'string' },
-  { key: 'support_email', category: 'general', value: 'support@clixer.io', label: 'Destek E-posta', description: 'Müşteri destek e-postası', type: 'string' },
-  { key: 'company_name', category: 'general', value: 'Clixer Analytics', label: 'Şirket Adı', description: 'Yasal şirket adı', type: 'string' },
-  // TEMA
-  { key: 'default_theme', category: 'theme', value: 'clixer', label: 'Varsayılan Tema', description: 'Yeni kullanıcılar için varsayılan tema', type: 'select', options: ['clixer', 'light', 'corporate'] },
-  { key: 'sidebar_collapsed', category: 'theme', value: 'false', label: 'Menü Kapalı Başlasın', description: 'Sidebar varsayılan olarak kapalı mı?', type: 'boolean' },
-  { key: 'primary_color', category: 'theme', value: '#6366f1', label: 'Ana Renk', description: 'Uygulamanın ana rengi (hex)', type: 'string' },
-  // DİL & BÖLGE
-  { key: 'default_language', category: 'locale', value: 'tr', label: 'Varsayılan Dil', description: 'Uygulama dili', type: 'select', options: ['tr', 'en'] },
-  { key: 'timezone', category: 'locale', value: 'Europe/Istanbul', label: 'Zaman Dilimi', description: 'Varsayılan timezone', type: 'string' },
-  { key: 'date_format', category: 'locale', value: 'DD.MM.YYYY', label: 'Tarih Formatı', description: 'Tarih gösterim formatı', type: 'select', options: ['DD.MM.YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'] },
-  { key: 'currency', category: 'locale', value: 'TRY', label: 'Para Birimi', description: 'Varsayılan para birimi', type: 'select', options: ['TRY', 'USD', 'EUR'] },
-  { key: 'number_format', category: 'locale', value: '1.234,56', label: 'Sayı Formatı', description: 'Sayısal değer gösterimi', type: 'select', options: ['1.234,56', '1,234.56'] },
-  // GÜVENLİK
-  { key: 'session_timeout', category: 'security', value: '30', label: 'Oturum Zaman Aşımı (dk)', description: 'İşlem yapılmadığında oturum kapanma süresi', type: 'number' },
-  { key: 'password_min_length', category: 'security', value: '8', label: 'Min. Şifre Uzunluğu', description: 'Şifre için minimum karakter sayısı', type: 'number' },
-  { key: 'require_2fa', category: 'security', value: 'false', label: '2FA Zorunlu', description: 'İki faktörlü doğrulama zorunlu mu?', type: 'boolean' },
-  { key: 'max_login_attempts', category: 'security', value: '5', label: 'Max Giriş Denemesi', description: 'Hesap kilitlenmeden önce max deneme', type: 'number' },
-  { key: 'lockout_duration', category: 'security', value: '15', label: 'Kilitleme Süresi (dk)', description: 'Hesap kilitleme süresi', type: 'number' },
-  // BİLDİRİMLER
-  { key: 'email_notifications', category: 'notifications', value: 'true', label: 'E-posta Bildirimleri', description: 'E-posta ile bildirim gönder', type: 'boolean' },
-  { key: 'push_notifications', category: 'notifications', value: 'true', label: 'Push Bildirimleri', description: 'Tarayıcı push bildirimleri', type: 'boolean' },
-  { key: 'daily_report', category: 'notifications', value: 'false', label: 'Günlük Rapor', description: 'Her gün özet rapor gönder', type: 'boolean' },
-  { key: 'alert_threshold', category: 'notifications', value: '10', label: 'Uyarı Eşiği (%)', description: 'KPI değişim uyarı eşiği', type: 'number' },
-  // FİNANS - Görünürlük
-  { key: 'finance_show_roi', category: 'finance', value: 'true', label: 'ROI Göster', description: 'Finans sayfasında ROI kartını göster', type: 'boolean' },
-  { key: 'finance_show_profit_margin', category: 'finance', value: 'true', label: 'Kar Marjı Göster', description: 'Finans sayfasında kar marjı kartını göster', type: 'boolean' },
-  { key: 'finance_show_expense_breakdown', category: 'finance', value: 'true', label: 'Gider Dağılımı Göster', description: 'Finans sayfasında gider dağılım grafiğini göster', type: 'boolean' },
-  { key: 'finance_show_amortization_warning', category: 'finance', value: 'true', label: 'Amorti Uyarısı Göster', description: 'Finans sayfasında "Amorti Edilemiyor" uyarı kartını göster', type: 'boolean' },
-  // FİNANS - Genel
-  { key: 'fiscal_year_start', category: 'finance', value: '01', label: 'Mali Yıl Başlangıç Ayı', description: 'Mali yılın başladığı ay (1-12)', type: 'number' },
-  { key: 'budget_period', category: 'finance', value: 'monthly', label: 'Bütçe Periyodu', description: 'Bütçe takip periyodu', type: 'select', options: ['weekly', 'monthly', 'quarterly', 'yearly'] },
-  { key: 'tax_rate', category: 'finance', value: '20', label: 'Vergi Oranı (%)', description: 'Varsayılan vergi oranı', type: 'number' },
-  { key: 'finance_target_profit_margin', category: 'finance', value: '25', label: 'Hedef Kar Marjı (%)', description: 'Hedeflenen kar marjı yüzdesi', type: 'number' },
-  { key: 'finance_target_roi', category: 'finance', value: '15', label: 'Hedef ROI (%)', description: 'Hedeflenen yatırım getirisi yüzdesi', type: 'number' },
-  { key: 'finance_currency', category: 'finance', value: 'TRY', label: 'Para Birimi', description: 'Finans hesaplamalarında kullanılacak para birimi', type: 'select', options: ['TRY', 'USD', 'EUR'] },
-]
-
 export default function AdminPage() {
   const { theme, isDark } = useTheme()
   const { accessToken } = useAuthStore()
-  const [activeTab, setActiveTab] = useState('settings')
-  const [settings, setSettings] = useState<SystemSetting[]>([])
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState<string | null>(null)
-  const [editingKey, setEditingKey] = useState<string | null>(null)
-  const [editValue, setEditValue] = useState('')
-  const [seeding, setSeeding] = useState(false)
   
-  // Performans Ayarları States
-  const [perfSettings, setPerfSettings] = useState<any>({})
-  const [perfLoading, setPerfLoading] = useState(false)
-  const [cacheClearLoading, setCacheClearLoading] = useState(false)
-  const [redisInfo, setRedisInfo] = useState<any>(null)
+  // Zustand Store - Tüm state'ler merkezi store'dan alınıyor
+  const {
+    activeTab, setActiveTab,
+    settings, setSettings,
+    loading, setLoading,
+    saving, setSaving,
+    editingKey, setEditingKey,
+    editValue, setEditValue,
+    seeding, setSeeding,
+    perfSettings, setPerfSettings,
+    perfLoading, setPerfLoading,
+    cacheClearLoading, setCacheClearLoading,
+    redisInfo, setRedisInfo,
+    positions, setPositions,
+    editingRole, setEditingRole,
+    rolePermissions, setRolePermissions,
+    ldapConfig, setLdapConfig,
+    ldapForm, setLdapForm,
+    ldapTesting, setLdapTesting,
+    ldapTestResult, setLdapTestResult,
+    ldapGroups, setLdapGroups,
+    loadingLdapGroups, setLoadingLdapGroups,
+    positionMappings, setPositionMappings,
+    storeMappings, setStoreMappings,
+    syncLogs, setSyncLogs,
+    syncing, setSyncing,
+    showMappingModal, setShowMappingModal,
+    mappingForm, setMappingForm,
+    activeSessions, setActiveSessions,
+    sessionsLoading, setSessionsLoading,
+    restartLoading, setRestartLoading,
+    logoUploading, setLogoUploading,
+    logoPreview, setLogoPreview,
+    logoFile, setLogoFile,
+    logoError, setLogoError,
+    logoInfo, setLogoInfo,
+    backups, setBackups,
+    backupsLoading, setBackupsLoading,
+    backupCreating, setBackupCreating,
+    availableStores, setAvailableStores,
+    regions, setRegions,
+    labels, setLabels,
+    labelsLoading, setLabelsLoading,
+    labelsSaving, setLabelsSaving,
+    labelsTab, setLabelsTab,
+    // Master Data State (MasterDataTab için de kullanılıyor)
+    allStores, setAllStores,
+    allRegions, setAllRegions,
+    ownershipGroups, setOwnershipGroups,
+    showStoreModal, setShowStoreModal,
+    showRegionModal, setShowRegionModal,
+    showGroupModal, setShowGroupModal,
+    editingStore, setEditingStore,
+    editingRegion, setEditingRegion,
+    editingGroup, setEditingGroup,
+    storeForm, setStoreForm, resetStoreForm,
+    regionForm, setRegionForm, resetRegionForm,
+    groupForm, setGroupForm, resetGroupForm,
+    masterSearchQuery, setMasterSearchQuery,
+    showImportModal, setShowImportModal,
+    importData, setImportData,
+    importing, setImporting,
+    showDatasetImportModal, setShowDatasetImportModal,
+    availableDatasets, setAvailableDatasets,
+    selectedDatasetId, setSelectedDatasetId,
+    datasetColumns, setDatasetColumns,
+    datasetPreview, setDatasetPreview,
+    datasetTotalRows, setDatasetTotalRows,
+    datasetImportMapping, setDatasetImportMapping,
+    datasetImporting, setDatasetImporting,
+    datasetImportResult, setDatasetImportResult,
+  } = useAdminStore()
   
-  // Kullanıcı Yönetimi States
-  const [positions, setPositions] = useState<any[]>([])
-  
-  // Rol Düzenleme States
-  const [editingRole, setEditingRole] = useState<any>(null)
-  const [rolePermissions, setRolePermissions] = useState<any[]>([])
-  
-  // LDAP States
-  const [ldapConfig, setLdapConfig] = useState<any>(null)
-  const [ldapForm, setLdapForm] = useState({
-    name: 'Default LDAP',
-    server_url: '',
-    base_dn: '',
-    bind_dn: '',
-    bind_password: '',
-    user_search_base: '',
-    user_filter: '(&(objectClass=user)(mail=*))',
-    group_search_base: '',
-    group_filter: '(objectClass=group)',
-    sync_schedule: 'manual',
-    is_active: false
-  })
-  const [ldapTesting, setLdapTesting] = useState(false)
-  const [ldapTestResult, setLdapTestResult] = useState<{success: boolean; message: string} | null>(null)
-  const [ldapGroups, setLdapGroups] = useState<any[]>([])
-  const [loadingLdapGroups, setLoadingLdapGroups] = useState(false)
-  const [positionMappings, setPositionMappings] = useState<any[]>([])
-  const [storeMappings, setStoreMappings] = useState<any[]>([])
-  const [syncLogs, setSyncLogs] = useState<any[]>([])
-  const [syncing, setSyncing] = useState(false)
-  const [showMappingModal, setShowMappingModal] = useState<'position' | 'store' | null>(null)
-  const [mappingForm, setMappingForm] = useState({ ldap_group_dn: '', ldap_group_name: '', position_code: 'VIEWER', store_id: '', store_name: '', grants_all_stores: false })
-  
-  // Sistem Monitörü States
-  const [activeSessions, setActiveSessions] = useState<any[]>([])
-  const [sessionsLoading, setSessionsLoading] = useState(false)
-  const [restartLoading, setRestartLoading] = useState(false)
-  
-  
-  // Logo Upload States
-  const [logoUploading, setLogoUploading] = useState(false)
-  const [logoPreview, setLogoPreview] = useState<string | null>(null)
-  const [logoFile, setLogoFile] = useState<File | null>(null)
-  const [logoError, setLogoError] = useState<string | null>(null)
-  const [logoInfo, setLogoInfo] = useState<{
-    hasCustomLogo: boolean
-    currentLogoUrl: string
-    currentFaviconUrl: string
-  } | null>(null)
-  
-  // Yedekleme States
-  const [backups, setBackups] = useState<any[]>([])
-  const [backupsLoading, setBackupsLoading] = useState(false)
-  const [backupCreating, setBackupCreating] = useState(false)
-  
-  // Mağaza ve bölge verileri (API'den gelecek)
-  const [availableStores, setAvailableStores] = useState<{
-    store_id: string
-    store_name: string
-    store_type?: string
-    region_id?: string
-    region_name?: string
-  }[]>([])
-  const [regions, setRegions] = useState<{ id: string; name: string }[]>([])
-  
-  
-  // Master Veriler States
-  const [masterTab, setMasterTab] = useState<'stores' | 'regions' | 'groups'>('stores')
-  const [allStores, setAllStores] = useState<any[]>([])
-  const [allRegions, setAllRegions] = useState<any[]>([])
-  const [ownershipGroups, setOwnershipGroups] = useState<any[]>([])
-  const [showStoreModal, setShowStoreModal] = useState(false)
-  const [showRegionModal, setShowRegionModal] = useState(false)
-  const [showGroupModal, setShowGroupModal] = useState(false)
-  const [editingStore, setEditingStore] = useState<any>(null)
-  const [editingRegion, setEditingRegion] = useState<any>(null)
-  const [editingGroup, setEditingGroup] = useState<any>(null)
-  const [storeForm, setStoreForm] = useState({
-    code: '', name: '', store_type: 'MAGAZA', ownership_group: 'MERKEZ', region_id: '',
-    city: '', district: '', address: '', phone: '', email: '', manager_name: '', manager_email: '',
-    opening_date: '', square_meters: '', employee_count: '', rent_amount: '', target_revenue: ''
-  })
-  const [regionForm, setRegionForm] = useState({
-    code: '', name: '', description: '', manager_name: '', manager_email: ''
-  })
-  const [groupForm, setGroupForm] = useState({
-    code: '', name: '', description: '', color: '#3B82F6', icon: '🏢'
-  })
-  const [masterSearchQuery, setMasterSearchQuery] = useState('')
-  const [showImportModal, setShowImportModal] = useState<'stores' | 'regions' | null>(null)
-  const [importData, setImportData] = useState<any[]>([])
-  const [importing, setImporting] = useState(false)
-  
-  // Dataset'ten Import States
-  const [showDatasetImportModal, setShowDatasetImportModal] = useState(false)
-  const [availableDatasets, setAvailableDatasets] = useState<any[]>([])
-  const [selectedDatasetId, setSelectedDatasetId] = useState('')
-  const [datasetColumns, setDatasetColumns] = useState<{ name: string; type: string }[]>([])
-  const [datasetPreview, setDatasetPreview] = useState<any[]>([])
-  const [datasetTotalRows, setDatasetTotalRows] = useState(0)
-  const [datasetImportMapping, setDatasetImportMapping] = useState<Record<string, string>>({
-    code: '', name: '', store_type: '', ownership_group: '', region_code: '', 
-    city: '', district: '', address: '', phone: '', email: '', manager_name: ''
-  })
-  const [datasetImporting, setDatasetImporting] = useState(false)
-  const [datasetImportResult, setDatasetImportResult] = useState<{ imported: number; updated: number; errors: string[] } | null>(null)
-  
-  // Etiketler States
-  const [labels, setLabels] = useState<any[]>([])
-  const [labelsLoading, setLabelsLoading] = useState(false)
-  const [labelsSaving, setLabelsSaving] = useState(false)
-  const [labelsTab, setLabelsTab] = useState<'menu' | 'position' | 'data'>('menu')
-  const [editedLabels, setEditedLabels] = useState<Record<string, string>>({})
-  
-  // Rapor Kategorileri States (Güçler Ayrılığı)
+  // Rapor Kategorileri - Lokal state (component'e özel)
   const [reportCategories, setReportCategories] = useState<any[]>([])
   const [reportCategoriesLoading, setReportCategoriesLoading] = useState(false)
   const [showCategoryModal, setShowCategoryModal] = useState(false)
@@ -244,6 +147,9 @@ export default function AdminPage() {
     color: '#6366f1',
     icon: 'Folder'
   })
+  
+  // Etiket düzenleme - Lokal state
+  const [editedLabels, setEditedLabels] = useState<Record<string, string>>({})
   
   // Labels'dan pozisyon ismi çek (dinamik etiket desteği)
   const getPositionLabel = useCallback((positionCode: string, defaultName: string): string => {
@@ -1490,7 +1396,7 @@ export default function AdminPage() {
             {items.map(item => (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => setActiveTab(item.id as any)}
                 className={clsx(
                   'flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
                   activeTab === item.id
@@ -1520,366 +1426,7 @@ export default function AdminPage() {
 
         {/* Master Veriler */}
         {activeTab === 'master' && (
-          <>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className={clsx('p-3 rounded-2xl', isDark ? 'bg-emerald-500/20' : 'bg-emerald-100')}>
-                  <Database size={24} className={isDark ? 'text-emerald-400' : 'text-emerald-600'} />
-                </div>
-                <div>
-                  <h1 className={clsx('text-xl font-bold', theme.contentText)}>Master Veriler</h1>
-                  <p className={clsx('text-sm', theme.contentTextMuted)}>Mağaza, bölge ve grup verilerini yönetin</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Alt Sekmeler */}
-            <div className={clsx('p-1 rounded-xl flex gap-1', theme.cardBg)}>
-              {[
-                { id: 'stores', label: 'Mağazalar', icon: Building2, count: allStores.length },
-                { id: 'regions', label: 'Bölgeler', icon: MapPin, count: allRegions.length },
-                { id: 'groups', label: 'Gruplar', icon: Database, count: ownershipGroups.length },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setMasterTab(tab.id as any)}
-                  className={clsx(
-                    'flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all',
-                    masterTab === tab.id
-                      ? clsx('shadow-sm', isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white text-emerald-600')
-                      : clsx(theme.contentTextMuted, 'hover:bg-white/50 dark:hover:bg-white/5')
-                  )}
-                >
-                  <tab.icon size={18} />
-                  {tab.label}
-                  <span className={clsx('px-2 py-0.5 rounded-full text-xs', isDark ? 'bg-white/10' : 'bg-gray-200')}>{tab.count}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Mağazalar Alt Sekmesi */}
-            {masterTab === 'stores' && (
-              <div className={clsx('rounded-2xl border p-6', theme.cardBg, theme.border)}>
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="text"
-                      placeholder="Mağaza ara..."
-                      value={masterSearchQuery}
-                      onChange={(e) => setMasterSearchQuery(e.target.value)}
-                      className={clsx('px-4 py-2 rounded-xl text-sm w-64', theme.inputBg, theme.inputText)}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => downloadTemplate('stores')}
-                      className={clsx('flex items-center gap-2 px-3 py-2 rounded-xl text-sm', theme.contentTextMuted, 'hover:bg-gray-100 dark:hover:bg-gray-800')}
-                    >
-                      <Download size={16} />
-                      Şablon İndir
-                    </button>
-                    <button
-                      onClick={() => setShowImportModal('stores')}
-                      className={clsx('flex items-center gap-2 px-3 py-2 rounded-xl text-sm', theme.contentTextMuted, 'hover:bg-gray-100 dark:hover:bg-gray-800')}
-                    >
-                      <Upload size={16} />
-                      CSV Import
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowDatasetImportModal(true)
-                        setSelectedDatasetId('')
-                        setDatasetImportMapping({ code: '', name: '', store_type: '', ownership_group: '', region_code: '', city: '', district: '', address: '', phone: '', email: '', manager_name: '' })
-                        setDatasetImportResult(null)
-                      }}
-                      className={clsx('flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-white bg-blue-500 hover:bg-blue-600')}
-                    >
-                      <Database size={16} />
-                      Dataset'ten Import
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditingStore(null)
-                        setStoreForm({ code: '', name: '', store_type: 'MAGAZA', ownership_group: 'MERKEZ', region_id: '', city: '', district: '', address: '', phone: '', email: '', manager_name: '', manager_email: '', opening_date: '', square_meters: '', employee_count: '', rent_amount: '', target_revenue: '' })
-                        setShowStoreModal(true)
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600"
-                    >
-                      <Plus size={16} />
-                      Mağaza Ekle
-                    </button>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className={clsx('border-b', theme.border)}>
-                        <th className={clsx('px-4 py-3 text-left text-xs font-medium uppercase', theme.contentTextMuted)}>Kod</th>
-                        <th className={clsx('px-4 py-3 text-left text-xs font-medium uppercase', theme.contentTextMuted)}>Mağaza Adı</th>
-                        <th className={clsx('px-4 py-3 text-left text-xs font-medium uppercase', theme.contentTextMuted)}>Tip</th>
-                        <th className={clsx('px-4 py-3 text-left text-xs font-medium uppercase', theme.contentTextMuted)}>Grup</th>
-                        <th className={clsx('px-4 py-3 text-left text-xs font-medium uppercase', theme.contentTextMuted)}>Bölge</th>
-                        <th className={clsx('px-4 py-3 text-left text-xs font-medium uppercase', theme.contentTextMuted)}>Şehir</th>
-                        <th className={clsx('px-4 py-3 text-right text-xs font-medium uppercase', theme.contentTextMuted)}>İşlem</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {allStores
-                        .filter(s => !masterSearchQuery || s.name?.toLowerCase().includes(masterSearchQuery.toLowerCase()) || s.code?.toLowerCase().includes(masterSearchQuery.toLowerCase()))
-                        .map((store) => (
-                        <tr key={store.id} className={clsx('border-b hover:bg-gray-50 dark:hover:bg-gray-800/50', theme.border)}>
-                          <td className={clsx('px-4 py-3 text-sm font-mono', theme.contentText)}>{store.code}</td>
-                          <td className={clsx('px-4 py-3 text-sm font-medium', theme.contentText)}>{store.name}</td>
-                          <td className="px-4 py-3">
-                            <span className={clsx(
-                              'px-2.5 py-1 rounded-full text-xs font-semibold',
-                              store.store_type === 'MERKEZ' ? 'bg-blue-500 text-white' :
-                              store.store_type === 'MAGAZA' ? 'bg-emerald-500 text-white' :
-                              store.store_type === 'DEPO' ? 'bg-amber-500 text-white' :
-                              store.store_type === 'FRANCHISE' ? 'bg-purple-500 text-white' :
-                              'bg-gray-500 text-white'
-                            )}>
-                              {store.store_type}
-                            </span>
-                          </td>
-                          <td className={clsx('px-4 py-3 text-sm', theme.contentText)}>{store.ownership_group || '-'}</td>
-                          <td className={clsx('px-4 py-3 text-sm', theme.contentText)}>{store.region_name || '-'}</td>
-                          <td className={clsx('px-4 py-3 text-sm', theme.contentText)}>{store.city || '-'}</td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                onClick={() => {
-                                  setEditingStore(store)
-                                  // Tarih formatını YYYY-MM-DD'ye dönüştür (input type="date" için)
-                                  const formatDate = (dateStr: string | null) => {
-                                    if (!dateStr) return ''
-                                    try {
-                                      return new Date(dateStr).toISOString().split('T')[0]
-                                    } catch {
-                                      return ''
-                                    }
-                                  }
-                                  setStoreForm({
-                                    code: store.code || '',
-                                    name: store.name || '',
-                                    store_type: store.store_type || 'MAGAZA',
-                                    ownership_group: store.ownership_group || 'MERKEZ',
-                                    region_id: store.region_id || '',
-                                    city: store.city || '',
-                                    district: store.district || '',
-                                    address: store.address || '',
-                                    phone: store.phone || '',
-                                    email: store.email || '',
-                                    manager_name: store.manager_name || '',
-                                    manager_email: store.manager_email || '',
-                                    opening_date: formatDate(store.opening_date),
-                                    square_meters: store.square_meters?.toString() || '',
-                                    employee_count: store.employee_count?.toString() || '',
-                                    rent_amount: store.rent_amount?.toString() || '',
-                                    target_revenue: store.target_revenue?.toString() || ''
-                                  })
-                                  setShowStoreModal(true)
-                                }}
-                                className={clsx('p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700', theme.contentTextMuted)}
-                              >
-                                <Edit2 size={14} />
-                              </button>
-                              <button
-                                onClick={() => deleteStore(store.id)}
-                                className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {allStores.length === 0 && (
-                    <div className={clsx('text-center py-12', theme.contentTextMuted)}>
-                      <Building2 size={48} className="mx-auto mb-4 opacity-50" />
-                      <p>Henüz mağaza eklenmemiş</p>
-                      <p className="text-sm mt-1">Üstteki "Mağaza Ekle" butonunu veya "CSV Import" kullanın</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Bölgeler Alt Sekmesi */}
-            {masterTab === 'regions' && (
-              <div className={clsx('rounded-2xl border p-6', theme.cardBg, theme.border)}>
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="text"
-                      placeholder="Bölge ara..."
-                      value={masterSearchQuery}
-                      onChange={(e) => setMasterSearchQuery(e.target.value)}
-                      className={clsx('px-4 py-2 rounded-xl text-sm w-64', theme.inputBg, theme.inputText)}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => downloadTemplate('regions')}
-                      className={clsx('flex items-center gap-2 px-3 py-2 rounded-xl text-sm', theme.contentTextMuted, 'hover:bg-gray-100 dark:hover:bg-gray-800')}
-                    >
-                      <Download size={16} />
-                      Şablon İndir
-                    </button>
-                    <button
-                      onClick={() => setShowImportModal('regions')}
-                      className={clsx('flex items-center gap-2 px-3 py-2 rounded-xl text-sm', theme.contentTextMuted, 'hover:bg-gray-100 dark:hover:bg-gray-800')}
-                    >
-                      <Upload size={16} />
-                      CSV Import
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditingRegion(null)
-                        setRegionForm({ code: '', name: '', description: '', manager_name: '', manager_email: '' })
-                        setShowRegionModal(true)
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600"
-                    >
-                      <Plus size={16} />
-                      Bölge Ekle
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {allRegions
-                    .filter(r => !masterSearchQuery || r.name?.toLowerCase().includes(masterSearchQuery.toLowerCase()) || r.code?.toLowerCase().includes(masterSearchQuery.toLowerCase()))
-                    .map((region) => (
-                    <div key={region.id} className={clsx('rounded-xl border p-4', theme.border, 'hover:shadow-md transition-shadow')}>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={clsx('p-2 rounded-lg', isDark ? 'bg-amber-500/20' : 'bg-amber-100')}>
-                            <MapPin size={20} className={isDark ? 'text-amber-400' : 'text-amber-600'} />
-                          </div>
-                          <div>
-                            <h3 className={clsx('font-medium', theme.contentText)}>{region.name}</h3>
-                            <p className={clsx('text-xs font-mono', theme.contentTextMuted)}>{region.code}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => {
-                              setEditingRegion(region)
-                              setRegionForm({
-                                code: region.code || '',
-                                name: region.name || '',
-                                description: region.description || '',
-                                manager_name: region.manager_name || '',
-                                manager_email: region.manager_email || ''
-                              })
-                              setShowRegionModal(true)
-                            }}
-                            className={clsx('p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700', theme.contentTextMuted)}
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                          <button
-                            onClick={() => deleteRegion(region.id)}
-                            className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                      {region.description && (
-                        <p className={clsx('text-sm mt-3', theme.contentTextMuted)}>{region.description}</p>
-                      )}
-                      <div className={clsx('mt-3 pt-3 border-t', theme.border)}>
-                        <p className={clsx('text-xs', theme.contentTextMuted)}>
-                          {allStores.filter(s => s.region_id === region.id).length} mağaza
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                  {allRegions.length === 0 && (
-                    <div className={clsx('col-span-full text-center py-12', theme.contentTextMuted)}>
-                      <MapPin size={48} className="mx-auto mb-4 opacity-50" />
-                      <p>Henüz bölge eklenmemiş</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Gruplar Alt Sekmesi */}
-            {masterTab === 'groups' && (
-              <div className={clsx('rounded-2xl border p-6', theme.cardBg, theme.border)}>
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className={clsx('font-medium', theme.contentText)}>Sahiplik Grupları</h3>
-                  <button
-                    onClick={() => {
-                      setEditingGroup(null)
-                      setGroupForm({ code: '', name: '', description: '', color: '#3B82F6', icon: '🏢' })
-                      setShowGroupModal(true)
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600"
-                  >
-                    <Plus size={16} />
-                    Grup Ekle
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {ownershipGroups.map((group) => (
-                    <div key={group.id || group.code} className={clsx('rounded-xl border p-4', theme.border, 'hover:shadow-md transition-shadow')}>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="text-2xl">{group.icon || '🏢'}</div>
-                          <div>
-                            <h3 className={clsx('font-medium', theme.contentText)}>{group.name}</h3>
-                            <p className={clsx('text-xs font-mono', theme.contentTextMuted)}>{group.code}</p>
-                          </div>
-                        </div>
-                        {group.id && (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => {
-                                setEditingGroup(group)
-                                setGroupForm({
-                                  code: group.code || '',
-                                  name: group.name || '',
-                                  description: group.description || '',
-                                  color: group.color || '#3B82F6',
-                                  icon: group.icon || '🏢'
-                                })
-                                setShowGroupModal(true)
-                              }}
-                              className={clsx('p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700', theme.contentTextMuted)}
-                            >
-                              <Edit2 size={14} />
-                            </button>
-                            <button
-                              onClick={() => deleteGroup(group.id)}
-                              className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      {group.description && (
-                        <p className={clsx('text-sm mt-3', theme.contentTextMuted)}>{group.description}</p>
-                      )}
-                      <div className={clsx('mt-3 pt-3 border-t', theme.border)}>
-                        <p className={clsx('text-xs', theme.contentTextMuted)}>
-                          {allStores.filter(s => s.ownership_group === group.code).length} mağaza
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
+          <MasterDataTab theme={theme} isDark={isDark} accessToken={accessToken} />
         )}
 
         {/* Sistem Ayarları */}

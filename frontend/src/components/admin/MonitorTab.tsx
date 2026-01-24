@@ -62,7 +62,7 @@ export function MonitorTab({ theme, isDark }: MonitorTabProps) {
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true)
     try {
-      const result = await apiCall('/core/sessions')
+      const result = await apiCall('/data/admin/sessions')
       setActiveSessions(result.data || [])
     } catch (err: any) {
       toast.error('Oturumlar yüklenemedi: ' + err.message)
@@ -74,7 +74,7 @@ export function MonitorTab({ theme, isDark }: MonitorTabProps) {
   // Kill session
   const killSession = async (userId: string) => {
     try {
-      await apiCall(`/core/sessions/${userId}`, { method: 'DELETE' })
+      await apiCall(`/data/admin/sessions/${userId}`, { method: 'DELETE' })
       toast.success('Oturum sonlandırıldı')
       loadSessions()
     } catch (err: any) {
@@ -88,7 +88,7 @@ export function MonitorTab({ theme, isDark }: MonitorTabProps) {
     
     setRestartLoading(true)
     try {
-      await apiCall('/core/system/restart', { method: 'POST' })
+      await apiCall('/core/admin/system/restart', { method: 'POST' })
       toast.success('Sistem yeniden başlatıldı')
       // Biraz bekleyip oturumları yenile
       setTimeout(() => {

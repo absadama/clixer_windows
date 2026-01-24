@@ -3,7 +3,7 @@
  * Dinamik etiketler yönetimi (menü, pozisyon, veri etiketleri)
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Tag, RefreshCw, Save, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
@@ -113,7 +113,7 @@ export function LabelsTab({ theme, isDark }: LabelsTabProps) {
         return { label_type: type, label_key: labelKey, label_value: value }
       })
       await apiCall('/core/labels/batch', {
-        method: 'POST',
+        method: 'PUT',  // Backend PUT endpoint kullanıyor
         body: JSON.stringify({ labels: labelsToSave })
       })
       toast.success('Etiketler kaydedildi')
@@ -142,6 +142,12 @@ export function LabelsTab({ theme, isDark }: LabelsTabProps) {
         : defaultDataLabels[key]
     return editedLabels[`${type}:${key}`] || defaultValue || key
   }
+
+  // Load labels on mount
+  useEffect(() => {
+    loadLabels()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="space-y-6">

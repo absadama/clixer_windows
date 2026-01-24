@@ -2432,6 +2432,32 @@ app.post('/performance/postgres/vacuum/:table', authenticate, authorize(ROLES.AD
 });
 
 /**
+ * PostgreSQL REINDEX çalıştır
+ */
+app.post('/performance/postgres/reindex/:table', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { table } = req.params;
+    
+    // Güvenlik: Tablo adı kontrolü
+    const validTable = await db.queryOne(
+      'SELECT tablename FROM pg_tables WHERE schemaname = $1 AND tablename = $2',
+      ['public', table]
+    );
+    
+    if (!validTable) {
+      throw new NotFoundError(`Tablo bulunamadı: ${table}`);
+    }
+    
+    await db.query(`REINDEX TABLE ${table}`);
+    
+    logger.info('REINDEX executed', { table, userId: req.user!.userId });
+    res.json({ success: true, message: `REINDEX TABLE ${table} tamamlandı` });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * PostgreSQL kullanılmayan index sil
  */
 app.delete('/performance/postgres/index/:indexName', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
