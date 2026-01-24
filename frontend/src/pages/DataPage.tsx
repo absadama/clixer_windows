@@ -49,6 +49,8 @@ import {
 import clsx from 'clsx'
 import { useAuthStore } from '../stores/authStore'
 import { DatasetModal, ConnectionsTab, SqlEditorTab, DatasetsTab, ETLHistoryTab, ClickHouseTab, SystemHealthTab, PerformanceTab, PreviewModal, SettingsModal, ApiPreviewModal, ConnectionModal } from '../components/data'
+import { sqlToClickHouseType, getTypeCompatibilityInfo, getTypeColor } from '../services/typeMapping'
+import { copyToClipboard, translateErrorMessage, formatTimeAgo, formatDuration } from '../services/formatters'
 
 // API Base URL
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -199,130 +201,7 @@ function cronToShortCode(cron: string): string {
   return cronMap[cron] || '1h'
 }
 
-// ============================================
-// TİP UYUMLULUK KONTROLÜ
-// ============================================
-
-const SQL_TO_CLICKHOUSE_TYPE: Record<string, string> = {
-  // ============ INTEGER TYPES ============
-  // PostgreSQL
-  'int': 'Int32', 'int4': 'Int32', 'integer': 'Int32',
-  'int2': 'Int16', 'smallint': 'Int16',
-  'int8': 'Int64', 'bigint': 'Int64',
-  'serial': 'Int32', 'bigserial': 'Int64', 'smallserial': 'Int16',
-  'oid': 'UInt32',
-  // MySQL
-  'tinyint': 'Int8', 'mediumint': 'Int32', 'year': 'Int16',
-  // Oracle
-  'number': 'Float64', 'pls_integer': 'Int32', 'binary_integer': 'Int32',
-  
-  // ============ FLOAT TYPES ============
-  // PostgreSQL
-  'float': 'Float64', 'float4': 'Float32', 'float8': 'Float64',
-  'real': 'Float32', 'double': 'Float64', 'double precision': 'Float64',
-  'decimal': 'Float64', 'numeric': 'Float64', 'money': 'Float64',
-  // MySQL
-  'newdecimal': 'Float64',  // MySQL decimal (internal type 246)
-  // MSSQL
-  'smallmoney': 'Float64',
-  // Oracle
-  'binary_float': 'Float32', 'binary_double': 'Float64',
-  
-  // ============ STRING TYPES ============
-  // PostgreSQL
-  'text': 'String', 'varchar': 'String', 'char': 'String',
-  'character varying': 'String', 'character': 'String', 'bpchar': 'String',
-  'name': 'String', 'uuid': 'String', 'json': 'String', 'jsonb': 'String',
-  'xml': 'String', 'citext': 'String', 'inet': 'String', 'cidr': 'String', 'macaddr': 'String',
-  // MySQL
-  'tinytext': 'String', 'mediumtext': 'String', 'longtext': 'String',
-  'enum': 'String', 'set': 'String',
-  // MSSQL
-  'nvarchar': 'String', 'nchar': 'String', 'ntext': 'String',
-  'uniqueidentifier': 'String', 'sql_variant': 'String', 'sysname': 'String',
-  // Oracle
-  'varchar2': 'String', 'nvarchar2': 'String', 'clob': 'String', 'nclob': 'String',
-  'long': 'String', 'rowid': 'String',
-  
-  // ============ DATE/TIME TYPES ============
-  // PostgreSQL
-  'date': 'Date', 'time': 'String', 'timetz': 'String', 'interval': 'String',
-  'timestamp': 'DateTime', 'timestamptz': 'DateTime',
-  'timestamp without time zone': 'DateTime', 'timestamp with time zone': 'DateTime',
-  // MySQL
-  'datetime': 'DateTime', 'newdate': 'Date',
-  // MSSQL
-  'datetime2': 'DateTime', 'smalldatetime': 'DateTime', 'datetimeoffset': 'DateTime',
-  // Oracle
-  'timestamp with local time zone': 'DateTime',
-  
-  // ============ BOOLEAN TYPES ============
-  'boolean': 'UInt8', 'bool': 'UInt8', 'bit': 'UInt8',
-  
-  // ============ BINARY TYPES ============
-  // PostgreSQL
-  'bytea': 'String',
-  // MySQL
-  'blob': 'String', 'tinyblob': 'String', 'mediumblob': 'String', 'longblob': 'String',
-  'binary': 'String', 'varbinary': 'String',
-  // MSSQL
-  'image': 'String',
-  // Oracle
-  'raw': 'String', 'long raw': 'String', 'bfile': 'String',
-  
-  // ============ GEOMETRY TYPES ============
-  'geometry': 'String', 'geography': 'String', 'point': 'String',
-  'linestring': 'String', 'polygon': 'String',
-}
-
-function sqlToClickHouseType(sqlType: string): string {
-  if (!sqlType) return 'String'
-  const normalized = sqlType.toLowerCase().trim()
-  const baseType = normalized.replace(/\(.*\)/, '').trim()
-  return SQL_TO_CLICKHOUSE_TYPE[baseType] || SQL_TO_CLICKHOUSE_TYPE[normalized] || 'String'
-}
-
-function getTypeCompatibilityInfo(sourceType: string): { 
-  chType: string
-  compatible: boolean
-  suggestion: string | null
-  isDateType: boolean
-} {
-  const chType = sqlToClickHouseType(sourceType)
-  const normalizedSource = (sourceType || '').toLowerCase()
-  
-  // Date/DateTime tipi kontrolü
-  const isDateType = ['date', 'datetime', 'datetime2', 'timestamp', 'smalldatetime', 'time'].some(t => normalizedSource.includes(t))
-  
-  // Uyumluluk ve öneri
-  if (!sourceType) {
-    return { 
-      chType: 'String', 
-      compatible: false, 
-      suggestion: 'Kaynak tipi bilinmiyor. Varsayılan String kullanılacak.',
-      isDateType: false
-    }
-  }
-  
-  // Date tipi için özel uyarı
-  if (isDateType) {
-    return {
-      chType,
-      compatible: true,
-      suggestion: `⏰ Tarih kolonları MSSQL'den farklı formatta gelebilir. Sorun olursa CONVERT(VARCHAR, kolon, 120) kullanın.`,
-      isDateType: true
-    }
-  }
-  
-  return { chType, compatible: true, suggestion: null, isDateType: false }
-}
-
-function getTypeColor(compatible: boolean, isDark: boolean): string {
-  if (compatible) {
-    return isDark ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-700 border-emerald-300'
-  }
-  return isDark ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-red-100 text-red-700 border-red-300'
-}
+// Type mapping fonksiyonları services/typeMapping.ts'den import ediliyor
 
 // ============================================
 // COMPONENT
@@ -773,11 +652,6 @@ export default function DataPage() {
   }
 
   // Metni panoya kopyala
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    toast.success('Panoya kopyalandı!')
-  }
-  
   // Load ClickHouse tables
   const loadClickhouseTables = async () => {
     setClickhouseLoading(true)
@@ -1758,76 +1632,7 @@ export default function DataPage() {
   }
 
   // Hata mesajlarını Türkçeleştir
-  const translateErrorMessage = (message: string): string => {
-    if (!message) return ''
-    
-    const translations: Record<string, string> = {
-      // ClickHouse hataları
-      'Table .* does not exist': 'Clixer tablosu bulunamadı. Tabloyu oluşturmak için "Şimdi Sync Et" butonuna tıklayın.',
-      'does not exist': 'Clixer tablosu mevcut değil. Sync işlemi başlatıldığında otomatik oluşturulacak.',
-      'Connection refused': 'Clixer DB bağlantısı reddedildi. Servis çalışıyor mu kontrol edin.',
-      'Authentication failed': 'Kimlik doğrulama başarısız. Kullanıcı adı veya şifre hatalı.',
-      'timeout': 'Bağlantı zaman aşımına uğradı. Sunucu erişilebilir mi kontrol edin.',
-      'ECONNREFUSED': 'Bağlantı reddedildi. Hedef sunucu çalışmıyor olabilir.',
-      'ENOTFOUND': 'Sunucu bulunamadı. Host adresini kontrol edin.',
-      'ETIMEDOUT': 'Bağlantı zaman aşımı. Ağ bağlantınızı kontrol edin.',
-      // PostgreSQL hataları
-      'relation .* does not exist': 'Tablo veya view bulunamadı. Kaynak sorguyu kontrol edin.',
-      'permission denied': 'Yetki hatası. Veritabanı kullanıcısının gerekli izinleri var mı kontrol edin.',
-      'syntax error': 'SQL söz dizimi hatası. Sorguyu kontrol edin.',
-      // Genel hatalar
-      'Network Error': 'Ağ hatası. İnternet bağlantınızı kontrol edin.',
-      'Internal Server Error': 'Sunucu hatası. Lütfen daha sonra tekrar deneyin.',
-    }
-    
-    for (const [pattern, translation] of Object.entries(translations)) {
-      if (new RegExp(pattern, 'i').test(message)) {
-        return translation
-      }
-    }
-    
-    // Türkçe değilse orijinal mesajı döndür ama bazı temel çeviriler yap
-    return message
-      .replace('Table', 'Tablo')
-      .replace('does not exist', 'bulunamadı')
-      .replace('Connection', 'Bağlantı')
-      .replace('failed', 'başarısız')
-      .replace('error', 'hata')
-      .replace('timeout', 'zaman aşımı')
-  }
-
-  const formatTimeAgo = (dateStr: string, showTime = false) => {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMs / 3600000)
-    const diffDays = Math.floor(diffMs / 86400000)
-
-    const timeStr = date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
-    
-    if (diffMins < 1) return showTime ? `Az önce (${timeStr})` : 'Az önce'
-    if (diffMins < 60) return showTime ? `${diffMins} dk önce (${timeStr})` : `${diffMins} dk önce`
-    if (diffHours < 24) return showTime ? `${diffHours} saat önce (${timeStr})` : `${diffHours} saat önce`
-    
-    const dateFormatted = date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })
-    return showTime ? `${dateFormatted} ${timeStr}` : `${diffDays} gün önce`
-  }
-
-  // Süre formatı: 306s → "5dk 6sn", 58s → "58sn"
-  const formatDuration = (seconds: number): string => {
-    if (seconds < 60) {
-      return `${seconds}sn`
-    }
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    if (mins < 60) {
-      return secs > 0 ? `${mins}dk ${secs}sn` : `${mins}dk`
-    }
-    const hours = Math.floor(mins / 60)
-    const remainingMins = mins % 60
-    return remainingMins > 0 ? `${hours}sa ${remainingMins}dk` : `${hours}sa`
-  }
+  // Utility fonksiyonları services/formatters.ts'den import ediliyor
 
   const getTypeIcon = (type: string) => {
     const t = type.toLowerCase()
