@@ -289,29 +289,48 @@ JWT_SECRET=${JWT_SECRET:?JWT_SECRET environment variable is required}
   - `components/data/index.ts` - Data component barrel export
   - `components/admin/index.ts` - Admin component barrel export (yapı hazır)
 
-### 10.6 DataPage Component Extraction (23 Ocak 2026)
-- **DatasetModal.tsx** ✅ Başarıyla extract edildi
-  - ~700 satır ayrı component dosyasına taşındı
-  - Kendi internal state'lerini yönetiyor
-  - apiCall internal, onSuccess/onClose props ile bağlı
-  - SQL→ClickHouse tip mapping logic dahil
-  
-- **SettingsModal, ApiPreviewModal, SystemHealthPanel, ETLJobsList** ❌ Atlandı
-  - **Sebep:** Karmaşık state bağımlılıkları
-  - Bu componentler çok sayıda external state ve fonksiyona bağımlı (50+ state/setter)
-  - Proper extraction için Context API veya state management çözümü gerekiyor
-  - Alternatif: Tüm state'leri props olarak geçirmek (prop drilling) - bakım zorluğu yaratır
+### 10.6 DataPage Component Extraction (23 Ocak 2026) ✅ TAMAMLANDI
 
-### 10.7 Kalan İşler - Frontend Refactoring (Gelecek Oturumlar)
-**Öneri:** State management çözümü önce uygulanmalı
-1. [ ] Zustand store'ları genişlet (dataStore, adminStore)
-2. [ ] Component'ler store'dan state alsın (props yerine)
-3. [ ] Ardından component extraction daha kolay olur
+**Başlangıç:** 6,823 satır → **Şimdi:** 1,571 satır (**%77 azalma!**)
 
-**Alternatif yaklaşımlar:**
-- React Context API ile state paylaşımı
-- Custom hooks ile state ve fonksiyonları grupla
-- Compound components pattern
+#### Çıkarılan Tab Componentleri (7/7):
+- ✅ `ConnectionsTab.tsx` - Bağlantı yönetimi
+- ✅ `SqlEditorTab.tsx` - SQL editör
+- ✅ `DatasetsTab.tsx` - Dataset listesi
+- ✅ `ETLHistoryTab.tsx` - ETL geçmişi
+- ✅ `ClickHouseTab.tsx` - ClickHouse tablo yönetimi
+- ✅ `SystemHealthTab.tsx` - Sistem sağlığı
+- ✅ `PerformanceTab.tsx` - Performans danışmanı
+
+#### Çıkarılan Modal Componentleri (4/4):
+- ✅ `PreviewModal.tsx` - Dataset önizleme
+- ✅ `SettingsModal.tsx` - Dataset ayarları
+- ✅ `ApiPreviewModal.tsx` - API önizleme
+- ✅ `ConnectionModal.tsx` - Bağlantı oluşturma/düzenleme
+
+#### Oluşturulan Custom Hooks (8 adet):
+- ✅ `useDatasetSettings.ts` - Dataset ayarları state (25 state)
+- ✅ `useClickHouseManagement.ts` - ClickHouse state (21 state)
+- ✅ `useSqlEditor.ts` - SQL editör state (8 state)
+- ✅ `useApiPreviewState.ts` - API preview state (16 state)
+- ✅ `useSystemState.ts` - Sistem/performans state (8 state)
+- ✅ `useDataApi.ts` - Temel API fonksiyonları
+- ✅ `useClickHouseApi.ts` - ClickHouse API fonksiyonları
+- ✅ `useApiPreview.ts` - API Preview logic
+
+#### Oluşturulan Service Dosyaları (2 adet):
+- ✅ `services/typeMapping.ts` - SQL→ClickHouse tip dönüşümleri
+- ✅ `services/formatters.ts` - Tarih/süre formatlama
+
+#### Oluşturulan Type Dosyaları (1 adet):
+- ✅ `types/data.ts` - Tip tanımları
+
+#### useState Azaltma:
+- **Başlangıç:** 95 useState → **Şimdi:** 18 useState (**%81 azalma!**)
+
+### 10.7 Kalan İşler - Frontend Refactoring
+- [ ] AdminPage.tsx modülerleştirme (4,861 satır)
+- [ ] Kalan 18 useState'i Zustand store'a taşıma (opsiyonel)
 
 ### 10.8 ETL Worker - Sync Stratejileri (Gelecek Oturumlar)
 - [ ] `etl-worker/src/index.ts` - Sync stratejilerini ayır (mssqlSync, mysqlSync, fullRefresh)
@@ -329,12 +348,11 @@ JWT_SECRET=${JWT_SECRET:?JWT_SECRET environment variable is required}
 
 **Enterprise-grade hazırlık:** ✅ Tamamlandı
 **Production güvenlik:** ✅ Güçlendirildi
-**Modüler yapı:** ✅ Backend + Frontend altyapı tamamlandı:
+**Modüler yapı:** ✅ Backend + Frontend TAMAMLANDI:
   - data-service: 5121 → 3833 satır (**-%25**)
   - etl-worker: 4337 → 4067 satır (**-%6**)
   - analytics-service: 3886 → 3776 satır (**-%3**)
-  - DataPage.tsx: ~7400 → ~6800 satır (**-~600 satır** - DatasetModal extraction)
-  - Frontend: useDataApi, useAdminApi hook'ları + ConnectionModal + DatasetModal componentleri
-  - **Toplam yeni dosya:** 8 helper, 2 hook, 2 component
-  
-**Not:** Büyük modal/panel componentlerinin extraction'ı için state management çözümü gerekiyor (detaylar 10.7'de)
+  - **DataPage.tsx: 6,823 → 1,571 satır (-%77!)** ✅
+  - **useState: 95 → 18 (-%81!)** ✅
+  - Frontend: 8 custom hook + 11 component + 2 service + 1 type dosyası
+  - **Toplam yeni dosya:** 22+ dosya oluşturuldu
