@@ -48,7 +48,7 @@ import {
 // Play ve Zap zaten import edilmiş
 import clsx from 'clsx'
 import { useAuthStore } from '../stores/authStore'
-import { DatasetModal, ConnectionsTab, SqlEditorTab, DatasetsTab, ETLHistoryTab, ClickHouseTab, SystemHealthTab, PerformanceTab } from '../components/data'
+import { DatasetModal, ConnectionsTab, SqlEditorTab, DatasetsTab, ETLHistoryTab, ClickHouseTab, SystemHealthTab, PerformanceTab, PreviewModal, SettingsModal } from '../components/data'
 
 // API Base URL
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -2293,746 +2293,90 @@ export default function DataPage() {
       {/* ============================================ */}
       {/* PREVIEW MODAL */}
       {/* ============================================ */}
-      {showPreviewModal && selectedDataset && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className={clsx('rounded-2xl w-full max-w-5xl max-h-[85vh] flex flex-col', theme.cardBg)}>
-            <div className={clsx('p-6 border-b flex items-center justify-between', isDark ? 'border-slate-700' : 'border-slate-200')}>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center">
-                  <Eye className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <h3 className={clsx('font-bold text-lg', theme.contentText)}>{selectedDataset.name}</h3>
-                  <div className="flex items-center gap-3 mt-1">
-                    <code className={clsx('px-1.5 py-0.5 rounded text-xs', isDark ? 'bg-slate-700' : 'bg-slate-100')}>
-                      {selectedDataset.clickhouse_table}
-                    </code>
-                    <span className={clsx(
-                      'px-2 py-0.5 rounded text-xs font-medium',
-                      selectedDataset.status === 'active' ? (isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700') :
-                      selectedDataset.status === 'syncing' ? (isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-700') :
-                      selectedDataset.status === 'error' ? (isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700') :
-                      (isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700')
-                    )}>
-                      {selectedDataset.status === 'active' ? 'Aktif' :
-                       selectedDataset.status === 'syncing' ? 'Sync...' :
-                       selectedDataset.status === 'error' ? 'Hata' : selectedDataset.status}
-                    </span>
-                    {(selectedDataset.total_rows || selectedDataset.last_sync_rows) && (
-                      <span className={clsx('text-xs', theme.contentTextMuted)}>
-                        {(selectedDataset.total_rows || selectedDataset.last_sync_rows)?.toLocaleString()} satır
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {/* Normal Sync */}
-                <button 
-                  onClick={() => triggerSync(selectedDataset.id, 'manual_sync')}
-                  disabled={syncingDatasetId === selectedDataset.id}
-                  className={clsx(
-                    "px-3 py-1.5 text-sm bg-emerald-500 text-white rounded-lg flex items-center gap-1.5 hover:bg-emerald-600 transition-all",
-                    syncingDatasetId === selectedDataset.id && "opacity-50 cursor-not-allowed"
-                  )}
-                  title={syncingDatasetId === selectedDataset.id ? 'Sync başlatılıyor...' : 'Şimdi Sync Et'}
-                >
-                  {syncingDatasetId === selectedDataset.id ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  )}
-                  {syncingDatasetId === selectedDataset.id ? 'Başlatılıyor...' : 'Sync'}
-                </button>
-                
-                {/* Partial Refresh - Tarih aralığı ile yenile */}
-                {selectedDataset.partition_column && (
-                  <div className="relative group">
-                    <button 
-                      className={clsx(
-                        "px-3 py-1.5 text-sm rounded-lg flex items-center gap-1.5 transition-all",
-                        isDark ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'
-                      )}
-                      title="Son X günü sil ve yeniden çek"
-                    >
-                      <Calendar className="h-3.5 w-3.5" />
-                      Kısmi Yenile
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                    <div className={clsx(
-                      "absolute right-0 top-full mt-1 py-1 rounded-lg shadow-xl border z-50 min-w-[160px] hidden group-hover:block",
-                      isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
-                    )}>
-                      {[
-                        { days: 7, label: 'Son 7 Gün' },
-                        { days: 30, label: 'Son 30 Gün' },
-                        { days: 90, label: 'Son 3 Ay' },
-                        { days: 180, label: 'Son 6 Ay' }
-                      ].map(opt => (
-                        <button
-                          key={opt.days}
-                          onClick={async () => {
-                            if (!confirm(`${selectedDataset.name} için son ${opt.days} günlük veri silinip yeniden çekilecek. Devam?`)) return;
-                            try {
-                              const result = await apiCall(`/data/datasets/${selectedDataset.id}/partial-refresh`, {
-                                method: 'POST',
-                                body: JSON.stringify({ days: opt.days })
-                              });
-                              if (result.success) {
-                                toast.success(`${opt.label} yenileme başlatıldı!`);
-                                loadETLJobs();
-                              } else {
-                                toast(result.error || 'Başlatılamadı', { icon: '⚠️' });
-                              }
-                            } catch (err: any) {
-                              toast.error(err.message);
-                            }
-                          }}
-                          className={clsx(
-                            "w-full px-4 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors",
-                            theme.contentText
-                          )}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                <button onClick={() => setShowPreviewModal(false)} className={clsx('p-2 rounded-lg transition-colors', theme.buttonSecondary)}>
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-auto p-6">
-              {previewLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <RefreshCw className="h-8 w-8 animate-spin text-indigo-500" />
-                  <span className={clsx('ml-3', theme.contentTextMuted)}>Veri yükleniyor...</span>
-                </div>
-              ) : previewData && previewData.rows.length > 0 ? (
-                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className={clsx(isDark ? 'bg-slate-800' : 'bg-slate-100')}>
-                        {previewData.columns.map((col, i) => (
-                          <th key={i} className={clsx('px-4 py-3 text-left font-medium', theme.contentText)}>
-                            {typeof col === 'string' ? col : col.name}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className={clsx('divide-y', isDark ? 'divide-slate-700' : 'divide-slate-200')}>
-                      {previewData.rows.map((row, rowIdx) => (
-                        <tr key={rowIdx} className={clsx(isDark ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50')}>
-                          {previewData.columns.map((col, colIdx) => {
-                            const colName = typeof col === 'string' ? col : col.name
-                            return (
-                              <td key={colIdx} className={clsx('px-4 py-2 font-mono text-xs', theme.contentTextMuted)}>
-                                {String(row[colName] ?? '')}
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Database className={clsx('h-12 w-12 mb-4', theme.contentTextMuted)} />
-                  <h4 className={clsx('font-medium mb-2', theme.contentText)}>Veri Bulunamadı</h4>
-                  <p className={clsx('text-sm', theme.contentTextMuted)}>
-                    Bu dataset henüz senkronize edilmedi veya veri içermiyor.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setShowPreviewModal(false)
-                      triggerSync(selectedDataset.id, 'manual_sync')
-                    }}
-                    disabled={syncingDatasetId === selectedDataset.id}
-                    className={clsx(
-                      "mt-4 px-4 py-2 bg-indigo-500 text-white rounded-lg flex items-center gap-2 hover:bg-indigo-600 transition-all",
-                      syncingDatasetId === selectedDataset.id && "opacity-50 cursor-not-allowed"
-                    )}
-                  >
-                    {syncingDatasetId === selectedDataset.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                    <Play className="h-4 w-4" />
-                    )}
-                    {syncingDatasetId === selectedDataset.id ? 'Başlatılıyor...' : 'Şimdi Sync Et'}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className={clsx('p-4 border-t flex items-center justify-between text-sm', isDark ? 'border-slate-700' : 'border-slate-200')}>
-              <div className="flex items-center gap-4">
-                <span className={clsx(theme.contentTextMuted)}>
-                  {previewData?.rows.length || 0} satır gösteriliyor
-                  {previewData?.totalRows && previewData.totalRows > 100 && (
-                    <span> (toplam: {previewData.totalRows.toLocaleString()})</span>
-                  )}
-                </span>
-                {selectedDataset.last_sync_at && (
-                  <span className={clsx('flex items-center gap-1', theme.contentTextMuted)}>
-                    <Clock className="h-3.5 w-3.5" />
-                    Son sync: {formatTimeAgo(selectedDataset.last_sync_at, true)}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => setShowPreviewModal(false)}
-                className={clsx('px-4 py-2 rounded-lg', theme.buttonSecondary)}
-              >
-                Kapat
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PreviewModal
+        theme={theme}
+        isDark={isDark}
+        isOpen={showPreviewModal}
+        dataset={selectedDataset}
+        previewData={previewData}
+        previewLoading={previewLoading}
+        syncingDatasetId={syncingDatasetId}
+        onClose={() => setShowPreviewModal(false)}
+        onSync={triggerSync}
+        onPartialRefresh={async (datasetId, days) => {
+          if (!confirm(`${selectedDataset?.name} için son ${days} günlük veri silinip yeniden çekilecek. Devam?`)) return
+          try {
+            const result = await apiCall(`/data/datasets/${datasetId}/partial-refresh`, {
+              method: 'POST',
+              body: JSON.stringify({ days })
+            })
+            if (result.success) {
+              toast.success(`Son ${days} gün yenileme başlatıldı!`)
+              loadETLJobs()
+            } else {
+              toast(result.error || 'Başlatılamadı', { icon: '⚠️' })
+            }
+          } catch (err: any) {
+            toast.error(err.message)
+          }
+        }}
+        formatTimeAgo={formatTimeAgo}
+      />
 
       {/* ============================================ */}
       {/* SETTINGS MODAL */}
       {/* ============================================ */}
-      {showSettingsModal && selectedDataset && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className={clsx('rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col', theme.cardBg)}>
-            <div className={clsx('p-4 border-b flex items-center justify-between flex-shrink-0', isDark ? 'border-slate-700' : 'border-slate-200')}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-gradient-to-br from-slate-500 to-slate-700 rounded-lg flex items-center justify-center">
-                  <Settings className="h-4 w-4 text-white" />
-                </div>
-                <div>
-                  <h3 className={clsx('font-bold', theme.contentText)}>Dataset Ayarları</h3>
-                  <p className={clsx('text-xs', theme.contentTextMuted)}>{selectedDataset.clickhouse_table}</p>
-                </div>
-              </div>
-              <button onClick={() => setShowSettingsModal(false)} className={clsx('p-2 rounded-lg transition-colors', theme.buttonSecondary)}>
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            
-            <div className="p-4 space-y-3 overflow-y-auto flex-1">
-              <div>
-                <label className={clsx('block text-sm font-medium mb-1', theme.contentText)}>Dataset Adı</label>
-                <input
-                  type="text"
-                  value={newDatasetName}
-                  onChange={(e) => setNewDatasetName(e.target.value)}
-                  className={clsx('w-full px-3 py-2 rounded-lg border text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Sync Stratejisi</label>
-                  <select 
-                    value={newDatasetSyncStrategy}
-                    onChange={(e) => setNewDatasetSyncStrategy(e.target.value)}
-                    className={clsx('w-full px-4 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  >
-                    <option value="full_refresh">Full Refresh (Her şeyi sil-yaz)</option>
-                    <option value="timestamp">Timestamp-Based (Değişenleri çek)</option>
-                    <option value="id">ID-Based (Yeni kayıtları çek)</option>
-                    <option value="date_delete_insert">📅 Tarih Bazlı Sil-Yaz (Son X gün)</option>
-                    <option value="date_partition">🗓️ Date Partition (Sliding Window)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>Sync Sıklığı</label>
-                  <select 
-                    value={newDatasetSyncSchedule}
-                    onChange={(e) => setNewDatasetSyncSchedule(e.target.value)}
-                    className={clsx('w-full px-4 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  >
-                    <option value="manual">Manuel</option>
-                    <option value="1m">⚡ 1 dk (Test)</option>
-                    <option value="5m">Her 5 Dakika</option>
-                    <option value="15m">Her 15 Dakika</option>
-                    <option value="30m">Her 30 Dakika</option>
-                    <option value="1h">Saatlik</option>
-                    <option value="daily">Günlük</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Günlük seçildiğinde saat seçici */}
-              {newDatasetSyncSchedule === 'daily' && (
-                <div>
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>
-                    🕐 Çalışma Saati
-                  </label>
-                  <select
-                    value={scheduledHour}
-                    onChange={(e) => setScheduledHour(parseInt(e.target.value))}
-                    className={clsx('w-full px-4 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  >
-                    {Array.from({ length: 24 }, (_, i) => (
-                      <option key={i} value={i}>
-                        {i.toString().padStart(2, '0')}:00 {i >= 0 && i < 6 ? '🌙' : i >= 6 && i < 12 ? '🌅' : i >= 12 && i < 18 ? '☀️' : '🌆'}
-                      </option>
-                    ))}
-                  </select>
-                  <p className={clsx('mt-1 text-xs', theme.contentTextMuted)}>
-                    Günlük senkronizasyon her gün bu saatte çalışır
-                  </p>
-                </div>
-              )}
-
-              {/* Satır Limiti */}
-              <div>
-                <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>
-                  Satır Limiti
-                  <span className={clsx('ml-2 font-normal text-xs', theme.contentTextMuted)}>(Boş = Sınırsız)</span>
-                </label>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="number"
-                    value={newDatasetRowLimit ?? ''}
-                    onChange={(e) => setNewDatasetRowLimit(e.target.value ? parseInt(e.target.value) : null)}
-                    placeholder="Örn: 50000000"
-                    className={clsx('flex-1 px-3 py-2 rounded-lg border text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  />
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setNewDatasetRowLimit(10000000)}
-                      className={clsx('px-2 py-1.5 rounded text-xs font-medium', isDark ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700')}
-                    >
-                      10M
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewDatasetRowLimit(50000000)}
-                      className={clsx('px-2 py-1.5 rounded text-xs font-medium', isDark ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700')}
-                    >
-                      50M
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewDatasetRowLimit(null)}
-                      className={clsx('px-2 py-1.5 rounded text-xs font-medium', isDark ? 'bg-teal-700 hover:bg-teal-600 text-white' : 'bg-teal-200 hover:bg-teal-300 text-teal-700')}
-                    >
-                      ∞
-                    </button>
-                  </div>
-                </div>
-                <p className={clsx('mt-1 text-xs', theme.contentTextMuted)}>
-                  Mevcut: <strong>{selectedDataset.row_limit ? `${(selectedDataset.row_limit / 1000000).toFixed(0)}M` : '∞ Sınırsız'}</strong>
-                </p>
-              </div>
-
-              {/* Referans Kolon - Timestamp/ID/DatePartition stratejisi için */}
-              {(newDatasetSyncStrategy === 'timestamp' || newDatasetSyncStrategy === 'id' || newDatasetSyncStrategy === 'date_partition') && (
-                <div>
-                  <label className={clsx('block text-sm font-medium mb-2', theme.contentText)}>
-                    Referans Kolon
-                    <span className="text-red-500 ml-1">*</span>
-                  </label>
-                  {settingsColumns.length > 0 ? (
-                    <select
-                      value={newDatasetReferenceColumn}
-                      onChange={(e) => setNewDatasetReferenceColumn(e.target.value)}
-                      className={clsx('w-full px-4 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                    >
-                      <option value="">Kolon Seçin...</option>
-                      {settingsColumns.map(col => (
-                        <option key={col} value={col}>{col}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={newDatasetReferenceColumn}
-                      onChange={(e) => setNewDatasetReferenceColumn(e.target.value)}
-                      placeholder={newDatasetSyncStrategy === 'timestamp' ? 'örn: updated_at, modified_date' : 'örn: id, row_id'}
-                      className={clsx('w-full px-4 py-2 rounded-lg border', theme.inputBg, theme.inputText, theme.inputBorder)}
-                    />
-                  )}
-                  <p className={clsx('text-xs mt-1.5', theme.contentTextMuted)}>
-                    {newDatasetSyncStrategy === 'timestamp' 
-                      ? '⏰ Kaynak tablodaki tarih/zaman kolonu. Sadece bu kolondan sonraki değişiklikler çekilir.' 
-                      : '🔢 Kaynak tablodaki ID kolonu. Sadece son ID\'den büyük yeni kayıtlar çekilir.'}
-                  </p>
-                </div>
-              )}
-
-              {/* Full Refresh için Custom WHERE Koşulu */}
-                    {newDatasetSyncStrategy === 'full_refresh' && (
-                <div className={clsx('p-4 rounded-xl border', isDark ? 'bg-emerald-900/30 border-emerald-500/50' : 'bg-emerald-100 border-emerald-300')}>
-                  <h5 className={clsx('font-semibold mb-2 flex items-center gap-2 text-sm', theme.contentText)}>
-                    🎯 Filtre Koşulu (Opsiyonel)
-                  </h5>
-                  <p className={clsx('text-xs mb-3', theme.contentTextMuted)}>
-                    Tüm tablo yerine belirli bir kısmı senkronize etmek için WHERE koşulu yazın.
-                  </p>
-                  <textarea
-                    value={customWhere}
-                    onChange={(e) => setCustomWhere(e.target.value)}
-                    placeholder="Örnek: tarih >= CURRENT_DATE - INTERVAL '7 days'"
-                    rows={2}
-                    className={clsx('w-full px-3 py-2 rounded-lg border text-sm font-mono', theme.inputBg, theme.inputText, theme.inputBorder)}
-                  />
-                  <div className={clsx('mt-2 text-xs', theme.contentTextMuted)}>
-                    <p className="font-medium mb-1">Örnek Koşullar:</p>
-                    <ul className="space-y-0.5 ml-3">
-                      <li>• <code className="bg-slate-700/50 px-1 rounded">tarih &gt;= CURRENT_DATE - 7</code> → Son 7 gün</li>
-                      <li>• <code className="bg-slate-700/50 px-1 rounded">yil = 2025</code> → Sadece 2025</li>
-                    </ul>
-                  </div>
-                </div>
-              )}
-
-              {/* Tarih Bazlı Sil-Yaz Ayarları (date_delete_insert seçilince görünür) */}
-              {newDatasetSyncStrategy === 'date_delete_insert' && (
-                <div className={clsx('p-4 rounded-xl border', isDark ? 'bg-orange-900/30 border-orange-500/50' : 'bg-orange-100 border-orange-300')}>
-                  <h5 className={clsx('font-semibold mb-3 flex items-center gap-2 text-sm', theme.contentText)}>
-                    📅 Tarih Bazlı Sil-Yaz Ayarları
-                  </h5>
-                  <p className={clsx('text-xs mb-3', theme.contentTextMuted)}>
-                    Partition kurmadan, seçtiğin tarih kolonuna göre "Son X gün" verisini sil ve yeniden yaz.
-                  </p>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* Tarih Kolonu */}
-                    <div>
-                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Tarih Kolonu *</label>
-                      <select
-                        value={newDatasetReferenceColumn}
-                        onChange={(e) => setNewDatasetReferenceColumn(e.target.value)}
-                        className={clsx('w-full px-3 py-2 rounded-lg border text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                      >
-                        <option value="">Tarih kolonu seçin</option>
-                        {settingsColumns.map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Kaç Gün Sil-Yaz */}
-                    <div>
-                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Sil-Yaz Aralığı</label>
-                      <select
-                        value={deleteDays}
-                        onChange={(e) => setDeleteDays(parseInt(e.target.value))}
-                        className={clsx('w-full px-3 py-2 rounded-lg border text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                      >
-                        <option value={0}>🔥 Bugün (Sadece bugün)</option>
-                        <option value={1}>📆 Son 1 gün</option>
-                        <option value={3}>📆 Son 3 gün</option>
-                        <option value={7}>📆 Son 7 gün</option>
-                        <option value={30}>📆 Son 30 gün</option>
-                        <option value={90}>📆 Son 3 ay</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className={clsx('mt-3 p-3 rounded-lg text-xs', isDark ? 'bg-slate-800/50' : 'bg-white/50')}>
-                    <p className={clsx('font-medium mb-1', theme.contentText)}>🔄 Çalışma Mantığı:</p>
-                    <ol className={clsx('list-decimal list-inside space-y-0.5', theme.contentTextMuted)}>
-                      <li>Clixer'dan son {deleteDays === 0 ? 'bugün' : `${deleteDays} gün`} verileri silinir</li>
-                      <li>Kaynak DB'den aynı tarih aralığı çekilir</li>
-                      <li>Yeni veriler Clixer'a yazılır</li>
-                    </ol>
-                  </div>
-                </div>
-              )}
-
-              {/* Partition Ayarları (date_partition seçilince) */}
-                    {newDatasetSyncStrategy === 'date_partition' && (
-                <div className={clsx('p-4 rounded-xl border', isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200')}>
-                  <h5 className={clsx('font-semibold mb-3 flex items-center gap-2 text-sm', theme.contentText)}>
-                    📊 Partition & Refresh Ayarları
-                  </h5>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Partition Kolonu *</label>
-                      <select
-                        value={partitionColumn}
-                        onChange={(e) => setPartitionColumn(e.target.value)}
-                        className={clsx('w-full px-3 py-2 rounded-lg border text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                      >
-                        <option value="">Tarih kolonu seçin</option>
-                        {settingsColumns.map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))}
-                      </select>
-                  </div>
-
-                    <div>
-                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Partition Tipi</label>
-                      <select
-                        value={partitionType}
-                        onChange={(e) => setPartitionType(e.target.value as 'monthly' | 'daily')}
-                        className={clsx('w-full px-3 py-2 rounded-lg border text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                      >
-                        <option value="monthly">Aylık (YYYYMM)</option>
-                        <option value="daily">Günlük (YYYYMMDD)</option>
-                      </select>
-                </div>
-
-                    <div>
-                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Sliding Window (Gün)</label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={365}
-                        value={refreshWindowDays}
-                        onChange={(e) => setRefreshWindowDays(parseInt(e.target.value) || 0)}
-                        className={clsx('w-full px-3 py-2 rounded-lg border text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                      />
-              </div>
-
-                    <div>
-                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Clixer Engine</label>
-                      <select
-                        value={engineType}
-                        onChange={(e) => setEngineType(e.target.value as 'MergeTree' | 'ReplacingMergeTree')}
-                        className={clsx('w-full px-3 py-2 rounded-lg border text-sm', theme.inputBg, theme.inputText, theme.inputBorder)}
-                      >
-                        <option value="MergeTree">MergeTree</option>
-                        <option value="ReplacingMergeTree">ReplacingMergeTree</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 space-y-2">
-                    <label className={clsx('flex items-center gap-2 cursor-pointer')}>
-                      <input
-                        type="checkbox"
-                        checked={detectModified}
-                        onChange={(e) => setDetectModified(e.target.checked)}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className={clsx('text-sm', theme.contentText)}>Geçmiş değişiklikleri algıla</span>
-                    </label>
-                    
-                    {detectModified && (
-                      <select
-                        value={modifiedColumn}
-                        onChange={(e) => setModifiedColumn(e.target.value)}
-                        className={clsx('w-full px-3 py-2 rounded-lg border text-sm ml-6', theme.inputBg, theme.inputText, theme.inputBorder)}
-                      >
-                        <option value="">modified_at kolonu seçin</option>
-                        {settingsColumns.map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))}
-                      </select>
-                    )}
-
-                    <label className={clsx('flex items-center gap-2 cursor-pointer')}>
-                      <input
-                        type="checkbox"
-                        checked={weeklyFullRefresh}
-                        onChange={(e) => setWeeklyFullRefresh(e.target.checked)}
-                        className="w-4 h-4 rounded"
-                      />
-                      <span className={clsx('text-sm', theme.contentText)}>Haftalık full refresh</span>
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              {/* Strateji Açıklaması - Kompakt */}
-              <p className={clsx('text-xs p-2 rounded-lg flex items-center gap-1.5', isDark ? 'bg-slate-800/50 text-slate-400' : 'bg-blue-50 text-blue-700')}>
-                <Info className="h-3.5 w-3.5 flex-shrink-0" />
-                {newDatasetSyncStrategy === 'full_refresh' && 'Full Refresh: Tüm veri sil-yaz. Küçük tablolar için.'}
-                {newDatasetSyncStrategy === 'timestamp' && 'Timestamp: Değişen kayıtları çek. Büyük tablolar için.'}
-                {newDatasetSyncStrategy === 'id' && 'ID-Based: Yeni kayıtları çek. Log tabloları için.'}
-                {newDatasetSyncStrategy === 'date_partition' && 'Date Partition: Sliding window. Büyük satış tabloları için.'}
-              </p>
-
-              {/* Unique Kolon (ORDER BY) - ZORUNLU */}
-              <div className={clsx('p-3 rounded-lg border-2', 
-                uniqueColumn 
-                  ? (isDark ? 'bg-green-900/20 border-green-500/50' : 'bg-green-50 border-green-300')
-                  : (isDark ? 'bg-red-900/30 border-red-500' : 'bg-red-50 border-red-400')
-              )}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-lg">🔑</span>
-                  <span className={clsx('font-medium text-sm', theme.contentText)}>
-                    Unique Kolon (Zorunlu)
-                  </span>
-                  {uniqueColumn ? (
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-500 text-white">✓ Seçildi</span>
-                  ) : (
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-500 text-white">⚠ Zorunlu</span>
-                  )}
-                </div>
-                <p className={clsx('text-xs mb-2', theme.contentTextMuted)}>
-                  Clixer'da veri kaybını önlemek için benzersiz bir kolon seçin. Bu kolon ORDER BY olarak kullanılacak.
-                </p>
-                <select
-                  value={uniqueColumn}
-                  onChange={(e) => setUniqueColumn(e.target.value)}
-                  className={clsx(
-                    'w-full px-3 py-2 rounded-lg border text-sm',
-                    theme.inputBg, theme.inputText,
-                    uniqueColumn ? 'border-green-500' : 'border-red-500'
-                  )}
-                >
-                  <option value="">-- Unique Kolon Seçin --</option>
-                  {sqlResult?.columns?.map(col => (
-                    <option key={col.name} value={col.name}>
-                      {col.name} ({col.type})
-                      {autoDetectedUnique === col.name ? ' ✓ Önerilen' : ''}
-                    </option>
-                  ))}
-                </select>
-                {autoDetectedUnique && (
-                  <p className={clsx('text-xs mt-1', 'text-green-600')}>
-                    💡 "{autoDetectedUnique}" kolonu otomatik algılandı
-                  </p>
-                )}
-                {!uniqueColumn && (
-                  <p className={clsx('text-xs mt-1 font-medium', 'text-amber-600')}>
-                    ⚠️ View/Aggregate için unique olmayabilir. Uyarı ile devam edilebilir.
-                  </p>
-                )}
-              </div>
-
-              {/* RLS (Row-Level Security) Ayarları */}
-              <details className={clsx('rounded-lg', isDark ? 'bg-purple-900/20 border border-purple-500/30' : 'bg-purple-50 border border-purple-200')}>
-                <summary className={clsx('p-3 cursor-pointer font-medium text-sm flex items-center gap-2', theme.contentText)}>
-                  <span>🔒 Satır Güvenliği (RLS)</span>
-                  {(rlsStoreColumn || rlsRegionColumn || rlsGroupColumn) && (
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-500 text-white">Aktif</span>
-                  )}
-                </summary>
-                <div className="px-3 pb-3 space-y-3">
-                  <p className={clsx('text-xs', theme.contentTextMuted)}>
-                    Kullanıcıların sadece yetkili oldukları verileri görmesini sağlar.
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Mağaza Kolonu</label>
-                      <select
-                        value={rlsStoreColumn}
-                        onChange={(e) => setRlsStoreColumn(e.target.value)}
-                        className={clsx('w-full px-2 py-1.5 rounded-lg border text-xs', theme.inputBg, theme.inputText)}
-                      >
-                        <option value="">Seçilmedi</option>
-                        {settingsColumns.map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Bölge Kolonu</label>
-                      <select
-                        value={rlsRegionColumn}
-                        onChange={(e) => setRlsRegionColumn(e.target.value)}
-                        className={clsx('w-full px-2 py-1.5 rounded-lg border text-xs', theme.inputBg, theme.inputText)}
-                      >
-                        <option value="">Seçilmedi</option>
-                        {settingsColumns.map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Grup Kolonu</label>
-                      <select
-                        value={rlsGroupColumn}
-                        onChange={(e) => setRlsGroupColumn(e.target.value)}
-                        className={clsx('w-full px-2 py-1.5 rounded-lg border text-xs', theme.inputBg, theme.inputText)}
-                      >
-                        <option value="">Seçilmedi</option>
-                        {settingsColumns.map(col => (
-                          <option key={col} value={col}>{col}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <p className={clsx('text-xs', theme.contentTextMuted)}>
-                    💡 Bu kolonlar kullanıcının <code>filter_level</code> ve <code>filter_value</code> ayarlarına göre WHERE koşulu oluşturur.
-                  </p>
-                </div>
-              </details>
-
-              {/* Durum ve Bilgi - Kompakt */}
-              <details className={clsx('rounded-lg', isDark ? 'bg-slate-800' : 'bg-slate-100')}>
-                <summary className={clsx('p-3 cursor-pointer font-medium text-sm flex items-center justify-between', theme.contentText)}>
-                  <span>Dataset Bilgileri</span>
-                  <span className={clsx(
-                    'px-2 py-0.5 rounded text-xs font-medium',
-                    selectedDataset.status === 'active' ? (isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700') :
-                    selectedDataset.status === 'error' ? (isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700') :
-                    (isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700')
-                  )}>
-                    {selectedDataset.status === 'active' ? 'Aktif' : selectedDataset.status === 'error' ? 'Hata' : selectedDataset.status}
-                  </span>
-                </summary>
-                <div className="px-3 pb-3">
-                  <ul className={clsx('text-xs space-y-1', theme.contentTextMuted)}>
-                  <li className="flex justify-between">
-                    <span>Bağlantı:</span>
-                    <span className={theme.contentText}>{selectedDataset.connection_name || '-'}</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Son Sync:</span>
-                    <span>{selectedDataset.last_sync_at ? new Date(selectedDataset.last_sync_at).toLocaleString('tr-TR') : 'Hiç'}</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Toplam Satır:</span>
-                      <span className={theme.contentText}>{(selectedDataset.total_rows || selectedDataset.last_sync_rows)?.toLocaleString() || '0'}</span>
-                  </li>
-                </ul>
-              </div>
-              </details>
-
-              {/* Hata Mesajı - Kompakt */}
-              {selectedDataset.status === 'error' && selectedDataset.status_message && (
-                <p className={clsx('text-xs p-2 rounded-lg flex items-center gap-1.5', isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600')}>
-                  <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                        {translateErrorMessage(selectedDataset.status_message)}
-        </p>
-              )}
-
-              {/* Source Query - Kompakt */}
-              {selectedDataset.source_query && (
-                <details className={clsx('rounded-lg', isDark ? 'bg-slate-900' : 'bg-slate-100')}>
-                  <summary className={clsx('p-2 cursor-pointer text-xs font-medium', theme.contentText)}>
-                    SQL Sorgusu
-                  </summary>
-                  <pre className={clsx('p-2 text-xs overflow-x-auto max-h-20', isDark ? 'text-slate-300' : 'text-slate-700')}>
-                    {selectedDataset.source_query}
-                  </pre>
-                </details>
-              )}
-            </div>
-
-            <div className={clsx('p-4 border-t flex items-center justify-between flex-shrink-0', isDark ? 'border-slate-700' : 'border-slate-200')}>
-              <button
-                onClick={handleDeleteDataset}
-                className="px-3 py-1.5 rounded-lg text-red-500 hover:bg-red-500/10 flex items-center gap-2 text-sm"
-              >
-                <Trash2 className="h-4 w-4" />
-                Sil
-              </button>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowSettingsModal(false)}
-                  className={clsx('px-3 py-1.5 rounded-lg text-sm', theme.buttonSecondary)}
-                >
-                  İptal
-                </button>
-                <button
-                  onClick={handleUpdateDataset}
-                  className="px-4 py-1.5 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 text-sm font-medium"
-                >
-                  Kaydet
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <SettingsModal
+        theme={theme}
+        isDark={isDark}
+        isOpen={showSettingsModal}
+        dataset={selectedDataset}
+        newDatasetName={newDatasetName}
+        newDatasetSyncStrategy={newDatasetSyncStrategy}
+        newDatasetSyncSchedule={newDatasetSyncSchedule}
+        newDatasetRowLimit={newDatasetRowLimit}
+        newDatasetReferenceColumn={newDatasetReferenceColumn}
+        scheduledHour={scheduledHour}
+        customWhere={customWhere}
+        deleteDays={deleteDays}
+        partitionColumn={partitionColumn}
+        partitionType={partitionType}
+        refreshWindowDays={refreshWindowDays}
+        engineType={engineType}
+        detectModified={detectModified}
+        modifiedColumn={modifiedColumn}
+        weeklyFullRefresh={weeklyFullRefresh}
+        uniqueColumn={uniqueColumn}
+        autoDetectedUnique={autoDetectedUnique}
+        rlsStoreColumn={rlsStoreColumn}
+        rlsRegionColumn={rlsRegionColumn}
+        rlsGroupColumn={rlsGroupColumn}
+        settingsColumns={settingsColumns}
+        sqlResult={sqlResult}
+        setNewDatasetName={setNewDatasetName}
+        setNewDatasetSyncStrategy={setNewDatasetSyncStrategy}
+        setNewDatasetSyncSchedule={setNewDatasetSyncSchedule}
+        setNewDatasetRowLimit={setNewDatasetRowLimit}
+        setNewDatasetReferenceColumn={setNewDatasetReferenceColumn}
+        setScheduledHour={setScheduledHour}
+        setCustomWhere={setCustomWhere}
+        setDeleteDays={setDeleteDays}
+        setPartitionColumn={setPartitionColumn}
+        setPartitionType={setPartitionType}
+        setRefreshWindowDays={setRefreshWindowDays}
+        setEngineType={setEngineType}
+        setDetectModified={setDetectModified}
+        setModifiedColumn={setModifiedColumn}
+        setWeeklyFullRefresh={setWeeklyFullRefresh}
+        setUniqueColumn={setUniqueColumn}
+        setRlsStoreColumn={setRlsStoreColumn}
+        setRlsRegionColumn={setRlsRegionColumn}
+        setRlsGroupColumn={setRlsGroupColumn}
+        onClose={() => setShowSettingsModal(false)}
+        onSave={handleUpdateDataset}
+        onDelete={handleDeleteDataset}
+        translateErrorMessage={translateErrorMessage}
+      />
 
       {/* ============================================ */}
       {/* API PREVIEW MODAL (Dinamo'dan) */}
