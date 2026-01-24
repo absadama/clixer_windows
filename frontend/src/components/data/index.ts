@@ -11,3 +11,4 @@ export type { DatasetModalProps } from './DatasetModal'
 
 export { ConnectionsTab } from './ConnectionsTab'
 export { SqlEditorTab } from './SqlEditorTab'
+export { DatasetsTab } from './DatasetsTab'
