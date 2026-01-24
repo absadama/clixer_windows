@@ -59,6 +59,7 @@ import { useSqlEditor } from '../hooks/useSqlEditor'
 import { useApiPreviewState } from '../hooks/useApiPreviewState'
 import { useSystemState } from '../hooks/useSystemState'
 import { useDataApi } from '../hooks/useDataApi'
+import { useClickHouseApi } from '../hooks/useClickHouseApi'
 
 // API Base URL
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -177,11 +178,26 @@ export default function DataPage() {
     optimizeChTable: optimizeChTablePerf
   } = dataApi
 
-  // ============================================
-  // REMAINING API CALLS (not yet in hook)
-  // ============================================
+  // ClickHouse API Hook
+  const chApi = useClickHouseApi({
+    apiCall, loadClickhouseTables, loadETLJobs,
+    setSystemActionLoading, setSelectedChTable, setShowChTableModal,
+    setShowDataManagementModal, setDataManagementTable, setDataManagementDatasetId,
+    setDataManagementColumns, setDataManagementLoading, setDataManagementPreview,
+    setDmDateColumn, setDmDays, setDmStartDate, setDmEndDate, setDmActiveTab,
+    setComparisonData, setMissingRanges, setDuplicateAnalysis, setValidationLoading,
+    dataManagementTable, dataManagementDatasetId, dataManagementPreview,
+    dmDateColumn, dmDeleteMode, dmDays, dmStartDate, dmEndDate, pkColumn,
+    comparisonData, missingRanges
+  })
+  
+  const {
+    viewChTableDetails, truncateChTable, optimizeChTable, deleteChTable,
+    openDataManagementModal, loadComparison, loadMissingRanges, loadDuplicateAnalysis,
+    syncMissingData, syncNewRecordsOnly, previewDataManagementDelete, executeDataManagementDelete
+  } = chApi
 
-  // Edit connection - bağlantıyı düzenleme modunda aç
+  // Edit connection
   const editConnection = (conn: Connection) => {
     setEditingConnection(conn)
     setShowConnectionModal(true)
@@ -215,246 +231,6 @@ export default function DataPage() {
       toast.error('Optimize başarısız: ' + err.message)
     } finally {
       setPerformanceActionLoading(null)
-    }
-  }
-
-  // View ClickHouse table details
-  const viewChTableDetails = async (tableName: string) => {
-    try {
-      const result = await apiCall(`/data/clickhouse/tables/${tableName}`)
-      setSelectedChTable(result.data)
-      setShowChTableModal(true)
-    } catch (err: any) {
-      toast.error('Tablo detayları yüklenemedi: ' + err.message)
-    }
-  }
-  
-  // Truncate ClickHouse table
-  const truncateChTable = async (tableName: string) => {
-    if (!confirm(`"${tableName}" tablosundaki TÜM VERİLER silinecek. Devam etmek istiyor musunuz?`)) return
-    setSystemActionLoading(`ch-truncate-${tableName}`)
-    try {
-      await apiCall(`/data/clickhouse/tables/${tableName}/truncate`, { method: 'POST' })
-      await loadClickhouseTables()
-      toast.success('Tablo temizlendi')
-    } catch (err: any) {
-      toast.error('Tablo temizlenemedi: ' + err.message)
-    } finally {
-      setSystemActionLoading(null)
-    }
-  }
-  
-  // Optimize ClickHouse table
-  const optimizeChTable = async (tableName: string) => {
-    setSystemActionLoading(`ch-optimize-${tableName}`)
-    try {
-      await apiCall(`/data/clickhouse/tables/${tableName}/optimize`, { method: 'POST' })
-      await loadClickhouseTables()
-      toast.success('Tablo optimize edildi (duplicate\'lar temizlendi)')
-    } catch (err: any) {
-      toast.error('Optimize edilemedi: ' + err.message)
-    } finally {
-      setSystemActionLoading(null)
-    }
-  }
-  
-  // Veri Yönetimi Modal Aç
-  const openDataManagementModal = async (tableName: string, datasetId?: string) => {
-    setDataManagementTable(tableName)
-    setDataManagementDatasetId(datasetId || '')
-    setDataManagementPreview(null)
-    setDmDateColumn('')
-    setDmDays(7)
-    setDmStartDate('')
-    setDmEndDate('')
-    setDmActiveTab('delete')
-    setComparisonData(null)
-    setMissingRanges(null)
-    setDuplicateAnalysis(null)
-    setShowDataManagementModal(true)
-    
-    // Kolonları yükle
-    try {
-      const result = await apiCall(`/data/clickhouse/tables/${tableName}/columns`)
-      setDataManagementColumns(result.data || [])
-      // İlk tarih kolonunu otomatik seç
-      const dateCol = (result.data || []).find((c: any) => c.isDateColumn)
-      if (dateCol) setDmDateColumn(dateCol.name)
-    } catch (err) {
-      console.error('Kolonlar yüklenemedi:', err)
-    }
-  }
-  
-  // Veri Doğrulama - Kaynak vs ClickHouse Karşılaştırma
-  const loadComparison = async () => {
-    if (!dataManagementDatasetId) {
-      toast.error('Dataset ID bulunamadı. Lütfen dataset listesinden açın.')
-      return
-    }
-    setValidationLoading(true)
-    try {
-      const result = await apiCall(`/data/datasets/${dataManagementDatasetId}/compare?pkColumn=${pkColumn}`)
-      setComparisonData(result.data)
-    } catch (err: any) {
-      toast.error('Karşılaştırma yapılamadı: ' + err.message)
-    } finally {
-      setValidationLoading(false)
-    }
-  }
-  
-  // Eksik ID Aralıklarını Bul
-  const loadMissingRanges = async () => {
-    if (!dataManagementDatasetId) {
-      toast.error('Dataset ID bulunamadı.')
-      return
-    }
-    setValidationLoading(true)
-    try {
-      const result = await apiCall(`/data/datasets/${dataManagementDatasetId}/missing-ranges?pkColumn=${pkColumn}`)
-      setMissingRanges(result.data)
-    } catch (err: any) {
-      toast.error('Eksik aralıklar bulunamadı: ' + err.message)
-    } finally {
-      setValidationLoading(false)
-    }
-  }
-  
-  // Duplicate Analizi
-  const loadDuplicateAnalysis = async () => {
-    if (!dataManagementDatasetId) {
-      toast.error('Dataset ID bulunamadı.')
-      return
-    }
-    setValidationLoading(true)
-    try {
-      const result = await apiCall(`/data/datasets/${dataManagementDatasetId}/duplicate-analysis`)
-      setDuplicateAnalysis(result.data)
-    } catch (err: any) {
-      toast.error('Duplicate analizi yapılamadı: ' + err.message)
-    } finally {
-      setValidationLoading(false)
-    }
-  }
-  
-  // Eksik Verileri Sync Et
-  const syncMissingData = async () => {
-    if (!dataManagementDatasetId || !missingRanges?.missing_ranges?.length) {
-      toast.error('Önce eksik aralıkları bulun.')
-      return
-    }
-    
-    if (!confirm(`${missingRanges.missing_ranges.length} aralıktaki eksik veriler çekilecek. Devam?`)) return
-    
-    setValidationLoading(true)
-    try {
-      const result = await apiCall(`/data/datasets/${dataManagementDatasetId}/sync-missing`, {
-        method: 'POST',
-        body: JSON.stringify({ ranges: missingRanges.missing_ranges, pkColumn })
-      })
-      toast.success('Eksik veri sync işlemi başlatıldı.')
-      loadETLJobs()
-    } catch (err: any) {
-      toast.error('Sync başlatılamadı: ' + err.message)
-    } finally {
-      setValidationLoading(false)
-    }
-  }
-  
-  // 🚀 Sadece Yeni Kayıtları Çek (En hızlı yöntem - 100M+ tablolar için)
-  const syncNewRecordsOnly = async () => {
-    if (!dataManagementDatasetId) {
-      toast.error('Dataset ID bulunamadı.')
-      return
-    }
-    
-    const chMaxId = comparisonData?.clickhouse?.max_id || 0
-    if (!confirm(`ClickHouse'daki max ID: ${chMaxId.toLocaleString('tr-TR')}\n\nBu ID'den sonraki TÜM kayıtlar kaynaktan çekilecek.\n\n100M+ tablolar için en hızlı yöntem!\n\nDevam?`)) return
-    
-    setValidationLoading(true)
-    try {
-      const result = await apiCall(`/data/datasets/${dataManagementDatasetId}/sync-new-records`, {
-        method: 'POST',
-        body: JSON.stringify({ pkColumn })
-      })
-      toast.success(`Yeni kayıt sync başlatıldı! Max ID: ${result.data.clickhouse_max_id}'den sonraki kayıtlar çekilecek.`)
-      loadETLJobs()
-    } catch (err: any) {
-      toast.error('Sync başlatılamadı: ' + err.message)
-    } finally {
-      setValidationLoading(false)
-    }
-  }
-  
-  // Silinecek satır sayısını önizle
-  const previewDataManagementDelete = async () => {
-    if (!dmDateColumn) {
-      toast.error('Lütfen tarih kolonu seçin')
-      return
-    }
-    setDataManagementLoading(true)
-    try {
-      const params = new URLSearchParams({ dateColumn: dmDateColumn })
-      if (dmDeleteMode === 'days') {
-        params.append('days', dmDays.toString())
-      } else {
-        params.append('startDate', dmStartDate)
-        params.append('endDate', dmEndDate)
-      }
-      const result = await apiCall(`/data/clickhouse/tables/${dataManagementTable}/preview-delete?${params}`)
-      setDataManagementPreview(result.data)
-    } catch (err: any) {
-      toast.error('Önizleme hatası: ' + err.message)
-    } finally {
-      setDataManagementLoading(false)
-    }
-  }
-  
-  // Veriyi sil
-  const executeDataManagementDelete = async () => {
-    if (!dataManagementPreview || dataManagementPreview.rowsToDelete === 0) {
-      toast.error('Silinecek veri yok')
-      return
-    }
-    
-    if (!confirm(`${dataManagementPreview.rowsToDelete.toLocaleString('tr-TR')} satır silinecek. Devam etmek istiyor musunuz?`)) {
-      return
-    }
-    
-    setDataManagementLoading(true)
-    try {
-      const body: any = { dateColumn: dmDateColumn }
-      if (dmDeleteMode === 'days') {
-        body.days = dmDays
-      } else {
-        body.startDate = dmStartDate
-        body.endDate = dmEndDate
-      }
-      const result = await apiCall(`/data/clickhouse/tables/${dataManagementTable}/rows`, { 
-        method: 'DELETE',
-        body: JSON.stringify(body)
-      })
-      toast.success(result.data?.message || 'Silme işlemi başlatıldı')
-      setShowDataManagementModal(false)
-      await loadClickhouseTables()
-    } catch (err: any) {
-      toast.error('Silme hatası: ' + err.message)
-    } finally {
-      setDataManagementLoading(false)
-    }
-  }
-  
-  // Delete ClickHouse table
-  const deleteChTable = async (tableName: string) => {
-    if (!confirm(`"${tableName}" tablosu tamamen silinecek. Bu işlem geri alınamaz! Devam etmek istiyor musunuz?`)) return
-    setSystemActionLoading(`ch-delete-${tableName}`)
-    try {
-      await apiCall(`/data/clickhouse/tables/${tableName}`, { method: 'DELETE' })
-      await loadClickhouseTables()
-      toast.success('Tablo silindi')
-    } catch (err: any) {
-      toast.error('Tablo silinemedi: ' + err.message)
-    } finally {
-      setSystemActionLoading(null)
     }
   }
 
