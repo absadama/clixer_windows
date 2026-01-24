@@ -53,6 +53,9 @@ import { sqlToClickHouseType, getTypeCompatibilityInfo, getTypeColor } from '../
 import { copyToClipboard, translateErrorMessage, formatTimeAgo, formatDuration } from '../services/formatters'
 import type { Connection, TableInfo, ColumnInfo, Dataset, ETLJob, Schedule, ETLWorkerStatus, QueryResult } from '../types/data'
 import { isJobStuck, cronToShortCode } from '../types/data'
+import { useDatasetSettings } from '../hooks/useDatasetSettings'
+import { useClickHouseManagement } from '../hooks/useClickHouseManagement'
+import { useSqlEditor } from '../hooks/useSqlEditor'
 
 // API Base URL
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -67,37 +70,15 @@ export default function DataPage() {
   const { theme, isDark } = useTheme()
   const { accessToken, logout } = useAuthStore()
   
-  // State
+  // Custom Hooks
+  const datasetSettings = useDatasetSettings()
+  const chManagement = useClickHouseManagement()
+  const sqlEditor = useSqlEditor()
+  
+  // Core State
   const [activeTab, setActiveTab] = useState<'connections' | 'datasets' | 'etl' | 'sql' | 'clickhouse' | 'system' | 'performance'>('connections')
   const [connections, setConnections] = useState<Connection[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
-  
-  // Clixer Tablo Yönetimi
-  const [clickhouseTables, setClickhouseTables] = useState<any[]>([])
-  const [clickhouseLoading, setClickhouseLoading] = useState(false)
-  const [selectedChTable, setSelectedChTable] = useState<any>(null)
-  const [showChTableModal, setShowChTableModal] = useState(false)
-  
-  // ClickHouse Veri Yönetimi (Tarih bazlı silme)
-  const [showDataManagementModal, setShowDataManagementModal] = useState(false)
-  const [dataManagementTable, setDataManagementTable] = useState<string>('')
-  const [dataManagementDatasetId, setDataManagementDatasetId] = useState<string>('')
-  const [dataManagementColumns, setDataManagementColumns] = useState<any[]>([])
-  const [dataManagementLoading, setDataManagementLoading] = useState(false)
-  const [dataManagementPreview, setDataManagementPreview] = useState<any>(null)
-  const [dmDateColumn, setDmDateColumn] = useState('')
-  const [dmDeleteMode, setDmDeleteMode] = useState<'days' | 'range'>('days')
-  const [dmDays, setDmDays] = useState(7)
-  const [dmStartDate, setDmStartDate] = useState('')
-  const [dmEndDate, setDmEndDate] = useState('')
-  const [dmActiveTab, setDmActiveTab] = useState<'delete' | 'validate'>('delete')
-  
-  // Veri Doğrulama State'leri
-  const [comparisonData, setComparisonData] = useState<any>(null)
-  const [missingRanges, setMissingRanges] = useState<any>(null)
-  const [duplicateAnalysis, setDuplicateAnalysis] = useState<any>(null)
-  const [validationLoading, setValidationLoading] = useState(false)
-  const [pkColumn, setPkColumn] = useState<string>('id') // Primary Key kolonu - kullanıcı seçer
   const [etlJobs, setETLJobs] = useState<ETLJob[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -119,14 +100,14 @@ export default function DataPage() {
   const [previewData, setPreviewData] = useState<{ columns: { name: string; type?: string }[], rows: Record<string, any>[], totalRows?: number } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   
-  // API Preview State (Dinamo'dan)
+  // API Preview State
   const [showApiPreviewModal, setShowApiPreviewModal] = useState(false)
   const [apiPreviewConnection, setApiPreviewConnection] = useState<any>(null)
   const [apiEndpoint, setApiEndpoint] = useState('')
   const [apiMethod, setApiMethod] = useState('GET')
   const [apiQueryParams, setApiQueryParams] = useState('')
   const [apiResponsePath, setApiResponsePath] = useState('')
-  const [apiBody, setApiBody] = useState('') // POST/PUT için body
+  const [apiBody, setApiBody] = useState('')
   const [apiPreviewLoading, setApiPreviewLoading] = useState(false)
   const [apiPreviewResult, setApiPreviewResult] = useState<any>(null)
   const [apiPreviewError, setApiPreviewError] = useState<string | null>(null)
@@ -136,49 +117,6 @@ export default function DataPage() {
   const [apiDatasetSaving, setApiDatasetSaving] = useState(false)
   const [apiSyncSchedule, setApiSyncSchedule] = useState('manual')
   const [apiRowLimit, setApiRowLimit] = useState(10000)
-  
-  // Dataset creation state
-  const [newDatasetName, setNewDatasetName] = useState('')
-  const [newDatasetDescription, setNewDatasetDescription] = useState('')
-  const [newDatasetSyncStrategy, setNewDatasetSyncStrategy] = useState('full_refresh')
-  const [newDatasetSyncSchedule, setNewDatasetSyncSchedule] = useState('manual')
-  const [scheduledHour, setScheduledHour] = useState(2) // Günlük/Haftalık için saat (varsayılan: 02:00)
-  const [newDatasetReferenceColumn, setNewDatasetReferenceColumn] = useState('')
-  const [newDatasetRowLimit, setNewDatasetRowLimit] = useState<number | null>(null) // null = sınırsız
-  const [settingsColumns, setSettingsColumns] = useState<string[]>([])
-  const [datasetCreating, setDatasetCreating] = useState(false)
-  
-  // Partition & Refresh Settings (Power BI benzeri)
-  const [partitionColumn, setPartitionColumn] = useState('')
-  const [partitionType, setPartitionType] = useState<'monthly' | 'daily'>('monthly')
-  const [refreshWindowDays, setRefreshWindowDays] = useState(7)
-  const [detectModified, setDetectModified] = useState(false)
-  const [modifiedColumn, setModifiedColumn] = useState('')
-  const [weeklyFullRefresh, setWeeklyFullRefresh] = useState(false)
-  const [engineType, setEngineType] = useState<'MergeTree' | 'ReplacingMergeTree'>('MergeTree')
-  const [customWhere, setCustomWhere] = useState('')  // Full Refresh için WHERE koşulu
-  const [deleteDays, setDeleteDays] = useState(1)  // Tarih Bazlı Sil-Yaz: Son X gün
-  
-  // RLS (Row-Level Security) kolonları
-  const [rlsStoreColumn, setRlsStoreColumn] = useState('')   // Mağaza filtre kolonu
-  const [rlsRegionColumn, setRlsRegionColumn] = useState('')  // Bölge filtre kolonu
-  const [rlsGroupColumn, setRlsGroupColumn] = useState('')    // Grup filtre kolonu (franchise/merkez)
-  
-  // Unique Kolon (ORDER BY için zorunlu!)
-  const [uniqueColumn, setUniqueColumn] = useState('')        // ClickHouse ORDER BY kolonu
-  const [autoDetectedUnique, setAutoDetectedUnique] = useState<string | null>(null)  // Otomatik algılanan
-
-  // SQL Editor state
-  const [sqlQuery, setSqlQuery] = useState('SELECT * FROM stores LIMIT 10')
-  const [sqlConnectionId, setSqlConnectionId] = useState<string>('')
-  const [sqlResult, setSqlResult] = useState<QueryResult | null>(null)
-  const [sqlLoading, setSqlLoading] = useState(false)
-  const [sqlError, setSqlError] = useState<string | null>(null)
-
-  // Tables explorer
-  const [tables, setTables] = useState<TableInfo[]>([])
-  const [expandedTable, setExpandedTable] = useState<string | null>(null)
-  const [tableColumns, setTableColumns] = useState<Record<string, ColumnInfo[]>>({})
 
   // Sistem Sağlığı state
   const [systemHealth, setSystemHealth] = useState<any>(null)
@@ -196,12 +134,47 @@ export default function DataPage() {
   const [performanceLoading, setPerformanceLoading] = useState<string | null>(null)
   const [performanceActionLoading, setPerformanceActionLoading] = useState<string | null>(null)
   
-  // ETL Monitoring state (Lock'lar, Stuck Jobs, Running Jobs)
+  // ETL Monitoring state
   const [etlMonitoring, setEtlMonitoring] = useState<{
     locks: { key: string; datasetId: string; pid: number; startedAt: string; ttlSeconds: number }[];
     stuckJobs: { id: string; dataset_name: string; runningMinutes: number; rows_processed: number }[];
     runningJobs: { id: string; dataset_name: string; runningMinutes: number; rows_processed: number; status: string }[];
   }>({ locks: [], stuckJobs: [], runningJobs: [] })
+  
+  // Destructure hook values for easier access
+  const {
+    clickhouseTables, clickhouseLoading, selectedChTable, showChTableModal,
+    showDataManagementModal, dataManagementTable, dataManagementDatasetId,
+    dataManagementColumns, dataManagementLoading, dataManagementPreview,
+    dmDateColumn, dmDeleteMode, dmDays, dmStartDate, dmEndDate, dmActiveTab,
+    comparisonData, missingRanges, duplicateAnalysis, validationLoading, pkColumn,
+    setClickhouseTables, setClickhouseLoading, setSelectedChTable, setShowChTableModal,
+    setShowDataManagementModal, setDataManagementTable, setDataManagementDatasetId,
+    setDataManagementColumns, setDataManagementLoading, setDataManagementPreview,
+    setDmDateColumn, setDmDeleteMode, setDmDays, setDmStartDate, setDmEndDate, setDmActiveTab,
+    setComparisonData, setMissingRanges, setDuplicateAnalysis, setValidationLoading, setPkColumn,
+    clearComparisonData
+  } = chManagement
+  
+  const {
+    newDatasetName, newDatasetDescription, newDatasetSyncStrategy, newDatasetSyncSchedule,
+    scheduledHour, newDatasetReferenceColumn, newDatasetRowLimit, settingsColumns, datasetCreating,
+    partitionColumn, partitionType, refreshWindowDays, detectModified, modifiedColumn,
+    weeklyFullRefresh, engineType, customWhere, deleteDays,
+    rlsStoreColumn, rlsRegionColumn, rlsGroupColumn, uniqueColumn, autoDetectedUnique,
+    setNewDatasetName, setNewDatasetDescription, setNewDatasetSyncStrategy, setNewDatasetSyncSchedule,
+    setScheduledHour, setNewDatasetReferenceColumn, setNewDatasetRowLimit, setSettingsColumns, setDatasetCreating,
+    setPartitionColumn, setPartitionType, setRefreshWindowDays, setDetectModified, setModifiedColumn,
+    setWeeklyFullRefresh, setEngineType, setCustomWhere, setDeleteDays,
+    setRlsStoreColumn, setRlsRegionColumn, setRlsGroupColumn, setUniqueColumn, setAutoDetectedUnique
+  } = datasetSettings
+  
+  const {
+    sqlQuery, sqlConnectionId, sqlResult, sqlLoading, sqlError,
+    tables, expandedTable, tableColumns,
+    setSqlQuery, setSqlConnectionId, setSqlResult, setSqlLoading, setSqlError,
+    setTables, setExpandedTable, setTableColumns, addTableColumns
+  } = sqlEditor
 
   // ============================================
   // API CALLS
@@ -953,10 +926,10 @@ export default function DataPage() {
   const loadTableColumns = async (connectionId: string, tableName: string, schema: string = 'public') => {
     try {
       const result = await apiCall(`/data/connections/${connectionId}/tables/${tableName}/columns?schema=${schema}`)
-      setTableColumns(prev => ({ ...prev, [tableName]: result.data?.columns || [] }))
+      addTableColumns(tableName, result.data?.columns || [])
     } catch (err: any) {
       console.error('Load columns error:', err)
-      setTableColumns(prev => ({ ...prev, [tableName]: [] }))
+      addTableColumns(tableName, [])
     }
   }
 
