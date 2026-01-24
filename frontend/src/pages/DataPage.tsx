@@ -56,6 +56,7 @@ import { isJobStuck, cronToShortCode } from '../types/data'
 import { useDatasetSettings } from '../hooks/useDatasetSettings'
 import { useClickHouseManagement } from '../hooks/useClickHouseManagement'
 import { useSqlEditor } from '../hooks/useSqlEditor'
+import { useApiPreviewState } from '../hooks/useApiPreviewState'
 
 // API Base URL
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -74,6 +75,7 @@ export default function DataPage() {
   const datasetSettings = useDatasetSettings()
   const chManagement = useClickHouseManagement()
   const sqlEditor = useSqlEditor()
+  const apiPreview = useApiPreviewState()
   
   // Core State
   const [activeTab, setActiveTab] = useState<'connections' | 'datasets' | 'etl' | 'sql' | 'clickhouse' | 'system' | 'performance'>('connections')
@@ -99,24 +101,6 @@ export default function DataPage() {
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null)
   const [previewData, setPreviewData] = useState<{ columns: { name: string; type?: string }[], rows: Record<string, any>[], totalRows?: number } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
-  
-  // API Preview State
-  const [showApiPreviewModal, setShowApiPreviewModal] = useState(false)
-  const [apiPreviewConnection, setApiPreviewConnection] = useState<any>(null)
-  const [apiEndpoint, setApiEndpoint] = useState('')
-  const [apiMethod, setApiMethod] = useState('GET')
-  const [apiQueryParams, setApiQueryParams] = useState('')
-  const [apiResponsePath, setApiResponsePath] = useState('')
-  const [apiBody, setApiBody] = useState('')
-  const [apiPreviewLoading, setApiPreviewLoading] = useState(false)
-  const [apiPreviewResult, setApiPreviewResult] = useState<any>(null)
-  const [apiPreviewError, setApiPreviewError] = useState<string | null>(null)
-  const [showApiDatasetForm, setShowApiDatasetForm] = useState(false)
-  const [apiDatasetName, setApiDatasetName] = useState('')
-  const [apiSelectedColumns, setApiSelectedColumns] = useState<string[]>([])
-  const [apiDatasetSaving, setApiDatasetSaving] = useState(false)
-  const [apiSyncSchedule, setApiSyncSchedule] = useState('manual')
-  const [apiRowLimit, setApiRowLimit] = useState(10000)
 
   // Sistem Sağlığı state
   const [systemHealth, setSystemHealth] = useState<any>(null)
@@ -175,6 +159,18 @@ export default function DataPage() {
     setSqlQuery, setSqlConnectionId, setSqlResult, setSqlLoading, setSqlError,
     setTables, setExpandedTable, setTableColumns, addTableColumns
   } = sqlEditor
+  
+  const {
+    showApiPreviewModal, apiPreviewConnection, apiEndpoint, apiMethod,
+    apiQueryParams, apiResponsePath, apiBody, apiPreviewLoading,
+    apiPreviewResult, apiPreviewError, showApiDatasetForm, apiDatasetName,
+    apiSelectedColumns, apiDatasetSaving, apiSyncSchedule, apiRowLimit,
+    setShowApiPreviewModal, setApiPreviewConnection, setApiEndpoint, setApiMethod,
+    setApiQueryParams, setApiResponsePath, setApiBody, setApiPreviewLoading,
+    setApiPreviewResult, setApiPreviewError, setShowApiDatasetForm, setApiDatasetName,
+    setApiSelectedColumns, setApiDatasetSaving, setApiSyncSchedule, setApiRowLimit,
+    closeApiPreview
+  } = apiPreview
 
   // ============================================
   // API CALLS
