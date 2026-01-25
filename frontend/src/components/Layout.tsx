@@ -5,6 +5,8 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFilterStore } from '../stores/filterStore'
+import { useSearchStore } from '../stores/searchStore'
+import { CommandPalette } from './search/CommandPalette'
 import {
   LayoutDashboard,
   Palette,
@@ -271,6 +273,9 @@ export default function Layout({ children }: LayoutProps) {
   // Mobil filtre kontrolü için
   const { setMobileFilterOpen } = useFilterStore()
   
+  // Search store
+  const { setOpen: setSearchOpen } = useSearchStore()
+  
   // Logo için localStorage öncelikli - flash önleme
   const getEffectiveLogo = (): string => {
     // 1. Store'dan gelen değer uploads ise kullan
@@ -350,6 +355,37 @@ export default function Layout({ children }: LayoutProps) {
     document.body.classList.remove('theme-light', 'theme-dark', 'theme-corporate', 'theme-clixer')
     document.body.classList.add(`theme-${currentTheme}`)
   }, [currentTheme])
+
+  // Command Palette event listeners (theme, language, logout)
+  useEffect(() => {
+    const handleThemeChange = (e: CustomEvent) => {
+      const newTheme = e.detail as ThemeType
+      if (newTheme && themes[newTheme]) {
+        setCurrentTheme(newTheme)
+      }
+    }
+    
+    const handleLanguageChange = (e: CustomEvent) => {
+      const newLang = e.detail as 'tr' | 'en'
+      if (newLang) {
+        setLanguage(newLang)
+      }
+    }
+    
+    const handleLogout = () => {
+      logout()
+    }
+    
+    window.addEventListener('clixer:theme', handleThemeChange as EventListener)
+    window.addEventListener('clixer:language', handleLanguageChange as EventListener)
+    window.addEventListener('clixer:logout', handleLogout)
+    
+    return () => {
+      window.removeEventListener('clixer:theme', handleThemeChange as EventListener)
+      window.removeEventListener('clixer:language', handleLanguageChange as EventListener)
+      window.removeEventListener('clixer:logout', handleLogout)
+    }
+  }, [setCurrentTheme, setLanguage, logout])
 
   const theme = themes[currentTheme]
   const isDark = currentTheme === 'clixer'
@@ -494,30 +530,29 @@ export default function Layout({ children }: LayoutProps) {
               </button>
             )}
 
-            {/* Search bar - Desktop */}
+            {/* Search bar - Desktop (Command Palette Trigger) */}
             <div className="hidden lg:flex items-center flex-1 max-w-xl">
-              <div className={clsx(
-                'flex items-center w-full px-4 py-2 rounded-xl border transition-colors',
-                theme.inputBg,
-                'focus-within:border-indigo-500'
-              )}>
+              <button
+                onClick={() => setSearchOpen(true)}
+                className={clsx(
+                  'flex items-center w-full px-4 py-2 rounded-xl border transition-colors text-left',
+                  theme.inputBg,
+                  'hover:border-indigo-500/50'
+                )}
+              >
                 <Search className={clsx('h-4 w-4', theme.contentTextMuted)} aria-hidden="true" />
-                <input
-                  type="search"
-                  placeholder="Dashboard, metrik veya ayar ara..."
-                  aria-label="Ara"
-                  className={clsx(
-                    'flex-1 ml-3 bg-transparent text-sm outline-none',
-                    theme.inputText,
-                    theme.inputPlaceholder
-                  )}
-                />
+                <span className={clsx(
+                  'flex-1 ml-3 text-sm',
+                  theme.inputPlaceholder?.replace('placeholder:', '') || 'text-slate-400'
+                )}>
+                  Sayfa, metrik veya komut ara...
+                </span>
                 <kbd className={clsx(
                   'hidden sm:block px-2 py-0.5 text-xs font-medium rounded',
                   isDark ? 'bg-slate-700 text-slate-400' : 'bg-slate-200 text-slate-500'
                 )}>⌘K</kbd>
-          </div>
-        </div>
+              </button>
+            </div>
 
             {/* Right side actions - Mobilde gizli */}
             <div className="hidden lg:flex items-center gap-2">
@@ -545,6 +580,9 @@ export default function Layout({ children }: LayoutProps) {
           </ErrorBoundary>
         </main>
       </div>
+      
+      {/* Command Palette - Akıllı Arama Modal */}
+      <CommandPalette />
       
       {/* Toast Notifications - Tutarlı hata/başarı mesajları */}
       <Toaster 

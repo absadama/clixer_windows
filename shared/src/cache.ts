@@ -259,6 +259,69 @@ export async function invalidate(pattern: string, source?: string): Promise<void
   logger.info('Cache invalidated', { pattern, deleted });
 }
 
+// ============================================
+// USER BLACKLIST (Token Invalidation)
+// ============================================
+// SECURITY: Kullanıcı silindiğinde/pasife alındığında
+// mevcut token'ları anında geçersiz kılmak için
+
+const BLACKLIST_PREFIX = 'user:blacklist:';
+const BLACKLIST_TTL = 7 * 24 * 60 * 60; // 7 gün (refresh token süresi kadar)
+
+/**
+ * Kullanıcıyı blacklist'e ekle
+ * Token'ları anında geçersiz olur
+ */
+export async function blacklistUser(userId: string, reason: string = 'deactivated'): Promise<void> {
+  const client = getClient();
+  const key = BLACKLIST_PREFIX + userId;
+  await client.setex(key, BLACKLIST_TTL, JSON.stringify({
+    reason,
+    timestamp: Date.now()
+  }));
+  logger.info('User blacklisted', { userId, reason });
+  
+  // Pub/Sub ile diğer servislere bildir
+  await publish('user:blacklisted', { userId, reason, timestamp: Date.now() });
+}
+
+/**
+ * Kullanıcının blacklist'te olup olmadığını kontrol et
+ * @returns true ise kullanıcı bloke, false ise aktif
+ */
+export async function isUserBlacklisted(userId: string): Promise<boolean> {
+  const client = getClient();
+  const key = BLACKLIST_PREFIX + userId;
+  const exists = await client.exists(key);
+  return exists === 1;
+}
+
+/**
+ * Kullanıcıyı blacklist'ten kaldır (tekrar aktif etmek için)
+ */
+export async function removeFromBlacklist(userId: string): Promise<void> {
+  const client = getClient();
+  const key = BLACKLIST_PREFIX + userId;
+  await client.del(key);
+  logger.info('User removed from blacklist', { userId });
+}
+
+/**
+ * Birden fazla kullanıcıyı blacklist'e ekle
+ */
+export async function blacklistUsers(userIds: string[], reason: string = 'bulk_deactivated'): Promise<void> {
+  const client = getClient();
+  const pipeline = client.pipeline();
+  
+  for (const userId of userIds) {
+    const key = BLACKLIST_PREFIX + userId;
+    pipeline.setex(key, BLACKLIST_TTL, JSON.stringify({ reason, timestamp: Date.now() }));
+  }
+  
+  await pipeline.exec();
+  logger.info('Users blacklisted', { count: userIds.length, reason });
+}
+
 export default {
   createRedisClient,
   getClient,
@@ -271,5 +334,10 @@ export default {
   subscribe,
   checkHealth,
   closeClients,
-  invalidate
+  invalidate,
+  // User blacklist
+  blacklistUser,
+  isUserBlacklisted,
+  removeFromBlacklist,
+  blacklistUsers
 };

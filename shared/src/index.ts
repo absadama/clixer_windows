@@ -50,7 +50,12 @@ export {
   subscribe,
   checkHealth as checkCacheHealth,
   closeClients as closeRedis,
-  invalidate as invalidateCache
+  invalidate as invalidateCache,
+  // User blacklist for token invalidation
+  blacklistUser,
+  isUserBlacklisted,
+  removeFromBlacklist,
+  blacklistUsers
 } from './cache';
 export type { CacheConfig } from './cache';
 
@@ -64,6 +69,8 @@ export {
   verifyToken,
   extractToken,
   authenticate,
+  authenticateWithPurpose,
+  authenticateWithOptionalPurpose,
   optionalAuth,
   authorize,
   tenantIsolation,
@@ -93,7 +100,7 @@ export {
 } from './audit';
 export type { AuditAction, ResourceType, AuditLogEntry } from './audit';
 
-// Security (SQL Injection koruması, Input validation, Encryption)
+// Security (SQL Injection koruması, Input validation, Encryption, SSRF koruması)
 export { default as security } from './security';
 export {
   // Encryption
@@ -116,7 +123,13 @@ export {
   containsDangerousSQLKeywords,
   buildSafeWhereCondition,
   getClientIP,
-  validatePassword
+  validatePassword,
+  // SSRF Protection
+  isPrivateIP,
+  isBlockedHostname,
+  validateExternalUrl,
+  safeFetch,
+  resolveAndValidateHost
 } from './security';
 
 // Input Sanitization

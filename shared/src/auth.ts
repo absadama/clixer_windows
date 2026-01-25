@@ -8,20 +8,22 @@ import bcrypt from 'bcryptjs';
 import { Request, Response, NextFunction } from 'express';
 import { AuthenticationError, TokenExpiredError, InvalidTokenError, ForbiddenError, ValidationError, NotFoundError } from './errors';
 import createLogger from './logger';
+import { isUserBlacklisted } from './cache';
 
 const logger = createLogger({ service: 'auth' });
 
-// JWT Config - Production'da JWT_SECRET zorunlu
-const isProduction = process.env.NODE_ENV === 'production';
+// JWT Config - JWT_SECRET TÜM ORTAMLARDA ZORUNLU
+// SECURITY: Development fallback kaldırıldı - güvenlik riski
 const JWT_SECRET = (() => {
   const secret = process.env.JWT_SECRET;
-  if (!secret && isProduction) {
-    logger.error('CRITICAL: JWT_SECRET environment variable is required in production!');
-    throw new Error('JWT_SECRET environment variable is required in production');
-  }
   if (!secret) {
-    logger.warn('JWT_SECRET not set, using development fallback. DO NOT use in production!');
-    return 'clixer_dev_secret_DO_NOT_USE_IN_PRODUCTION';
+    logger.error('CRITICAL: JWT_SECRET environment variable is required!');
+    throw new Error('JWT_SECRET environment variable is required. Set it in your .env file.');
+  }
+  // Minimum 32 karakter kontrolü
+  if (secret.length < 32) {
+    logger.error('CRITICAL: JWT_SECRET must be at least 32 characters!');
+    throw new Error('JWT_SECRET must be at least 32 characters for security');
   }
   return secret;
 })();
@@ -36,6 +38,7 @@ export interface TokenPayload {
   tenantId: string;
   role: string;
   email: string;
+  purpose?: string; // SECURITY: '2fa_setup' gibi özel amaçlı tokenler için
 }
 
 // User from request
@@ -121,8 +124,9 @@ export function extractToken(authHeader?: string): string | null {
 /**
  * Authentication middleware
  * Supports both Authorization header and HttpOnly cookies
+ * SECURITY: Redis blacklist kontrolü ile anında token invalidation
  */
-export function authenticate(req: Request, res: Response, next: NextFunction): void {
+export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     // Try Authorization header first
     let token = extractToken(req.headers.authorization);
@@ -137,11 +141,119 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     }
 
     const user = verifyToken(token);
+    
+    // SECURITY: Özel amaçlı tokenları reddet (2FA setup vs.)
+    // Bu tokenlar sadece belirli endpoint'lerde kabul edilmeli
+    if ((user as any).purpose) {
+      logger.warn('Special purpose token used in normal endpoint', { 
+        userId: user.userId, 
+        purpose: (user as any).purpose 
+      });
+      throw new AuthenticationError('Bu token genel erişim için kullanılamaz');
+    }
+    
+    // SECURITY: Redis blacklist kontrolü
+    // Kullanıcı silinmiş/pasife alınmışsa token geçersiz
+    try {
+      const isBlacklisted = await isUserBlacklisted(user.userId);
+      if (isBlacklisted) {
+        logger.warn('Blacklisted user attempted access', { userId: user.userId, email: user.email });
+        throw new AuthenticationError('Oturum sonlandırıldı. Lütfen tekrar giriş yapın.');
+      }
+    } catch (blacklistError: any) {
+      // Redis bağlantı hatası durumunda güvenlik için reddet
+      if (blacklistError instanceof AuthenticationError) {
+        throw blacklistError;
+      }
+      logger.error('Blacklist check failed', { error: blacklistError.message, userId: user.userId });
+      // SECURITY FIX: Fail-closed - Redis down ise erişimi engelle
+      // Blacklist kontrolü yapılamıyorsa, deaktif edilmiş kullanıcılar erişebilir
+      if (process.env.NODE_ENV === 'production') {
+        throw new AuthenticationError('Kimlik doğrulama servisi geçici olarak kullanılamıyor');
+      }
+      // Development'ta uyarı logla ama devam et
+      logger.warn('Redis down but allowing access in development mode', { userId: user.userId });
+    }
+    
     req.user = user;
     next();
   } catch (error) {
     next(error);
   }
+}
+
+/**
+ * Authentication middleware for special purpose tokens (2FA setup, etc.)
+ * SECURITY: Sadece belirtilen purpose'a sahip tokenları kabul eder
+ */
+export function authenticateWithPurpose(allowedPurpose: string) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      let token = extractToken(req.headers.authorization);
+      
+      if (!token && req.cookies?.access_token) {
+        token = req.cookies.access_token;
+      }
+
+      if (!token) {
+        throw new AuthenticationError('Token gerekli');
+      }
+
+      const user = verifyToken(token);
+      
+      // SECURITY: Sadece belirtilen purpose kabul edilir
+      if ((user as any).purpose !== allowedPurpose) {
+        logger.warn('Invalid purpose token', { 
+          expected: allowedPurpose, 
+          received: (user as any).purpose 
+        });
+        throw new AuthenticationError('Geçersiz token türü');
+      }
+      
+      req.user = user;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+/**
+ * Authentication middleware that accepts both normal tokens and specific purpose tokens
+ * SECURITY: Normal tokenlar veya belirtilen purpose tokenları kabul eder
+ * Örn: 2FA setup hem normal kullanıcı hem de ilk login yapan kullanıcı için çalışmalı
+ */
+export function authenticateWithOptionalPurpose(allowedPurpose: string) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      let token = extractToken(req.headers.authorization);
+      
+      if (!token && req.cookies?.access_token) {
+        token = req.cookies.access_token;
+      }
+
+      if (!token) {
+        throw new AuthenticationError('Token gerekli');
+      }
+
+      const user = verifyToken(token);
+      const tokenPurpose = (user as any).purpose;
+      
+      // SECURITY: Ya normal token (purpose yok) ya da belirtilen purpose
+      if (tokenPurpose && tokenPurpose !== allowedPurpose) {
+        logger.warn('Invalid purpose token', { 
+          expected: allowedPurpose, 
+          received: tokenPurpose 
+        });
+        throw new AuthenticationError('Geçersiz token türü');
+      }
+      
+      req.user = user;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 /**
@@ -280,6 +392,8 @@ export default {
   verifyToken,
   extractToken,
   authenticate,
+  authenticateWithPurpose,
+  authenticateWithOptionalPurpose,
   optionalAuth,
   authorize,
   tenantIsolation,

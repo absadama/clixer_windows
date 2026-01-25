@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Users, Plus, Edit2, Trash2, Search, Loader2, Check, FolderTree } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
@@ -28,6 +29,7 @@ interface UsersTabProps {
 
 export function UsersTab({ theme, isDark, positions, availableStores, regions, getPositionLabel }: UsersTabProps) {
   const { accessToken, logout } = useAuthStore()
+  const [searchParams, setSearchParams] = useSearchParams()
   
   // Local state
   const [users, setUsers] = useState<any[]>([])
@@ -43,7 +45,9 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
     stores: [] as { store_id: string; store_name: string }[],
     filter_value: '',
     categories: [] as string[],
-    canSeeAllCategories: true
+    canSeeAllCategories: true,
+    phone_number: '',
+    phone_active: true
   })
   const [saving, setSaving] = useState<string | null>(null)
   
@@ -125,7 +129,9 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
             role: userForm.role,
             position_code: userForm.position_code,
             stores: userForm.stores,
-            filter_value: userForm.filter_value || null
+            filter_value: userForm.filter_value || null,
+            phone_number: userForm.phone_number || null,
+            phone_active: userForm.phone_active
           })
         })
       } else {
@@ -174,7 +180,7 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
       
       setShowUserModal(false)
       setEditingUser(null)
-      setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '', categories: [], canSeeAllCategories: false })
+      setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '', categories: [], canSeeAllCategories: false, phone_number: '', phone_active: true })
       loadUsers()
       toast.success(editingUser ? 'Kullanıcı güncellendi' : 'Kullanıcı oluşturuldu')
     } catch (err: any) {
@@ -224,7 +230,9 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
         position_code: userDetail.position_code || 'VIEWER',
         stores: (userDetail.stores || []).map((s: any) => ({ store_id: s.store_id, store_name: s.store_name })),
         categories: userCategories,
-        canSeeAllCategories: canSeeAll
+        canSeeAllCategories: canSeeAll,
+        phone_number: userDetail.phone_number || '',
+        phone_active: userDetail.phone_active !== false // null veya undefined ise true
       })
       setStoreSearchTerm('')
       setShowUserModal(true)
@@ -241,14 +249,69 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
         stores: [],
         filter_value: '',
         categories: [],
-        canSeeAllCategories: false
+        canSeeAllCategories: false,
+        phone_number: user.phone_number || '',
+        phone_active: user.phone_active !== false
       })
       setStoreSearchTerm('')
       setShowUserModal(true)
     }
   }
 
-  // Load on mount
+  // Handle URL edit parameter IMMEDIATELY (from search) - don't wait for users list
+  useEffect(() => {
+    const editUserId = searchParams.get('edit')
+    if (editUserId && !showUserModal && accessToken) {
+      // Directly fetch and open this user - no waiting for list
+      const openUserDirectly = async () => {
+        try {
+          // Fetch user details directly by ID
+          const result = await apiCall(`/core/users/${editUserId}`)
+          const userDetail = result.data
+          
+          if (userDetail) {
+            // Get user categories
+            let userCategories: string[] = []
+            let canSeeAll = false
+            try {
+              const catResult = await apiCall(`/core/users/${editUserId}/categories`)
+              userCategories = (catResult.data?.categories || []).map((c: any) => c.id)
+              canSeeAll = catResult.data?.canSeeAllCategories ?? false
+            } catch {
+              // Default values if categories fail to load
+            }
+            
+            setEditingUser(userDetail)
+            setUserForm({
+              email: userDetail.email,
+              name: userDetail.name,
+              password: '',
+              role: userDetail.role || 'USER',
+              filter_value: userDetail.filter_value || '',
+              position_code: userDetail.position_code || 'VIEWER',
+              stores: (userDetail.stores || []).map((s: any) => ({ store_id: s.store_id, store_name: s.store_name })),
+              categories: userCategories,
+              canSeeAllCategories: canSeeAll,
+              phone_number: userDetail.phone_number || '',
+              phone_active: userDetail.phone_active !== false
+            })
+            setStoreSearchTerm('')
+            setShowUserModal(true)
+          }
+        } catch (err) {
+          console.error('Kullanıcı yüklenemedi:', err)
+        }
+        
+        // Clear the edit param from URL
+        searchParams.delete('edit')
+        setSearchParams(searchParams, { replace: true })
+      }
+      
+      openUserDirectly()
+    }
+  }, [searchParams, accessToken]) // Only depend on searchParams and accessToken
+
+  // Load on mount (parallel with edit check)
   useEffect(() => {
     loadUsers()
     loadReportCategories()
@@ -267,7 +330,7 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
           </div>
         </div>
         <button 
-          onClick={() => { setEditingUser(null); setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '', categories: [], canSeeAllCategories: true }); setStoreSearchTerm(''); setShowUserModal(true) }}
+          onClick={() => { setEditingUser(null); setUserForm({ email: '', name: '', password: '', role: 'USER', position_code: 'VIEWER', stores: [], filter_value: '', categories: [], canSeeAllCategories: true, phone_number: '', phone_active: true }); setStoreSearchTerm(''); setShowUserModal(true) }}
           className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl font-medium', theme.buttonPrimary)}
         >
           <Plus size={16} /> Kullanıcı Ekle
@@ -294,6 +357,7 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
               <th className="px-6 py-4 text-left">Kullanıcı</th>
               <th className="px-6 py-4 text-left">Pozisyon</th>
               <th className="px-6 py-4 text-left">Mağaza</th>
+              <th className="px-6 py-4 text-left">📱 Telefon</th>
               <th className="px-6 py-4 text-left">Oluşturulma</th>
               <th className="px-6 py-4 text-right">İşlemler</th>
             </tr>
@@ -342,6 +406,22 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
                   )}
                 </td>
                 <td className={clsx('px-6 py-4 text-sm', theme.contentTextMuted)}>
+                  {user.phone_number ? (
+                    <div className="flex items-center gap-2">
+                      <span className={clsx(
+                        'px-2 py-1 rounded-lg text-xs font-medium',
+                        user.phone_active !== false 
+                          ? (isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700')
+                          : (isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700')
+                      )}>
+                        {user.phone_active !== false ? '✅' : '🚫'} {user.phone_number}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className={clsx('text-xs', theme.contentTextMuted)}>—</span>
+                  )}
+                </td>
+                <td className={clsx('px-6 py-4 text-sm', theme.contentTextMuted)}>
                   {new Date(user.created_at).toLocaleDateString('tr-TR')}
                 </td>
                 <td className="px-6 py-4">
@@ -364,7 +444,7 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
             ))}
             {users.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-6 py-12 text-center">
+                <td colSpan={6} className="px-6 py-12 text-center">
                   <p className={theme.contentTextMuted}>Henüz kullanıcı yok</p>
                 </td>
               </tr>
@@ -415,6 +495,47 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
                   />
                 </div>
               )}
+              
+              {/* Telefon Güvenlik Katmanı */}
+              <div className="col-span-2">
+                <div className={clsx('p-4 rounded-xl border', isDark ? 'border-amber-500/30 bg-amber-500/10' : 'border-amber-300 bg-amber-50')}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-lg">📱</span>
+                    <span className={clsx('text-sm font-semibold', isDark ? 'text-amber-400' : 'text-amber-700')}>
+                      Telefon Güvenlik Katmanı
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className={clsx('block text-xs font-medium mb-1', theme.contentTextMuted)}>Telefon Numarası</label>
+                      <input
+                        type="tel"
+                        value={userForm.phone_number}
+                        onChange={(e) => setUserForm({ ...userForm, phone_number: e.target.value })}
+                        placeholder="+90 5XX XXX XX XX"
+                        className={clsx('w-full px-4 py-2.5 rounded-xl text-sm', theme.inputBg, theme.inputText)}
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={userForm.phone_active}
+                          onChange={(e) => setUserForm({ ...userForm, phone_active: e.target.checked })}
+                          className="w-5 h-5 rounded"
+                        />
+                        <span className={clsx('text-sm font-medium', userForm.phone_active ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-red-400' : 'text-red-600'))}>
+                          {userForm.phone_active ? '✅ Telefon Aktif' : '🚫 Telefon Pasif (Giriş Engellenecek)'}
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                  <p className={clsx('mt-2 text-xs', theme.contentTextMuted)}>
+                    💡 Telefon numarası girilip pasife alınırsa kullanıcı giriş yapamaz
+                  </p>
+                </div>
+              </div>
+              
               <div>
                 <label className={clsx('block text-sm font-medium mb-1', theme.contentTextMuted)}>Pozisyon *</label>
                 <select

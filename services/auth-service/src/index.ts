@@ -23,10 +23,12 @@ import {
   generateAccessToken,
   generateRefreshToken,
   authenticate,
+  authenticateWithOptionalPurpose,
   AppError,
   formatError,
   ValidationError,
-  AuthenticationError
+  AuthenticationError,
+  isUserBlacklisted
 } from '@clixer/shared';
 
 const logger = createLogger({ service: 'auth-service' });
@@ -63,6 +65,29 @@ const loginLimiter = rateLimit({
   message: { success: false, errorCode: 'RATE_LIMIT', message: 'Çok fazla giriş denemesi. 5 dakika bekleyin.' },
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// SECURITY: Token refresh için rate limit (token theft koruması)
+// Saldırgan çalınan refresh token'ı unlimited yenileyemez
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 dakika
+  max: 30, // 15 dakikada max 30 refresh (normal kullanımda yeterli)
+  message: { success: false, errorCode: 'RATE_LIMIT', message: 'Çok fazla token yenileme. 15 dakika bekleyin.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // SECURITY FIX: Socket IP kullan, X-Forwarded-For spoofable
+    // Trust proxy ayarı yapılmışsa req.ip zaten doğru değeri verir
+    // Yapılmamışsa socket'tan al
+    const ip = req.socket?.remoteAddress || req.ip || 'unknown';
+    // User-Agent'ı hash'le (spoofing için çok uzun key'ler oluşmasın)
+    const crypto = require('crypto');
+    const uaHash = crypto.createHash('md5')
+      .update(req.headers['user-agent'] || 'no-ua')
+      .digest('hex')
+      .substring(0, 8);
+    return `${ip}:${uaHash}`;
+  }
 });
 
 app.use(generalLimiter);
@@ -147,21 +172,25 @@ async function authenticateWithLDAP(ldapDn: string, password: string): Promise<b
   });
 }
 
+// Trusted Device Token TTL (30 gün)
+const TRUSTED_DEVICE_TTL = 30 * 24 * 60 * 60; // saniye
+
 // Login - Brute-force koruması için özel rate limit
 app.post('/login', loginLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, password, twoFactorCode } = req.body;
+    const { email, password, twoFactorCode, rememberDevice, deviceToken } = req.body;
 
     if (!email || !password) {
       throw new ValidationError('Email ve şifre gerekli');
     }
 
-    // Kullanıcıyı bul (ldap_dn, filter_level, filter_value, 2FA, categories dahil)
+    // Kullanıcıyı bul (ldap_dn, filter_level, filter_value, 2FA, phone, categories dahil)
     const user = await db.queryOne(
       `SELECT u.id, u.email, u.password_hash, u.role, u.tenant_id, u.name, 
               u.position_code, u.ldap_dn, u.filter_value,
               u.two_factor_enabled, u.two_factor_secret, u.two_factor_backup_codes,
               u.can_see_all_categories,
+              u.phone_number, u.phone_active,
               p.filter_level
        FROM users u
        LEFT JOIN positions p ON u.position_code = p.code
@@ -172,6 +201,12 @@ app.post('/login', loginLimiter, async (req: Request, res: Response, next: NextF
     if (!user) {
       throw new AuthenticationError('Kullanıcı bulunamadı');
     }
+    
+    // SECURITY: Telefon güvenlik katmanı - telefon numarası varsa ve pasif ise engelle
+    if (user.phone_number && user.phone_active === false) {
+      logger.warn('Phone disabled login attempt', { userId: user.id, email: user.email, phone: user.phone_number });
+      throw new AuthenticationError('Bu hesap için telefon erişimi devre dışı bırakılmış. Yöneticinizle iletişime geçin.');
+    }
 
     let isValid = false;
 
@@ -180,12 +215,8 @@ app.post('/login', loginLimiter, async (req: Request, res: Response, next: NextF
       // LDAP ile doğrula
       logger.info('Attempting LDAP authentication', { email, ldapDn: user.ldap_dn });
       isValid = await authenticateWithLDAP(user.ldap_dn, password);
-      
-      if (!isValid) {
-        // LDAP başarısız olursa, veritabanı şifresini de dene (fallback)
-        logger.info('LDAP failed, trying database password', { email });
-        isValid = await verifyPassword(password, user.password_hash);
-      }
+      // SECURITY FIX: LDAP fallback kaldırıldı - LDAP kullanıcısı sadece LDAP ile giriş yapabilir
+      // Eski davranış backdoor oluşturuyordu (LDAP'tan atılan kullanıcı DB şifresiyle girebiliyordu)
     } else {
       // Normal veritabanı şifresi ile doğrula
       isValid = await verifyPassword(password, user.password_hash);
@@ -195,8 +226,112 @@ app.post('/login', loginLimiter, async (req: Request, res: Response, next: NextF
       throw new AuthenticationError('Hatalı şifre');
     }
 
-    // 2FA kontrolü
-    if (user.two_factor_enabled) {
+    // Trusted Device Token kontrolü (2FA zaten doğrulanmış cihaz)
+    // SECURITY: IP ve User-Agent binding ile token theft koruması
+    let isTrustedDevice = false;
+    if (deviceToken && user.two_factor_enabled) {
+      const trustedKey = `trusted_device:${user.id}:${deviceToken}`;
+      const trustedData = await cache.get(trustedKey);
+      if (trustedData) {
+        // SECURITY: IP ve User-Agent kontrolü
+        const crypto = require('crypto');
+        const currentIp = req.socket?.remoteAddress || req.ip || 'unknown';
+        const currentUaHash = crypto.createHash('md5')
+          .update(req.headers['user-agent'] || 'no-ua')
+          .digest('hex');
+        
+        // trustedData string veya object olabilir (backward compat)
+        const parsed = typeof trustedData === 'string' 
+          ? (trustedData === 'true' ? {} : JSON.parse(trustedData))
+          : trustedData;
+        
+        // Eski format (sadece 'true' string) veya yeni format kontrol
+        if (parsed.ipHash && parsed.uaHash) {
+          // Yeni format - IP ve UA hash kontrolü
+          const currentIpHash = crypto.createHash('md5').update(currentIp).digest('hex');
+          if (parsed.ipHash === currentIpHash && parsed.uaHash === currentUaHash) {
+            isTrustedDevice = true;
+            logger.info('Trusted device verified', { userId: user.id });
+          } else {
+            logger.warn('Trusted device token IP/UA mismatch', { 
+              userId: user.id, 
+              expectedIpHash: parsed.ipHash?.substring(0, 8),
+              currentIpHash: currentIpHash.substring(0, 8)
+            });
+          }
+        } else {
+          // Eski format veya eksik data - güvenlik için reddet
+          logger.warn('Trusted device token old format, rejecting', { userId: user.id });
+        }
+      }
+    }
+    
+    // Sistem genelinde 2FA zorunluluğu kontrolü (Admin panel'den açılıp kapatılabilir)
+    // Not: Hem 'require_2fa' hem de '2fa_enabled' key'lerini kontrol et (uyumluluk için)
+    // tenant_id NULL olabilir (global ayar) veya kullanıcının tenant_id'sine eşit olmalı
+    const twoFactorSetting = await db.queryOne(
+      `SELECT value FROM system_settings 
+       WHERE (key = 'require_2fa' OR key = '2fa_enabled') 
+       AND (tenant_id IS NULL OR tenant_id = $1) 
+       LIMIT 1`,
+      [user.tenant_id]
+    );
+    
+    // DEBUG LOG
+    logger.info('2FA Setting Check', { 
+      twoFactorSetting: twoFactorSetting?.value,
+      userTenantId: user.tenant_id,
+      userTwoFactorEnabled: user.two_factor_enabled
+    });
+    
+    // value JSON formatında olabilir: "true" veya {"value": "true"}
+    // PostgreSQL JSONB driver otomatik parse edebilir, o yüzden her iki durumu da ele al
+    let systemRequires2FA = false;
+    if (twoFactorSetting?.value) {
+      const val = twoFactorSetting.value;
+      
+      // Zaten object ise (PostgreSQL driver tarafından parse edilmiş)
+      if (typeof val === 'object' && val !== null) {
+        systemRequires2FA = val.value === 'true' || val.value === true;
+        logger.info('2FA Parsed (object)', { val, systemRequires2FA });
+      } else if (typeof val === 'string') {
+        // String ise parse etmeyi dene
+        try {
+          const parsed = JSON.parse(val);
+          systemRequires2FA = parsed === true || parsed === 'true' || parsed?.value === 'true' || parsed?.value === true;
+          logger.info('2FA Parsed (string→json)', { parsed, systemRequires2FA });
+        } catch {
+          systemRequires2FA = val === 'true';
+          logger.info('2FA Parsed (plain string)', { val, systemRequires2FA });
+        }
+      } else if (typeof val === 'boolean') {
+        systemRequires2FA = val;
+        logger.info('2FA Parsed (boolean)', { val, systemRequires2FA });
+      }
+    }
+    
+    // Response için yeni trusted device token
+    let newTrustedDeviceToken: string | null = null;
+
+    // SECURITY: Sistem 2FA zorunlu ama kullanıcı 2FA kurmamışsa → Setup gerekli
+    if (systemRequires2FA && !user.two_factor_enabled) {
+      logger.info('2FA setup required for user', { userId: user.id, email: user.email });
+      return res.json({
+        success: false,
+        requires2FASetup: true,
+        setupToken: generateAccessToken({ // Geçici token (2FA setup için)
+          userId: user.id,
+          tenantId: user.tenant_id,
+          role: user.role,
+          email: user.email,
+          purpose: '2fa_setup' // Özel amaç
+        }),
+        message: '2FA kurulumu zorunlu. Lütfen Google Authenticator uygulamanızı ayarlayın.'
+      });
+    }
+
+    // 2FA kontrolü (trusted device değilse)
+    if (user.two_factor_enabled && !isTrustedDevice) {
       if (!twoFactorCode) {
         // 2FA kodu gerekli - özel response döndür
         return res.json({
@@ -233,6 +368,25 @@ app.post('/login', loginLimiter, async (req: Request, res: Response, next: NextF
       
       if (!twoFactorValid) {
         throw new AuthenticationError('Geçersiz 2FA kodu');
+      }
+      
+      // "Bu cihazı hatırla" seçilmişse trusted device token oluştur
+      // SECURITY: IP ve User-Agent hash'leri de kaydet (token theft koruması)
+      if (rememberDevice) {
+        const crypto = require('crypto');
+        newTrustedDeviceToken = crypto.randomBytes(32).toString('hex');
+        const trustedKey = `trusted_device:${user.id}:${newTrustedDeviceToken}`;
+        
+        const currentIp = req.socket?.remoteAddress || req.ip || 'unknown';
+        const ipHash = crypto.createHash('md5').update(currentIp).digest('hex');
+        const uaHash = crypto.createHash('md5').update(req.headers['user-agent'] || 'no-ua').digest('hex');
+        
+        await cache.set(trustedKey, JSON.stringify({ 
+          createdAt: Date.now(), 
+          ipHash,
+          uaHash
+        }), TRUSTED_DEVICE_TTL);
+        logger.info('Trusted device token created with binding', { userId: user.id, ttlDays: 30 });
       }
     }
 
@@ -318,6 +472,7 @@ app.post('/login', loginLimiter, async (req: Request, res: Response, next: NextF
       data: {
         accessToken,
         refreshToken,
+        trustedDeviceToken: newTrustedDeviceToken, // 2FA "Bu cihazı hatırla" için
         user: {
           id: user.id,
           email: user.email,
@@ -337,8 +492,8 @@ app.post('/login', loginLimiter, async (req: Request, res: Response, next: NextF
   }
 });
 
-// Refresh token
-app.post('/refresh', async (req: Request, res: Response, next: NextFunction) => {
+// Refresh token - SECURITY: Özel rate limiter uygulandı
+app.post('/refresh', refreshLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { refreshToken } = req.body;
 
@@ -347,6 +502,13 @@ app.post('/refresh', async (req: Request, res: Response, next: NextFunction) => 
     }
 
     const payload = auth.verifyToken(refreshToken);
+
+    // SECURITY: Blacklist kontrolü - silinmiş/pasif kullanıcıların token'ı geçersiz
+    const isBlacklisted = await isUserBlacklisted(payload.userId);
+    if (isBlacklisted) {
+      logger.warn('Blacklisted user attempted token refresh', { userId: payload.userId });
+      throw new AuthenticationError('Oturum sonlandırıldı. Lütfen tekrar giriş yapın.');
+    }
 
     // Cache'te kontrol et
     const cachedToken = await cache.get(`refresh:${payload.userId}`);
@@ -495,9 +657,21 @@ import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 
 // 2FA Setup - QR kod oluştur
-app.post('/2fa/setup', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+// SECURITY: Hem normal token hem de 2fa_setup purpose token kabul edilir
+// (ilk login'de zorunlu 2FA kurulumu için)
+app.post('/2fa/setup', authenticateWithOptionalPurpose('2fa_setup'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId;
+    const tokenPurpose = (req.user as any).purpose;
+    
+    // SECURITY FIX: 2fa_setup token tek kullanımlık
+    if (tokenPurpose === '2fa_setup') {
+      const tokenUsedKey = `2fa_setup_used:${userId}`;
+      const alreadyUsed = await cache.get(tokenUsedKey);
+      if (alreadyUsed) {
+        throw new AuthenticationError('Bu kurulum token\'ı zaten kullanıldı. Lütfen tekrar giriş yapın.');
+      }
+    }
     
     // Kullanıcı bilgilerini al
     const user = await db.queryOne('SELECT email, two_factor_enabled FROM users WHERE id = $1', [userId]);
@@ -524,13 +698,16 @@ app.post('/2fa/setup', authenticate, async (req: Request, res: Response, next: N
     // QR kod oluştur
     const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url!);
     
-    // Yedek kodlar oluştur - SECURITY: 12 karakter, 10 adet (daha güçlü)
+    // Yedek kodlar oluştur - SECURITY: 12 karakter, 10 adet (crypto-secure)
+    const crypto = require('crypto');
     const backupCodes = Array.from({ length: 10 }, () => {
-      // Crypto-secure random generation
+      // SECURITY: crypto.randomBytes kullanarak gerçek kriptografik rastgele sayı üret
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Karışıklık önlemek için 0,O,1,I,L çıkarıldı
+      const randomBytes = crypto.randomBytes(12);
       let code = '';
       for (let i = 0; i < 12; i++) {
-        code += chars.charAt(Math.floor(Math.random() * chars.length));
+        // Her byte'ı chars dizisinin uzunluğuna göre modüle al
+        code += chars.charAt(randomBytes[i] % chars.length);
         if (i === 3 || i === 7) code += '-'; // XXXX-XXXX-XXXX formatı
       }
       return code;
@@ -557,17 +734,25 @@ app.post('/2fa/setup', authenticate, async (req: Request, res: Response, next: N
 });
 
 // 2FA Verify & Enable - Kodu doğrula ve aktifleştir
-app.post('/2fa/verify', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+// SECURITY: Hem normal token hem de 2fa_setup purpose token kabul edilir
+app.post('/2fa/verify', authenticateWithOptionalPurpose('2fa_setup'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId;
-    const { code } = req.body;
+    const { code, rememberDevice } = req.body;
+    const tokenPurpose = (req.user as any).purpose;
     
     if (!code) {
       throw new ValidationError('Doğrulama kodu gerekli');
     }
     
     const user = await db.queryOne(
-      'SELECT two_factor_secret, two_factor_enabled FROM users WHERE id = $1',
+      `SELECT u.id, u.email, u.name, u.role, u.tenant_id, u.is_active, 
+              u.filter_level, u.filter_value, u.can_see_all_categories,
+              u.two_factor_secret, u.two_factor_enabled, u.two_factor_backup_codes,
+              p.code as position_code
+       FROM users u
+       LEFT JOIN positions p ON u.position_code = p.code
+       WHERE u.id = $1`,
       [userId]
     );
     
@@ -599,7 +784,101 @@ app.post('/2fa/verify', authenticate, async (req: Request, res: Response, next: 
     
     logger.info('2FA enabled', { userId });
     
-    res.json({ success: true, message: '2FA başarıyla aktifleştirildi' });
+    // SECURITY: Eğer bu ilk login 2FA setup ise (purpose token), tam login token'ları döndür
+    if (tokenPurpose === '2fa_setup') {
+      // SECURITY FIX: Token'ı kullanıldı olarak işaretle (1 saat geçerli)
+      const tokenUsedKey = `2fa_setup_used:${userId}`;
+      await cache.set(tokenUsedKey, 'true', 3600);
+      // Kullanıcının kategori izinlerini al
+      const userCategories = await db.queryAll(
+        'SELECT category_id FROM user_report_categories WHERE user_id = $1',
+        [userId]
+      );
+      const categoryIds = userCategories.map((c: any) => c.category_id);
+      
+      // Token payload oluştur
+      const payload = {
+        userId: user.id,
+        tenantId: user.tenant_id,
+        role: user.role,
+        email: user.email,
+        filterLevel: user.filter_level || 'store',
+        filterValue: user.filter_value || null,
+        canSeeAllCategories: user.can_see_all_categories ?? true,
+        categoryIds: categoryIds
+      };
+      
+      const accessToken = generateAccessToken(payload);
+      const refreshToken = generateRefreshToken(payload);
+      
+      // Cache'e kaydet
+      await cache.set(`refresh:${user.id}`, refreshToken, 7 * 24 * 60 * 60);
+      
+      // Session bilgisini kaydet
+      const sessionId = `session:${user.id}:${Date.now()}`;
+      const sessionData = {
+        userId: user.id,
+        email: user.email,
+        ip: req.ip || req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        loginAt: new Date().toISOString(),
+        lastActivity: new Date().toISOString()
+      };
+      await cache.set(sessionId, JSON.stringify(sessionData), 7 * 24 * 60 * 60);
+      
+      // Trusted device token (opsiyonel)
+      // SECURITY: IP ve User-Agent hash'leri ile binding
+      let trustedDeviceToken: string | null = null;
+      if (rememberDevice) {
+        const crypto = require('crypto');
+        trustedDeviceToken = crypto.randomBytes(32).toString('hex');
+        const trustedKey = `trusted_device:${user.id}:${trustedDeviceToken}`;
+        
+        const currentIp = req.socket?.remoteAddress || req.ip || 'unknown';
+        const ipHash = crypto.createHash('md5').update(currentIp).digest('hex');
+        const uaHash = crypto.createHash('md5').update(req.headers['user-agent'] || 'no-ua').digest('hex');
+        
+        await cache.set(trustedKey, JSON.stringify({ 
+          createdAt: Date.now(), 
+          ipHash,
+          uaHash
+        }), 30 * 24 * 60 * 60); // 30 gün
+      }
+      
+      logger.info('User completed 2FA setup and logged in', { userId: user.id, email: user.email });
+      
+      return res.json({
+        success: true,
+        message: '2FA başarıyla aktifleştirildi',
+        data: {
+          accessToken,
+          refreshToken,
+          trustedDeviceToken,
+          backupCodes: user.two_factor_backup_codes, // İlk kurulumda backup kodları göster
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            tenantId: user.tenant_id,
+            positionCode: user.position_code,
+            filterLevel: user.filter_level || 'none',
+            filterValue: user.filter_value,
+            canSeeAllCategories: user.can_see_all_categories ?? true,
+            categoryIds: categoryIds
+          }
+        }
+      });
+    }
+    
+    // Normal 2FA aktivasyonu (zaten login olmuş kullanıcı)
+    res.json({ 
+      success: true, 
+      message: '2FA başarıyla aktifleştirildi',
+      data: {
+        backupCodes: user.two_factor_backup_codes
+      }
+    });
   } catch (error) {
     next(error);
   }

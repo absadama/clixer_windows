@@ -17,6 +17,19 @@ dotenv.config({ path: '../.env' });
 const app = express();
 const PORT = process.env.GATEWAY_PORT || 4000;
 
+// ============================================
+// TRUST PROXY CONFIGURATION
+// ============================================
+// Reverse proxy arkasında doğru IP tespiti için gerekli
+// SECURITY: Rate limiting ve IP whitelist için kritik
+const isProduction = process.env.NODE_ENV === 'production';
+if (process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', true);
+} else if (isProduction) {
+  // Production'da varsayılan olarak 1 hop (nginx/load balancer)
+  app.set('trust proxy', 1);
+}
+
 // Logger
 const logger = winston.createLogger({
   level: 'info',
@@ -128,7 +141,7 @@ app.use(compression());
 // Sadece IP kullanılıyor, reverse proxy arkasında x-forwarded-for destekleniyor
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 dakika
-  max: process.env.NODE_ENV === 'development' ? 500 : 200, // Dev'de 500, prod'da 200
+  max: process.env.NODE_ENV === 'development' ? 500 : 300, // Dev'de 500, prod'da 300 (UX iyileştirme)
   message: { 
     success: false, 
     errorCode: 'RATE_LIMIT', 
@@ -149,7 +162,7 @@ const generalLimiter = rateLimit({
 // Analytics için daha kısıtlı limit (ağır sorgular)
 const analyticsLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60, // Dakikada 60 analytics sorgusu
+  max: 100, // Dakikada 100 analytics sorgusu (dashboard yoğun kullanım için artırıldı)
   message: { 
     success: false, 
     errorCode: 'RATE_LIMIT_ANALYTICS', 
@@ -248,14 +261,17 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     suspiciousPatterns.push(/\b(union|select|insert|update|delete|drop|alter|exec|execute)\b/i);
   }
   
-  const fullUrl = req.originalUrl + JSON.stringify(req.body || {});
+  // SECURITY NOTE: Gateway proxy olduğu için body parse edilmez (downstream servislere iletilir)
+  // Body içindeki injection'lar downstream servislerde kontrol edilir
+  // Burada sadece URL ve query string kontrol edilir
+  const checkTarget = req.originalUrl;
   
   for (const pattern of suspiciousPatterns) {
-    if (pattern.test(fullUrl)) {
+    if (pattern.test(checkTarget)) {
       logger.warn('Suspicious request blocked', {
         ip: req.ip,
         method: req.method,
-        url: req.originalUrl,
+        url: req.path, // Sadece path logla, query string sensitive bilgi içerebilir
         pattern: pattern.toString()
       });
       return res.status(400).json({
@@ -296,7 +312,8 @@ const proxyOptions = (target: string): Options => ({
   changeOrigin: true,
   pathRewrite: { '^/api': '' },
   onError: (err, req, res) => {
-    logger.error(`Proxy error: ${err.message}`, { target, path: req.url });
+    // SECURITY: Internal target URL'leri logda ifşa etme
+    logger.error(`Proxy error: ${err.message}`, { path: req.url });
     (res as Response).status(502).json({
       success: false,
       errorCode: 'PROXY_ERROR',
@@ -340,12 +357,12 @@ app.get('/api/version', (req: Request, res: Response) => {
 });
 
 // Gateway health
+// SECURITY: Internal service URLs ifşa edilmemeli
 app.get(['/health', '/api/health', '/api/v1/health'], (req: Request, res: Response) => {
   res.json({
     service: 'gateway',
     status: 'healthy',
     version: API_VERSION,
-    services: SERVICES,
     timestamp: new Date().toISOString()
   });
 });
@@ -372,13 +389,21 @@ async function getIPWhitelist(): Promise<string[]> {
   
   try {
     // Veritabanından al
+    // SECURITY: Production'da DB_PASSWORD zorunlu
+    const dbPassword = process.env.DB_PASSWORD;
+    if (!dbPassword && process.env.NODE_ENV === 'production') {
+      logger.error('CRITICAL: DB_PASSWORD environment variable is required in production');
+      // SECURITY FIX: Fail-closed - tüm admin erişimini engelle
+      return [];
+    }
+    
     const { Pool } = require('pg');
     const pool = new Pool({
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '5432'),
       database: process.env.DB_NAME || 'clixer',
       user: process.env.DB_USER || 'clixer',
-      password: process.env.DB_PASSWORD || 'clixer123'
+      password: dbPassword || (process.env.NODE_ENV !== 'production' ? 'clixer_dev_password' : '')
     });
     
     const result = await pool.query(
@@ -397,18 +422,21 @@ async function getIPWhitelist(): Promise<string[]> {
     }
   } catch (error) {
     logger.error('IP whitelist fetch error', { error });
+    // SECURITY FIX: Fail-closed in production - veritabanı hatası durumunda admin erişimini engelle
+    if (process.env.NODE_ENV === 'production') {
+      return [];
+    }
   }
   
-  // Varsayılan: Tümüne izin ver
+  // Development'ta varsayılan: Tümüne izin ver (test kolaylığı)
+  // Production'da DB ayarı yoksa tümüne izin ver (IP whitelist özelliği kullanılmıyor)
   return ['*'];
 }
 
 function getClientIP(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    return (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',')[0].trim();
-  }
-  return req.socket.remoteAddress || req.ip || '';
+  // SECURITY FIX: Express'in trust proxy ayarına güven, header'ı manuel parse etme
+  // req.ip zaten trust proxy ayarına göre doğru IP'yi döner
+  return req.ip || req.socket.remoteAddress || '';
 }
 
 // Admin endpoint'leri için IP kontrolü
@@ -463,6 +491,18 @@ app.use('/api/core/upload/logo', createProxyMiddleware({
 
 // Grid Designs route (IP whitelist gerektirmez - kullanıcı bazlı)
 app.use('/api/core/grid-designs', createProxyMiddleware({
+  ...proxyOptions(SERVICES.CORE),
+  pathRewrite: { '^/api/core': '' }
+}));
+
+// Search route (IP whitelist gerektirmez - tüm authenticated kullanıcılar için)
+app.use('/api/core/search', createProxyMiddleware({
+  ...proxyOptions(SERVICES.CORE),
+  pathRewrite: { '^/api/core': '' }
+}));
+
+// Navigation route (IP whitelist gerektirmez - search index için)
+app.use('/api/core/navigation', createProxyMiddleware({
   ...proxyOptions(SERVICES.CORE),
   pathRewrite: { '^/api/core': '' }
 }));
@@ -604,7 +644,10 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 const server = app.listen(PORT, () => {
   logger.info(`🚀 API Gateway running on port ${PORT}`);
-  logger.info('Service endpoints:', SERVICES);
+  // SECURITY: Internal service URL'leri logda ifşa etme
+  if (process.env.NODE_ENV !== 'production') {
+    logger.info('Service endpoints configured (development mode)');
+  }
 });
 
 // ============================================

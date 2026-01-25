@@ -1,10 +1,11 @@
 /**
  * API Preview Routes
  * External API data preview
+ * SECURITY: SSRF koruması uygulandı
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { db, authenticate, createLogger, NotFoundError, AppError } from '@clixer/shared';
+import { db, authenticate, createLogger, NotFoundError, AppError, validateExternalUrl, safeFetch } from '@clixer/shared';
 
 const router = Router();
 const logger = createLogger({ service: 'data-service' });
@@ -54,6 +55,12 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
 
     logger.info('API Preview request', { url, method, hasBody: !!requestBody });
 
+    // SECURITY: SSRF koruması - internal/private adreslere erişimi engelle
+    const urlValidation = validateExternalUrl(url);
+    if (!urlValidation.valid) {
+      throw new AppError(`Güvenlik hatası: ${urlValidation.error}`, 400, 'SSRF_BLOCKED');
+    }
+
     const startTime = Date.now();
     
     // Fetch options
@@ -72,7 +79,8 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
       }
     }
     
-    const response = await fetch(url, fetchOptions);
+    // SECURITY: safeFetch kullan (SSRF korumalı)
+    const response = await safeFetch(url, fetchOptions);
 
     const executionTime = Date.now() - startTime;
     

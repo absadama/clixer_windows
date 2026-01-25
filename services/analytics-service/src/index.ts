@@ -24,6 +24,8 @@ import {
   clickhouse,
   cache,
   authenticate,
+  authorize,
+  ROLES,
   tenantIsolation,
   AppError,
   formatError,
@@ -1126,7 +1128,8 @@ app.post('/metrics/:metricId/drill-down', authenticate, tenantIsolation, async (
     };
 
     // Drill-down sorgusu oluştur
-    const tableName = `clixer_analytics.${metric.clickhouse_table}`;
+    // SECURITY: SQL Injection koruması
+    const tableName = `clixer_analytics.${sanitizeTableName(metric.clickhouse_table)}`;
     const safeField = sanitizeColumnName(field);
     const safeValue = escapeValue(value);
     
@@ -1324,7 +1327,8 @@ async function executeMetric(
     throw new ValidationError('Metrik için dataset tanımlı değil');
   }
 
-  const tableName = `clixer_analytics.${metric.clickhouse_table}`;
+  // SECURITY: SQL Injection koruması
+  const tableName = `clixer_analytics.${sanitizeTableName(metric.clickhouse_table)}`;
   let sql = '';
   let isSqlMode = false;
   
@@ -2291,7 +2295,8 @@ async function executeMetric(
           
           if (actualGroupByColumn && actualAggregateColumn) {
             // Tablo adı: metric.clickhouse_table kullan (SQL'deki alias değil!)
-            const tableName = metric.clickhouse_table;
+            // SECURITY: SQL Injection koruması
+            const tableName = sanitizeTableName(metric.clickhouse_table);
             
             if (tableName) {
               // Mevcut satırların label değerlerini al
@@ -3357,7 +3362,10 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
             // 2. Eğer target_column varsa ClickHouse'dan çek
             else if (widget.target_column && widget.clickhouse_table) {
               try {
-                const targetQuery = `SELECT sum(${widget.target_column}) as target FROM clixer_analytics.${widget.clickhouse_table}`;
+                // SECURITY: SQL Injection koruması
+                const safeTargetColumn = sanitizeColumnName(widget.target_column);
+                const safeClickhouseTable = sanitizeTableName(widget.clickhouse_table);
+                const targetQuery = `SELECT sum(${safeTargetColumn}) as target FROM clixer_analytics.${safeClickhouseTable}`;
                 const targetResult = await clickhouse.query(targetQuery);
                 if (targetResult && (targetResult as any[])[0]?.target) {
                   targetValue = Number((targetResult as any[])[0].target);
@@ -3396,17 +3404,19 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
                 const comparisonColumn = chartConfig.comparisonColumn;
                 
                 if (metricInfo?.clickhouse_table && comparisonColumn) {
-                  const dateColumn = comparisonColumn;
+                  // SECURITY: SQL Injection koruması
+                  const safeDateColumn = sanitizeColumnName(comparisonColumn);
                   const aggType = metricInfo.aggregation_type || 'SUM';
-                  const dbColumn = metricInfo.db_column;
+                  const safeDbColumn = sanitizeColumnName(metricInfo.db_column);
+                  const safeMetricTable = sanitizeTableName(metricInfo.clickhouse_table);
                   
                   // Son 12 gün için günlük aggregation
                   const sparklineQuery = `
                     SELECT 
-                      toDate(${dateColumn}) as day,
-                      ${aggType.toLowerCase()}(${dbColumn}) as value
-                    FROM clixer_analytics.${metricInfo.clickhouse_table}
-                    WHERE ${dateColumn} >= today() - 12
+                      toDate(${safeDateColumn}) as day,
+                      ${aggType.toLowerCase()}(${safeDbColumn}) as value
+                    FROM clixer_analytics.${safeMetricTable}
+                    WHERE ${safeDateColumn} >= today() - 12
                     GROUP BY day
                     ORDER BY day ASC
                     LIMIT 12
@@ -3486,9 +3496,10 @@ app.post('/dashboard/:designId/full', authenticate, tenantIsolation, handleDashb
 // ============================================
 
 /**
- * ClickHouse tablo bilgilerini al
+ * ClickHouse tablo bilgilerini al (ADMIN only)
+ * SECURITY: Sadece ADMIN ve üzeri roller bu metadata'ya erişebilir
  */
-app.get('/clickhouse/tables', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+app.get('/clickhouse/tables', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tables = await clickhouse.query<{ name: string; engine: string; total_rows: number }>(
       `SELECT name, engine, total_rows 
@@ -3504,16 +3515,20 @@ app.get('/clickhouse/tables', authenticate, async (req: Request, res: Response, 
 });
 
 /**
- * ClickHouse tablo kolonlarını al
+ * ClickHouse tablo kolonlarını al (ADMIN only)
+ * SECURITY: Table name sanitize edilir ve sadece admin erişebilir
  */
-app.get('/clickhouse/tables/:tableName/columns', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+app.get('/clickhouse/tables/:tableName/columns', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { tableName } = req.params;
+    
+    // SECURITY: Table name sanitization
+    const safeTableName = sanitizeTableName(tableName);
 
     const columns = await clickhouse.query<{ name: string; type: string }>(
       `SELECT name, type 
        FROM system.columns 
-       WHERE database = currentDatabase() AND table = '${tableName}'
+       WHERE database = currentDatabase() AND table = '${safeTableName}'
        ORDER BY position`
     );
 
@@ -3524,9 +3539,10 @@ app.get('/clickhouse/tables/:tableName/columns', authenticate, async (req: Reque
 });
 
 /**
- * ClickHouse'ta raw SQL çalıştır (admin only)
+ * ClickHouse'ta raw SQL çalıştır (SUPER_ADMIN only)
+ * SECURITY: Sadece SUPER_ADMIN bu endpoint'i kullanabilir
  */
-app.post('/clickhouse/query', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+app.post('/clickhouse/query', authenticate, authorize(ROLES.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { sql, limit = 1000 } = req.body;
 
@@ -3534,10 +3550,15 @@ app.post('/clickhouse/query', authenticate, async (req: Request, res: Response, 
       throw new ValidationError('SQL sorgusu gerekli');
     }
 
-    // Güvenlik: Sadece SELECT
+    // Güvenlik: Sadece SELECT ve tehlikeli keyword kontrolü
     const trimmedSql = sql.trim().toUpperCase();
     if (!trimmedSql.startsWith('SELECT')) {
       throw new ValidationError('Sadece SELECT sorguları çalıştırılabilir');
+    }
+    
+    // SECURITY: Tehlikeli SQL pattern'leri engelle (multi-statement, UNION abuse vs.)
+    if (containsDangerousSQLKeywords(sql)) {
+      throw new ValidationError('Tehlikeli SQL pattern tespit edildi');
     }
 
     // LIMIT ekle
@@ -3549,6 +3570,12 @@ app.post('/clickhouse/query', authenticate, async (req: Request, res: Response, 
     const startTime = Date.now();
     const data = await clickhouse.query(finalSql);
     const executionTime = Date.now() - startTime;
+
+    logger.info('ClickHouse raw query executed', { 
+      user: req.user!.userId, 
+      sqlPreview: sql.substring(0, 100),
+      rowCount: data.length 
+    });
 
     res.json({ 
       success: true, 
@@ -3568,11 +3595,23 @@ app.post('/clickhouse/query', authenticate, async (req: Request, res: Response, 
 // ============================================
 
 /**
- * Cache temizle (pattern ile)
+ * Cache temizle (pattern ile) - ADMIN only
+ * SECURITY: Sadece ADMIN ve üzeri roller cache temizleyebilir
+ * Wildcard-only pattern'ler engellenir (DoS koruması)
  */
-app.delete('/cache', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+app.delete('/cache', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { pattern = '*' } = req.query;
+    const { pattern = '' } = req.query;
+    
+    // SECURITY: Wildcard-only pattern'leri engelle (DoS koruması)
+    if (!pattern || pattern === '*' || pattern === '**') {
+      throw new ValidationError('Wildcard-only pattern kullanılamaz. Spesifik bir pattern belirtin.');
+    }
+    
+    // SECURITY: Pattern en az 5 karakter içermeli (anlamlı filtreleme)
+    if (String(pattern).replace(/\*/g, '').length < 5) {
+      throw new ValidationError('Pattern çok genel. En az 5 karakter spesifik içerik gerekli.');
+    }
     
     const fullPattern = `${pattern}`;
     await cache.invalidate(fullPattern, 'manual');

@@ -1,0 +1,44 @@
+# Clixer Elasticsearch Configuration
+# Production-ready settings
+
+# ======================== Cluster ========================
+cluster.name: clixer-search
+
+# ======================== Node ========================
+node.name: clixer-es-01
+
+# ======================== Paths ========================
+path.data: /usr/share/elasticsearch/data
+path.logs: /usr/share/elasticsearch/logs
+
+# ======================== Network ========================
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# ======================== Discovery ========================
+discovery.type: single-node
+
+# ======================== Security ========================
+# Disable security for development
+xpack.security.enabled: false
+
+# ======================== Performance ========================
+# Index settings
+indices.memory.index_buffer_size: 20%
+indices.queries.cache.size: 15%
+
+# Thread pool settings
+thread_pool:
+  search:
+    size: 4
+    queue_size: 1000
+  write:
+    size: 2
+    queue_size: 200
+
+# ======================== Analysis ========================
+# Turkish language support is built-in
+
+# ======================== Logging ========================
+logger.level: WARN

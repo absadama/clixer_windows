@@ -1,13 +1,50 @@
 /**
  * User Management Routes
+ * SECURITY: Role assignment whitelist ile Mass Assignment koruması
+ * SECURITY: Token blacklist ile anında oturum sonlandırma
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { db, authenticate, authorize, ROLES, createLogger, NotFoundError, ValidationError, validatePassword } from '@clixer/shared';
+import { db, authenticate, authorize, ROLES, createLogger, NotFoundError, ValidationError, validatePassword, ForbiddenError, blacklistUser, removeFromBlacklist } from '@clixer/shared';
 import bcrypt from 'bcryptjs';
 
 const router = Router();
 const logger = createLogger({ service: 'core-service' });
+
+// ============================================
+// SECURITY: Role Assignment Whitelist
+// ============================================
+const ASSIGNABLE_ROLES = ['VIEWER', 'USER', 'MANAGER', 'ADMIN'] as const;
+const ADMIN_ONLY_ROLES = ['ADMIN', 'SUPER_ADMIN'] as const;
+
+/**
+ * SECURITY: Validate and sanitize role assignment
+ * Prevents privilege escalation via mass assignment
+ */
+function validateRoleAssignment(requestedRole: string | undefined, currentUserRole: string): string {
+  // Varsayılan rol VIEWER
+  if (!requestedRole) return 'VIEWER';
+  
+  const role = requestedRole.toUpperCase();
+  
+  // SUPER_ADMIN sadece sistem tarafından atanabilir
+  if (role === 'SUPER_ADMIN') {
+    logger.warn('Attempted SUPER_ADMIN role assignment blocked');
+    throw new ForbiddenError('SUPER_ADMIN rolü atanamaz');
+  }
+  
+  // Geçerli bir rol mü?
+  if (!ASSIGNABLE_ROLES.includes(role as any)) {
+    throw new ValidationError(`Geçersiz rol: ${role}. İzin verilen roller: ${ASSIGNABLE_ROLES.join(', ')}`);
+  }
+  
+  // ADMIN rolü sadece ADMIN kullanıcılar tarafından atanabilir
+  if ((ADMIN_ONLY_ROLES as readonly string[]).includes(role) && currentUserRole !== 'ADMIN' && currentUserRole !== 'SUPER_ADMIN') {
+    throw new ForbiddenError('Sadece Admin kullanıcılar Admin rolü atayabilir');
+  }
+  
+  return role;
+}
 
 /**
  * GET /users
@@ -17,7 +54,7 @@ router.get('/', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), async (req:
   try {
     const users = await db.queryAll(
       `SELECT u.id, u.email, u.name, u.role, u.position_code, u.tenant_id, u.is_active, u.created_at,
-              u.filter_value,
+              u.filter_value, u.phone_number, u.phone_active,
               p.name as position_name, p.filter_level,
               (SELECT COUNT(*) FROM user_stores WHERE user_id = u.id) as store_count
        FROM users u
@@ -40,7 +77,7 @@ router.get('/:id', authenticate, async (req: Request, res: Response, next: NextF
   try {
     const user = await db.queryOne(
       `SELECT u.id, u.email, u.name, u.role, u.position_code, u.tenant_id, u.is_active, u.created_at,
-              u.filter_value,
+              u.filter_value, u.phone_number, u.phone_active,
               p.name as position_name, p.filter_level
        FROM users u
        LEFT JOIN positions p ON u.position_code = p.code
@@ -64,6 +101,7 @@ router.get('/:id', authenticate, async (req: Request, res: Response, next: NextF
 /**
  * POST /users
  * Create a new user (Admin only)
+ * SECURITY: Role whitelist validation applied
  */
 router.post('/', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -72,6 +110,9 @@ router.post('/', authenticate, authorize(ROLES.ADMIN), async (req: Request, res:
     if (!email || !name || !password) {
       throw new ValidationError('Email, isim ve şifre zorunludur');
     }
+    
+    // SECURITY: Validate role assignment (prevents privilege escalation)
+    const validatedRole = validateRoleAssignment(role, req.user!.role);
     
     // Password strength check
     const passwordCheck = validatePassword(password);
@@ -88,12 +129,15 @@ router.post('/', authenticate, authorize(ROLES.ADMIN), async (req: Request, res:
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
     
-    // Create user
+    // Phone number ve active from request body
+    const { phone_number, phone_active } = req.body;
+    
+    // Create user with validated role
     const result = await db.queryOne(
-      `INSERT INTO users (tenant_id, email, name, password_hash, role, position_code, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
-       RETURNING id, email, name, role, position_code`,
-      [req.user!.tenantId, email, name, hashedPassword, role || 'VIEWER', position_code || 'VIEWER']
+      `INSERT INTO users (tenant_id, email, name, password_hash, role, position_code, is_active, phone_number, phone_active)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, COALESCE($8, TRUE))
+       RETURNING id, email, name, role, position_code, phone_number, phone_active`,
+      [req.user!.tenantId, email, name, hashedPassword, validatedRole, position_code || 'VIEWER', phone_number || null, phone_active]
     );
     
     // Assign stores
@@ -116,11 +160,23 @@ router.post('/', authenticate, authorize(ROLES.ADMIN), async (req: Request, res:
 /**
  * PUT /users/:id
  * Update a user (Admin only)
+ * SECURITY: Role whitelist validation applied
+ * SECURITY: Blacklist kullanıcı pasife alındığında, whitelist aktife alındığında
  */
 router.put('/:id', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { email, name, role, position_code, is_active, stores, filter_value } = req.body;
+    const { email, name, role, position_code, is_active, stores, filter_value, phone_number, phone_active } = req.body;
+    
+    // SECURITY: Validate role assignment if provided (prevents privilege escalation)
+    const validatedRole = role ? validateRoleAssignment(role, req.user!.role) : null;
+    
+    // Mevcut durumu al (blacklist kararı için)
+    const currentUser = await db.queryOne(
+      'SELECT is_active, phone_active FROM users WHERE id = $1 AND tenant_id = $2',
+      [id, req.user!.tenantId]
+    );
+    if (!currentUser) throw new NotFoundError('Kullanıcı');
     
     // Check email uniqueness if changed
     if (email) {
@@ -141,13 +197,27 @@ router.put('/:id', authenticate, authorize(ROLES.ADMIN), async (req: Request, re
          position_code = COALESCE($4, position_code),
          is_active = COALESCE($5, is_active),
          filter_value = $6,
+         phone_number = $7,
+         phone_active = COALESCE($8, phone_active),
          updated_at = NOW()
-       WHERE id = $7 AND tenant_id = $8
-       RETURNING id, email, name, role, position_code, is_active, filter_value`,
-      [email ? email.toLowerCase().trim() : null, name, role, position_code, is_active, filter_value || null, id, req.user!.tenantId]
+       WHERE id = $9 AND tenant_id = $10
+       RETURNING id, email, name, role, position_code, is_active, filter_value, phone_number, phone_active`,
+      [email ? email.toLowerCase().trim() : null, name, validatedRole, position_code, is_active, filter_value || null, phone_number || null, phone_active, id, req.user!.tenantId]
     );
     
     if (!result) throw new NotFoundError('Kullanıcı');
+    
+    // SECURITY: Kullanıcı pasife alındıysa token'ları hemen geçersiz kıl
+    if (is_active === false && currentUser.is_active === true) {
+      await blacklistUser(id, 'deactivated');
+      logger.info('User deactivated and blacklisted', { userId: id, by: req.user!.email });
+    }
+    
+    // Kullanıcı tekrar aktif edildiyse blacklist'ten kaldır
+    if (is_active === true && currentUser.is_active === false) {
+      await removeFromBlacklist(id);
+      logger.info('User reactivated and removed from blacklist', { userId: id, by: req.user!.email });
+    }
     
     // Update stores
     if (stores !== undefined) {
@@ -170,17 +240,23 @@ router.put('/:id', authenticate, authorize(ROLES.ADMIN), async (req: Request, re
 /**
  * DELETE /users/:id
  * Delete a user (Admin only)
+ * SECURITY: Silinen kullanıcının token'ları anında geçersiz olur
  */
 router.delete('/:id', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { id } = req.params;
+    
     const result = await db.query(
       'DELETE FROM users WHERE id = $1 AND tenant_id = $2 RETURNING id',
-      [req.params.id, req.user!.tenantId]
+      [id, req.user!.tenantId]
     );
     
     if (result.rowCount === 0) throw new NotFoundError('Kullanıcı');
     
-    logger.info('User deleted', { id: req.params.id, user: req.user!.email });
+    // SECURITY: Silinen kullanıcının token'larını hemen geçersiz kıl
+    await blacklistUser(id, 'deleted');
+    
+    logger.info('User deleted and blacklisted', { id, user: req.user!.email });
     res.json({ success: true, message: 'Kullanıcı silindi' });
   } catch (error) {
     next(error);

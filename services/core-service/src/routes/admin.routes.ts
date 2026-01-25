@@ -3,7 +3,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { db, cache, authenticate, authorize, ROLES, createLogger, ValidationError } from '@clixer/shared';
+import { db, cache, authenticate, authorize, ROLES, createLogger, ValidationError, audit } from '@clixer/shared';
 
 const router = Router();
 const logger = createLogger({ service: 'core-service' });

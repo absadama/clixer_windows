@@ -1,6 +1,7 @@
 /**
  * Full Refresh Sync Strategy
  * Complete table refresh - truncates and re-imports all data
+ * SECURITY: SSRF koruması uygulandı
  */
 
 import { 
@@ -8,7 +9,9 @@ import {
   db, 
   clickhouse, 
   ensureTableExists, 
-  transformBatchForClickHouse
+  transformBatchForClickHouse,
+  validateExternalUrl,
+  safeFetch
 } from '../shared';
 
 import { 
@@ -83,10 +86,16 @@ export async function fullRefresh(dataset: any, connection: any, jobId?: string)
       
       let url = connection.host.trim().replace(/\/$/, '');
       
+      // SECURITY: SSRF koruması - internal/private adreslere erişimi engelle
+      const baseUrlValidation = validateExternalUrl(url);
+      if (!baseUrlValidation.valid) {
+        throw new Error(`SSRF koruması: ${baseUrlValidation.error}`);
+      }
+      
       if (url.startsWith('http://')) {
         const httpsUrl = url.replace('http://', 'https://');
         try {
-          const testRes = await fetch(httpsUrl, { method: 'HEAD' });
+          const testRes = await safeFetch(httpsUrl, { method: 'HEAD' });
           if (testRes.ok || testRes.status < 400) {
             url = httpsUrl;
           }
@@ -133,7 +142,8 @@ export async function fullRefresh(dataset: any, connection: any, jobId?: string)
           : JSON.stringify(apiConfig.requestBody);
       }
       
-      const response = await fetch(url, fetchOptions);
+      // SECURITY: safeFetch kullan (SSRF korumalı)
+      const response = await safeFetch(url, fetchOptions);
       
       if (!response.ok) {
         throw new Error(`API error: ${response.status} ${response.statusText}`);

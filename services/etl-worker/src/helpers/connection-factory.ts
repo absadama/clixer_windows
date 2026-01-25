@@ -3,7 +3,7 @@
  * Centralized database connection creation for ETL operations
  */
 
-import { createLogger } from '@clixer/shared';
+import { createLogger, decrypt } from '@clixer/shared';
 
 const logger = createLogger({ service: 'etl-worker' });
 
@@ -54,7 +54,7 @@ export async function createMssqlConnection(
   
   const config = {
     user: connection.username,
-    password: connection.password_encrypted,
+    password: decrypt(connection.password_encrypted),
     server: connection.host,
     database: connection.database_name,
     port: connection.port || 1433,
@@ -99,7 +99,7 @@ export async function createPostgresConnection(
     port: connection.port || 5432,
     database: connection.database_name,
     user: connection.username,
-    password: connection.password_encrypted
+    password: decrypt(connection.password_encrypted)
   });
   
   await client.connect();
@@ -135,7 +135,7 @@ export async function createMysqlConnection(
     port: connection.port || 3306,
     database: connection.database_name,
     user: connection.username,
-    password: connection.password_encrypted,
+    password: decrypt(connection.password_encrypted),
     charset: 'utf8mb4',
     dateStrings: true
   });

@@ -1,0 +1,74 @@
+# Clixer - Elasticsearch Configuration
+# Akıllı arama için opsiyonel Elasticsearch kurulumu
+# Kullanım: docker-compose -f docker/elasticsearch/docker-compose.es.yml up -d
+
+version: '3.8'
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: clixer-elasticsearch
+    environment:
+      # Single-node deployment
+      - discovery.type=single-node
+      # Security disabled for development
+      - xpack.security.enabled=false
+      # JVM memory settings - adjust based on available RAM
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      # Cluster name
+      - cluster.name=clixer-search
+      # Node name
+      - node.name=clixer-es-01
+      # Disable machine learning
+      - xpack.ml.enabled=false
+    ports:
+      - "9200:9200"  # REST API
+      - "9300:9300"  # Node communication
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+      - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    networks:
+      - clixer-network
+    mem_limit: 2g
+    mem_reservation: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    labels:
+      - "com.clixer.service=elasticsearch"
+      - "com.clixer.description=Search engine for smart search"
+
+  # Kibana for monitoring (optional, development only)
+  kibana:
+    image: kibana:8.11.0
+    container_name: clixer-kibana
+    profiles:
+      - monitoring  # Only start with --profile monitoring
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_NAME=clixer-kibana
+    ports:
+      - "5601:5601"
+    networks:
+      - clixer-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+    labels:
+      - "com.clixer.service=kibana"
+      - "com.clixer.description=Elasticsearch monitoring UI"
+
+volumes:
+  es_data:
+    driver: local
+    name: clixer_elasticsearch_data
+
+networks:
+  clixer-network:
+    external: true
+    name: clixer_default

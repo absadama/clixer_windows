@@ -8,7 +8,8 @@ import {
   db, 
   clickhouse, 
   parseColumnMapping,
-  transformBatchForClickHouse
+  transformBatchForClickHouse,
+  decrypt
 } from '../shared';
 
 export async function syncNewRecordsAfterMaxId(
@@ -52,8 +53,9 @@ export async function syncNewRecordsAfterMaxId(
   
   if (connection.type === 'mssql') {
     const mssql = require('mssql');
+    // SECURITY FIX: decrypt() ile şifre çözümleme
     const connStr = connection.connection_string || 
-      `Server=${connection.host},${connection.port || 1433};Database=${connection.database_name};User Id=${connection.username};Password=${connection.password_encrypted};Encrypt=${connection.host?.includes('.database.windows.net')};TrustServerCertificate=true;Connection Timeout=30;Request Timeout=120000`;
+      `Server=${connection.host},${connection.port || 1433};Database=${connection.database_name};User Id=${connection.username};Password=${decrypt(connection.password_encrypted)};Encrypt=${connection.host?.includes('.database.windows.net')};TrustServerCertificate=true;Connection Timeout=30;Request Timeout=120000`;
     
     const pool = await mssql.connect(connStr);
     
@@ -134,7 +136,7 @@ export async function syncNewRecordsAfterMaxId(
       port: connection.port || 5432,
       database: connection.database_name,
       user: connection.username,
-      password: connection.password_encrypted,
+      password: decrypt(connection.password_encrypted),
       max: 5
     });
     
@@ -183,7 +185,7 @@ export async function syncNewRecordsAfterMaxId(
       port: connection.port || 3306,
       database: connection.database_name,
       user: connection.username,
-      password: connection.password_encrypted,
+      password: decrypt(connection.password_encrypted),
       charset: 'utf8mb4'
     });
     

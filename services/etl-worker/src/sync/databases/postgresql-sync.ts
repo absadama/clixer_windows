@@ -3,7 +3,7 @@
  * Handles 200M+ rows with constant memory usage
  */
 
-import { createLogger, db, clickhouse } from '@clixer/shared';
+import { createLogger, db, clickhouse, decrypt } from '@clixer/shared';
 import { 
   STREAM_BATCH_SIZE, 
   INSERT_BATCH_SIZE,
@@ -62,7 +62,7 @@ export async function streamingPostgreSQLSync(
     port: connection.port || 5432,
     database: connection.database_name,
     user: connection.username,
-    password: connection.password_encrypted,
+    password: decrypt(connection.password_encrypted),
   });
   
   await client.connect();

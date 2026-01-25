@@ -17,27 +17,41 @@ const IV_LENGTH = 16; // 128 bit IV
 const AUTH_TAG_LENGTH = 16; // 128 bit auth tag
 const SALT_LENGTH = 32;
 
-// Encryption key - production'da zorunlu
+// Encryption key - TÜM ORTAMLARDA ZORUNLU
+// SECURITY: Development fallback kaldırıldı - güvenlik riski
 const ENCRYPTION_KEY = (() => {
   const key = process.env.ENCRYPTION_KEY;
-  const isProduction = process.env.NODE_ENV === 'production';
-  
-  if (!key && isProduction) {
-    logger.error('CRITICAL: ENCRYPTION_KEY environment variable is required in production!');
-    throw new Error('ENCRYPTION_KEY environment variable is required in production');
-  }
   
   if (!key) {
-    logger.warn('ENCRYPTION_KEY not set, using development fallback. DO NOT use in production!');
-    // Development için 32-byte key (256 bit)
-    return crypto.scryptSync('clixer_dev_encryption_key', 'clixer_salt', 32);
+    logger.error('CRITICAL: ENCRYPTION_KEY environment variable is required!');
+    throw new Error('ENCRYPTION_KEY environment variable is required. Generate with: openssl rand -hex 32');
   }
   
-  // Key 32 byte (256 bit) olmalı - eğer değilse derive et
-  if (Buffer.from(key, 'base64').length === 32) {
-    return Buffer.from(key, 'base64');
+  // SECURITY FIX: Key doğrudan 32 byte olmalı
+  // Hex format: 64 karakter (openssl rand -hex 32)
+  // Base64 format: ~44 karakter
+  
+  // Hex format kontrolü (64 karakter hex = 32 byte)
+  if (/^[a-fA-F0-9]{64}$/.test(key)) {
+    return Buffer.from(key, 'hex');
   }
-  return crypto.scryptSync(key, 'clixer_encryption_salt', 32);
+  
+  // Base64 format kontrolü
+  try {
+    const decoded = Buffer.from(key, 'base64');
+    if (decoded.length === 32) {
+      return decoded;
+    }
+  } catch {
+    // Base64 decode başarısız
+  }
+  
+  // SECURITY: Kısa key için daha güçlü derivation
+  // Salt olarak key'in hash'ini kullan (sabit salt yerine)
+  // Bu sayede farklı key'ler farklı salt'lar üretir
+  logger.warn('ENCRYPTION_KEY is not 32 bytes, deriving key. Consider using: openssl rand -hex 32');
+  const keySalt = crypto.createHash('sha256').update(key + 'clixer_key_derivation_v2').digest();
+  return crypto.scryptSync(key, keySalt, 32, { N: 16384, r: 8, p: 1 });
 })();
 
 /**
@@ -508,6 +522,264 @@ export function getPasswordStrength(password: string): number {
 }
 
 // ============================================
+// SSRF (Server-Side Request Forgery) KORUMASI
+// ============================================
+
+/**
+ * Private/Internal IP aralıkları
+ * RFC 1918 + RFC 5737 + RFC 3927 + Loopback + Link-local
+ */
+const PRIVATE_IP_RANGES = [
+  // IPv4 Private
+  { start: '10.0.0.0', end: '10.255.255.255' },       // Class A
+  { start: '172.16.0.0', end: '172.31.255.255' },     // Class B
+  { start: '192.168.0.0', end: '192.168.255.255' },   // Class C
+  // Loopback
+  { start: '127.0.0.0', end: '127.255.255.255' },
+  // Link-local
+  { start: '169.254.0.0', end: '169.254.255.255' },
+  // CGNAT
+  { start: '100.64.0.0', end: '100.127.255.255' },
+  // Documentation/Test
+  { start: '192.0.2.0', end: '192.0.2.255' },
+  { start: '198.51.100.0', end: '198.51.100.255' },
+  { start: '203.0.113.0', end: '203.0.113.255' },
+  // Broadcast
+  { start: '255.255.255.255', end: '255.255.255.255' },
+  // Current network
+  { start: '0.0.0.0', end: '0.255.255.255' }
+];
+
+/**
+ * Yasaklı hostnameler (cloud metadata, internal services)
+ */
+const BLOCKED_HOSTNAMES = [
+  // Cloud metadata endpoints
+  '169.254.169.254',           // AWS/GCP/Azure metadata
+  'metadata.google.internal',   // GCP
+  'metadata.goog',              // GCP
+  'metadata.google',            // GCP
+  'metadata.azure.com',         // Azure
+  'metadata.azure',             // Azure
+  // Localhost variants
+  'localhost',
+  'localhost.localdomain',
+  '127.0.0.1',
+  '0.0.0.0',
+  '::1',
+  '[::1]',
+  // Internal service discovery
+  'kubernetes.default',
+  'kubernetes.default.svc',
+  '.internal',
+  '.local',
+  '.localhost',
+  // Docker
+  'host.docker.internal',
+  'gateway.docker.internal'
+];
+
+/**
+ * Yasaklı URL scheme'leri
+ */
+const BLOCKED_SCHEMES = ['file', 'ftp', 'gopher', 'data', 'javascript', 'vbscript'];
+
+/**
+ * IP adresini sayısal değere dönüştür (karşılaştırma için)
+ */
+function ipToNumber(ip: string): number {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) {
+    return -1;
+  }
+  return (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+}
+
+/**
+ * IP adresinin private/internal olup olmadığını kontrol et
+ */
+export function isPrivateIP(ip: string): boolean {
+  // IPv6 loopback
+  if (ip === '::1' || ip === '[::1]') return true;
+  
+  // IPv6 private ranges (basitleştirilmiş)
+  if (ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('fe80')) return true;
+  
+  const ipNum = ipToNumber(ip);
+  if (ipNum === -1) return true; // Geçersiz IP = engelle
+  
+  for (const range of PRIVATE_IP_RANGES) {
+    const startNum = ipToNumber(range.start);
+    const endNum = ipToNumber(range.end);
+    if (ipNum >= startNum && ipNum <= endNum) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Hostname'in yasaklı olup olmadığını kontrol et
+ */
+export function isBlockedHostname(hostname: string): boolean {
+  if (!hostname) return true;
+  
+  const lowerHostname = hostname.toLowerCase().trim();
+  
+  // Direkt eşleşme
+  if (BLOCKED_HOSTNAMES.includes(lowerHostname)) return true;
+  
+  // Suffix eşleşme (.internal, .local, etc.)
+  for (const blocked of BLOCKED_HOSTNAMES) {
+    if (blocked.startsWith('.') && lowerHostname.endsWith(blocked)) {
+      return true;
+    }
+  }
+  
+  // IP adresi ise private kontrolü
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(lowerHostname)) {
+    return isPrivateIP(lowerHostname);
+  }
+  
+  // IPv6 bracket notation
+  if (lowerHostname.startsWith('[') && lowerHostname.endsWith(']')) {
+    const ipv6 = lowerHostname.slice(1, -1);
+    if (ipv6 === '::1' || ipv6.startsWith('fc') || ipv6.startsWith('fd')) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * URL'nin güvenli olup olmadığını doğrula (SSRF koruması)
+ * @returns { valid: boolean, error?: string, url?: URL }
+ */
+export function validateExternalUrl(urlString: string): { valid: boolean; error?: string; url?: URL } {
+  if (!urlString || typeof urlString !== 'string') {
+    return { valid: false, error: 'URL gerekli' };
+  }
+  
+  let url: URL;
+  try {
+    url = new URL(urlString);
+  } catch {
+    return { valid: false, error: 'Geçersiz URL formatı' };
+  }
+  
+  // Scheme kontrolü
+  const scheme = url.protocol.replace(':', '').toLowerCase();
+  if (BLOCKED_SCHEMES.includes(scheme)) {
+    logger.warn('SSRF: Blocked scheme attempted', { url: urlString, scheme });
+    return { valid: false, error: `Yasaklı protokol: ${scheme}` };
+  }
+  
+  // Sadece HTTP/HTTPS izin ver
+  if (!['http', 'https'].includes(scheme)) {
+    return { valid: false, error: 'Sadece HTTP/HTTPS desteklenir' };
+  }
+  
+  // Hostname kontrolü
+  const hostname = url.hostname.toLowerCase();
+  if (isBlockedHostname(hostname)) {
+    logger.warn('SSRF: Blocked hostname attempted', { url: urlString, hostname });
+    return { valid: false, error: 'Bu adrese erişim engellenmiştir (internal/private network)' };
+  }
+  
+  // Port kontrolü - standart dışı portlar için uyarı (opsiyonel engelleme)
+  const port = url.port ? parseInt(url.port) : (scheme === 'https' ? 443 : 80);
+  const suspiciousPorts = [22, 23, 25, 3306, 5432, 6379, 27017, 9200]; // SSH, Telnet, SMTP, MySQL, PostgreSQL, Redis, MongoDB, Elasticsearch
+  if (suspiciousPorts.includes(port)) {
+    logger.warn('SSRF: Suspicious port attempted', { url: urlString, port });
+    return { valid: false, error: `Şüpheli port: ${port}` };
+  }
+  
+  // Credential in URL kontrolü (bilgi sızıntısı)
+  if (url.username || url.password) {
+    return { valid: false, error: 'URL içinde kullanıcı bilgisi kullanılamaz' };
+  }
+  
+  return { valid: true, url };
+}
+
+/**
+ * SSRF korumalı fetch wrapper
+ * External API çağrıları için kullanılmalı
+ * SECURITY: DNS rebinding koruması dahil
+ */
+export async function safeFetch(
+  urlString: string, 
+  options: RequestInit = {},
+  allowedDomains?: string[]
+): Promise<Response> {
+  // URL doğrulama
+  const validation = validateExternalUrl(urlString);
+  if (!validation.valid || !validation.url) {
+    throw new Error(`SSRF koruması: ${validation.error}`);
+  }
+  
+  // Opsiyonel: Sadece belirli domainlere izin ver
+  if (allowedDomains && allowedDomains.length > 0) {
+    const hostname = validation.url.hostname.toLowerCase();
+    const isAllowed = allowedDomains.some(domain => {
+      const d = domain.toLowerCase();
+      return hostname === d || hostname.endsWith('.' + d);
+    });
+    if (!isAllowed) {
+      logger.warn('SSRF: Domain not in allowlist', { url: urlString, hostname, allowedDomains });
+      throw new Error(`Bu domain izin listesinde değil: ${hostname}`);
+    }
+  }
+  
+  // SECURITY FIX: DNS rebinding koruması
+  // DNS çözümlemesi yapıp resolved IP'nin private olmadığını doğrula
+  const hostname = validation.url.hostname;
+  // IP adresi değilse DNS kontrolü yap
+  if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) {
+    const dnsValidation = await resolveAndValidateHost(hostname);
+    if (!dnsValidation.valid) {
+      throw new Error(`SSRF koruması (DNS): ${dnsValidation.error}`);
+    }
+  }
+  
+  // Timeout ekle (default 30 saniye)
+  const fetchOptions: RequestInit = {
+    ...options,
+    signal: options.signal || AbortSignal.timeout(30000)
+  };
+  
+  logger.debug('Safe fetch', { url: urlString, method: options.method || 'GET' });
+  
+  return fetch(urlString, fetchOptions);
+}
+
+/**
+ * DNS rebinding koruması için hostname çözümleme
+ * (İleri seviye koruma - opsiyonel)
+ */
+export async function resolveAndValidateHost(hostname: string): Promise<{ valid: boolean; error?: string; ip?: string }> {
+  // Node.js dns modülü ile çözümle
+  try {
+    const dns = await import('dns').then(m => m.promises);
+    const addresses = await dns.resolve4(hostname);
+    
+    for (const ip of addresses) {
+      if (isPrivateIP(ip)) {
+        logger.warn('SSRF: DNS resolved to private IP', { hostname, ip });
+        return { valid: false, error: `Hostname private IP'ye çözümlendi: ${ip}` };
+      }
+    }
+    
+    return { valid: true, ip: addresses[0] };
+  } catch (error: any) {
+    // DNS çözümlenemedi - muhtemelen invalid hostname
+    return { valid: false, error: `DNS çözümlenemedi: ${hostname}` };
+  }
+}
+
+// ============================================
 // EXPORTS
 // ============================================
 
@@ -543,5 +815,12 @@ export default {
   // Password Policy
   validatePassword,
   getPasswordStrength,
-  PASSWORD_POLICY
+  PASSWORD_POLICY,
+  
+  // SSRF Protection
+  isPrivateIP,
+  isBlockedHostname,
+  validateExternalUrl,
+  safeFetch,
+  resolveAndValidateHost
 };

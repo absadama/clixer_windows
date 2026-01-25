@@ -29,7 +29,10 @@ import {
   ValidationError,
   NotFoundError,
   ROLES,
-  sanitizeTableName  // SQL Injection koruması
+  sanitizeTableName,  // SQL Injection koruması
+  decrypt,  // SECURITY: Password decryption
+  validateExternalUrl,  // SECURITY: SSRF koruması
+  safeFetch  // SECURITY: SSRF korumalı fetch
 } from '@clixer/shared';
 
 // Import modular routes
@@ -106,11 +109,15 @@ app.post('/connections', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), as
       ...apiAuthConfig
     } : null;
 
+    // SECURITY FIX: Password'u encrypt et
+    const { encrypt } = require('@clixer/shared');
+    const encryptedPassword = password ? encrypt(password) : null;
+    
     const result = await db.queryOne(
       `INSERT INTO data_connections (tenant_id, name, type, host, port, database_name, username, password_encrypted, api_config, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')
        RETURNING id`,
-      [req.user!.tenantId, name, type, connectionHost, port || null, databaseName || null, username || null, password || null, apiConfig ? JSON.stringify(apiConfig) : null]
+      [req.user!.tenantId, name, type, connectionHost, port || null, databaseName || null, username || null, encryptedPassword, apiConfig ? JSON.stringify(apiConfig) : null]
     );
 
     logger.info('Data connection created', { connectionId: result.id, name, type });
@@ -135,7 +142,12 @@ app.put('/connections/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER),
       throw new NotFoundError('Bağlantı');
     }
     
+    // SECURITY FIX: Password'u encrypt et
+    const { encrypt } = require('@clixer/shared');
+    const encryptedPassword = password ? encrypt(password) : null;
+    
     await db.query(
+      // SECURITY: Defense-in-depth - tenant_id dahil et
       `UPDATE data_connections SET 
         name = COALESCE($1, name),
         host = COALESCE($2, host),
@@ -145,8 +157,8 @@ app.put('/connections/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER),
         password_encrypted = COALESCE($6, password_encrypted),
         api_config = COALESCE($7, api_config),
         updated_at = NOW()
-       WHERE id = $8`,
-      [name, host, port, databaseName, username, password, apiConfig ? JSON.stringify(apiConfig) : null, id]
+       WHERE id = $8 AND tenant_id = $9`,
+      [name, host, port, databaseName, username, encryptedPassword, apiConfig ? JSON.stringify(apiConfig) : null, id, req.user!.tenantId]
     );
     
     logger.info('Connection updated', { connectionId: id });
@@ -180,9 +192,10 @@ app.delete('/connections/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGE
       throw new ValidationError(`Bu bağlantıya ait ${linkedDatasets.count} dataset var. Önce datasetleri silin.`);
     }
     
-    await db.query('DELETE FROM data_connections WHERE id = $1', [id]);
+    // SECURITY: Defense-in-depth - tenant_id dahil et
+    await db.query('DELETE FROM data_connections WHERE id = $1 AND tenant_id = $2', [id, req.user!.tenantId]);
     
-    logger.info('Connection deleted', { connectionId: id });
+    logger.info('Connection deleted', { connectionId: id, tenantId: req.user!.tenantId });
     res.json({ success: true, message: 'Bağlantı silindi' });
   } catch (error) {
     next(error);
@@ -267,13 +280,20 @@ app.post('/connections/test', authenticate, async (req: Request, res: Response, 
       }
 
       const testUrl = url.replace(/\/$/, '');
+      
+      // SECURITY: SSRF koruması - internal/private adreslere erişimi engelle
+      const urlValidation = validateExternalUrl(testUrl);
+      if (!urlValidation.valid) {
+        throw new ValidationError(`Güvenlik hatası: ${urlValidation.error}`);
+      }
+      
       logger.info('Testing API connection', { url: testUrl });
       
-      // Basit bir HEAD veya GET isteği yap
-      const response = await fetch(testUrl, {
+      // SECURITY: safeFetch kullan (SSRF korumalı)
+      const response = await safeFetch(testUrl, {
         method: 'HEAD',
         signal: AbortSignal.timeout(10000)
-      }).catch(() => fetch(testUrl, { 
+      }).catch(() => safeFetch(testUrl, { 
         method: 'GET',
         signal: AbortSignal.timeout(10000)
       }));
@@ -316,7 +336,7 @@ app.post('/connections/:id/test', authenticate, async (req: Request, res: Respon
         port: connection.port || 5432,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         connectionTimeoutMillis: 10000,
       });
       
@@ -336,7 +356,7 @@ app.post('/connections/:id/test', authenticate, async (req: Request, res: Respon
         port: connection.port || 1433,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         options: { encrypt: isAzure, trustServerCertificate: !isAzure },
         connectionTimeout: 15000,
       };
@@ -357,7 +377,7 @@ app.post('/connections/:id/test', authenticate, async (req: Request, res: Respon
           host: connection.host,
           port: connection.port || 3306,
           user: connection.username,
-          password: connection.password_encrypted,
+          password: decrypt(connection.password_encrypted),
           database: connection.database_name,
           connectTimeout: 10000,
           charset: 'utf8mb4',
@@ -371,10 +391,16 @@ app.post('/connections/:id/test', authenticate, async (req: Request, res: Respon
         testResult = { success: false, message: `Bağlantı hatası: ${dbError.message}` };
       }
     } else if (connection.type === 'api') {
-      // API test - basit bir fetch yap
+      // API test - SECURITY: SSRF korumalı fetch kullan
       try {
-        const response = await fetch(connection.host, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
-        testResult = { success: response.ok, message: response.ok ? 'API erişilebilir' : `API hatası: ${response.status}` };
+        // SSRF koruması - internal/private adreslere erişimi engelle
+        const urlValidation = validateExternalUrl(connection.host);
+        if (!urlValidation.valid) {
+          testResult = { success: false, message: `Güvenlik hatası: ${urlValidation.error}` };
+        } else {
+          const response = await safeFetch(connection.host, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
+          testResult = { success: response.ok, message: response.ok ? 'API erişilebilir' : `API hatası: ${response.status}` };
+        }
       } catch (apiError: any) {
         testResult = { success: false, message: `API hatası: ${apiError.message}` };
       }
@@ -422,7 +448,7 @@ app.get('/connections/:id/tables', authenticate, async (req: Request, res: Respo
         port: connection.port || 5432,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted, // TODO: Decrypt
+        password: decrypt(connection.password_encrypted),
       });
       
       try {
@@ -448,7 +474,7 @@ app.get('/connections/:id/tables', authenticate, async (req: Request, res: Respo
         port: connection.port || 1433,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         options: { encrypt: isAzure, trustServerCertificate: !isAzure }
       };
       
@@ -476,7 +502,7 @@ app.get('/connections/:id/tables', authenticate, async (req: Request, res: Respo
           port: connection.port || 3306,
           database: connection.database_name,
           user: connection.username,
-          password: connection.password_encrypted,
+          password: decrypt(connection.password_encrypted),
           charset: 'utf8mb4'
         });
         
@@ -530,7 +556,7 @@ app.get('/connections/:id/tables/:tableName/columns', authenticate, async (req: 
         port: connection.port || 5432,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
       });
       
       try {
@@ -555,7 +581,7 @@ app.get('/connections/:id/tables/:tableName/columns', authenticate, async (req: 
         port: connection.port || 1433,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         options: { encrypt: isAzure, trustServerCertificate: !isAzure }
       };
       
@@ -583,7 +609,7 @@ app.get('/connections/:id/tables/:tableName/columns', authenticate, async (req: 
           port: connection.port || 3306,
           database: connection.database_name,
           user: connection.username,
-          password: connection.password_encrypted,
+          password: decrypt(connection.password_encrypted),
           charset: 'utf8mb4'
         });
         
@@ -650,7 +676,7 @@ app.post('/connections/:id/query', authenticate, async (req: Request, res: Respo
         port: connection.port || 5432,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
       });
       
       // PostgreSQL: LIMIT ekle
@@ -717,7 +743,7 @@ app.post('/connections/:id/query', authenticate, async (req: Request, res: Respo
         port: connection.port || 1433,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         options: { encrypt: isAzure, trustServerCertificate: !isAzure }
       };
       
@@ -805,7 +831,7 @@ app.post('/connections/:id/query', authenticate, async (req: Request, res: Respo
           port: connection.port || 3306,
           database: connection.database_name,
           user: connection.username,
-          password: connection.password_encrypted,
+          password: decrypt(connection.password_encrypted),
           charset: 'utf8mb4',
           dateStrings: true
         });
@@ -895,16 +921,16 @@ app.put('/schedules/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), a
       throw new AppError('Yetkisiz erişim', 403, 'FORBIDDEN');
     }
 
-    // Update
+    // SECURITY: Defense-in-depth - tenant_id dahil et
     await db.query(`
       UPDATE etl_schedules SET
         is_active = COALESCE($1, is_active),
         cron_expression = COALESCE($2, cron_expression),
         updated_at = NOW()
-      WHERE id = $3
-    `, [isActive, cronExpression || interval, id]);
+      WHERE id = $3 AND tenant_id = $4
+    `, [isActive, cronExpression || interval, id, req.user!.tenantId]);
 
-    logger.info('Schedule updated', { scheduleId: id, isActive });
+    logger.info('Schedule updated', { scheduleId: id, isActive, tenantId: req.user!.tenantId });
 
     res.json({ success: true, message: 'Schedule güncellendi' });
   } catch (error) {
@@ -935,14 +961,14 @@ app.put('/datasets/:id/schedule', authenticate, authorize(ROLES.ADMIN, ROLES.MAN
     );
 
     if (existingSchedule) {
-      // Güncelle
+      // SECURITY: Defense-in-depth - tenant_id dahil et
       await db.query(`
         UPDATE etl_schedules SET
           cron_expression = COALESCE($1, cron_expression),
           is_active = COALESCE($2, is_active),
           updated_at = NOW()
-        WHERE dataset_id = $3
-      `, [interval, isActive, id]);
+        WHERE dataset_id = $3 AND tenant_id = $4
+      `, [interval, isActive, id, req.user!.tenantId]);
     } else if (interval) {
       // Yeni oluştur
       await db.query(`
@@ -951,10 +977,10 @@ app.put('/datasets/:id/schedule', authenticate, authorize(ROLES.ADMIN, ROLES.MAN
       `, [req.user!.tenantId, id, interval, isActive]);
     }
 
-    // Dataset sync_schedule alanını da güncelle
+    // SECURITY: Defense-in-depth - tenant_id dahil et
     await db.query(
-      'UPDATE datasets SET sync_schedule = $1 WHERE id = $2',
-      [interval, id]
+      'UPDATE datasets SET sync_schedule = $1 WHERE id = $2 AND tenant_id = $3',
+      [interval, id, req.user!.tenantId]
     );
 
     res.json({ success: true, message: 'Schedule güncellendi' });
@@ -1595,10 +1621,10 @@ app.post('/datasets', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), async
     logger.info('Creating ClickHouse table', { tableName, engine: selectedEngine, partition: partitionColumn });
     await clickhouse.execute(createTableSql);
 
-    // Dataset tablosunu güncelle
+    // SECURITY: Defense-in-depth - tenant_id dahil et
     await db.query(
-      "UPDATE datasets SET clickhouse_table = $1, status = 'active' WHERE id = $2",
-      [tableName, result.id]
+      "UPDATE datasets SET clickhouse_table = $1, status = 'active' WHERE id = $2 AND tenant_id = $3",
+      [tableName, result.id, req.user!.tenantId]
     );
 
     logger.info('Dataset created', { datasetId: result.id, name, tableName });
@@ -1666,6 +1692,7 @@ app.put('/datasets/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), as
     const newRowLimit = rowLimit !== undefined ? rowLimit : dataset.row_limit;
     const newDeleteDays = deleteDays !== undefined ? deleteDays : dataset.delete_days;
     
+    // SECURITY: Defense-in-depth - tenant_id dahil et
     await db.query(
       `UPDATE datasets SET 
         name = COALESCE($1, name),
@@ -1687,12 +1714,12 @@ app.put('/datasets/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), as
         region_column = COALESCE($17, region_column),
         group_column = COALESCE($18, group_column),
         updated_at = NOW()
-       WHERE id = $19`,
+       WHERE id = $19 AND tenant_id = $20`,
       [name, syncStrategy, syncSchedule, newRowLimit, status, referenceColumn,
        partitionColumn, partitionType, refreshWindowDays,
        detectModified, modifiedColumn, weeklyFullRefresh, engineType, 
        customWhere !== undefined ? customWhere : null, newDeleteDays,
-       storeColumn, regionColumn, groupColumn, id]
+       storeColumn, regionColumn, groupColumn, id, req.user!.tenantId]
     );
     
     logger.info('Dataset updated', { id, partitionColumn, partitionType });
@@ -1769,15 +1796,15 @@ app.put('/datasets/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), as
       const nextRunTime = calculateNextRunTime(cronExpression, scheduledHour);
       
       if (existingSchedule) {
-        // Güncelle - next_run_at'ı doğru hesaplanmış zamana ayarla
+        // SECURITY: Defense-in-depth - tenant_id dahil et
         await db.query(
           `UPDATE etl_schedules SET 
             cron_expression = $1, 
             is_active = true, 
             next_run_at = $2,
             updated_at = NOW() 
-           WHERE id = $3`,
-          [cronExpression, nextRunTime, existingSchedule.id]
+           WHERE id = $3 AND tenant_id = $4`,
+          [cronExpression, nextRunTime, existingSchedule.id, req.user!.tenantId]
         );
       } else {
         // Yeni oluştur - next_run_at'ı doğru hesaplanmış zamana ayarla
@@ -1790,10 +1817,10 @@ app.put('/datasets/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), as
       
       logger.info('Schedule updated', { datasetId: id, cron: cronExpression });
     } else if (syncSchedule === 'manual') {
-      // Manual ise schedule'ı pasif yap
+      // SECURITY: Defense-in-depth - tenant_id dahil et
       await db.query(
-        `UPDATE etl_schedules SET is_active = false, updated_at = NOW() WHERE dataset_id = $1`,
-        [id]
+        `UPDATE etl_schedules SET is_active = false, updated_at = NOW() WHERE dataset_id = $1 AND tenant_id = $2`,
+        [id, req.user!.tenantId]
       );
     }
     
@@ -1828,16 +1855,17 @@ app.delete('/datasets/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER),
       }
     }
     
-    // İlgili ETL job'ları sil
-    await db.query('DELETE FROM etl_jobs WHERE dataset_id = $1', [id]);
+    // SECURITY: Defense-in-depth - tenant_id dahil et
+    // İlgili ETL job'ları sil (tenant_id dahil)
+    await db.query('DELETE FROM etl_jobs WHERE dataset_id = $1 AND tenant_id = $2', [id, req.user!.tenantId]);
     
-    // İlgili schedule'ları sil
-    await db.query('DELETE FROM etl_schedules WHERE dataset_id = $1', [id]);
+    // İlgili schedule'ları sil (tenant_id dahil)
+    await db.query('DELETE FROM etl_schedules WHERE dataset_id = $1 AND tenant_id = $2', [id, req.user!.tenantId]);
     
-    // Dataset'i sil
-    await db.query('DELETE FROM datasets WHERE id = $1', [id]);
+    // Dataset'i sil (tenant_id dahil)
+    await db.query('DELETE FROM datasets WHERE id = $1 AND tenant_id = $2', [id, req.user!.tenantId]);
     
-    logger.info('Dataset deleted', { datasetId: id });
+    logger.info('Dataset deleted', { datasetId: id, tenantId: req.user!.tenantId });
     res.json({ success: true, message: 'Dataset silindi' });
   } catch (error) {
     next(error);
@@ -1853,6 +1881,10 @@ app.post('/connections/:id/preview', authenticate, async (req: Request, res: Res
     if (!tableName) {
       throw new ValidationError('Tablo adı gerekli');
     }
+    
+    // SECURITY: Table name SQL injection koruması
+    const safeTableName = sanitizeTableName(tableName);
+    const safeLimit = Math.min(Math.max(1, parseInt(limit) || 10), 100);
 
     const connection = await db.queryOne(
       'SELECT * FROM data_connections WHERE id = $1 AND tenant_id = $2',
@@ -1873,32 +1905,32 @@ app.post('/connections/:id/preview', authenticate, async (req: Request, res: Res
         port: connection.port || 5432,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
       });
       
       try {
         await client.connect();
         
-        // Kolonları çek
+        // Kolonları çek (parameterized query)
         const colResult = await client.query(`
           SELECT column_name as name, data_type as type, is_nullable
           FROM information_schema.columns 
           WHERE table_name = $1
           ORDER BY ordinal_position
-        `, [tableName]);
+        `, [safeTableName]);
         columns = colResult.rows.map((c: any) => ({
           name: c.name,
           type: c.type,
           nullable: c.is_nullable === 'YES'
         }));
         
-        // Örnek veri çek
-        const dataResult = await client.query(`SELECT * FROM "${tableName}" LIMIT ${Math.min(limit, 100)}`);
+        // Örnek veri çek - SECURITY: sanitized table name kullanılıyor
+        const dataResult = await client.query(`SELECT * FROM "${safeTableName}" LIMIT ${safeLimit}`);
         sampleData = dataResult.rows;
         
         await client.end();
       } catch (dbError: any) {
-        logger.error('PostgreSQL preview error', { error: dbError.message, table: tableName });
+        logger.error('PostgreSQL preview error', { error: dbError.message, table: safeTableName });
         throw new AppError(`Tablo önizleme hatası: ${dbError.message}`, 500, 'PREVIEW_ERROR');
       }
     } else if (connection.type === 'mssql') {
@@ -1909,18 +1941,20 @@ app.post('/connections/:id/preview', authenticate, async (req: Request, res: Res
         port: connection.port || 1433,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         options: { encrypt: isAzure, trustServerCertificate: !isAzure }
       };
       
       try {
         await sql.connect(config);
         
-        // Kolonları çek
-        const colResult = await sql.query(`
+        // Kolonları çek - SECURITY: parameterized query kullanılıyor
+        const request = new sql.Request();
+        request.input('tableName', sql.VarChar, safeTableName);
+        const colResult = await request.query(`
           SELECT COLUMN_NAME as name, DATA_TYPE as type, IS_NULLABLE as is_nullable
           FROM INFORMATION_SCHEMA.COLUMNS 
-          WHERE TABLE_NAME = '${tableName}'
+          WHERE TABLE_NAME = @tableName
           ORDER BY ORDINAL_POSITION
         `);
         columns = colResult.recordset.map((c: any) => ({
@@ -1929,13 +1963,13 @@ app.post('/connections/:id/preview', authenticate, async (req: Request, res: Res
           nullable: c.is_nullable === 'YES'
         }));
         
-        // Örnek veri çek
-        const dataResult = await sql.query(`SELECT TOP ${Math.min(limit, 100)} * FROM [${tableName}]`);
+        // Örnek veri çek - SECURITY: sanitized table name kullanılıyor
+        const dataResult = await sql.query(`SELECT TOP ${safeLimit} * FROM [${safeTableName}]`);
         sampleData = dataResult.recordset;
         
         await sql.close();
       } catch (dbError: any) {
-        logger.error('MSSQL preview error', { error: dbError.message, table: tableName });
+        logger.error('MSSQL preview error', { error: dbError.message, table: safeTableName });
         throw new AppError(`Tablo önizleme hatası: ${dbError.message}`, 500, 'PREVIEW_ERROR');
       }
     } else if (connection.type === 'api') {
@@ -2065,10 +2099,10 @@ app.post('/datasets/:id/partial-refresh', authenticate, authorize(ROLES.ADMIN, R
       });
     }
 
-    // Dataset'in refresh_window_days değerini güncelle
+    // SECURITY: Defense-in-depth - tenant_id dahil et
     await db.query(
-      `UPDATE datasets SET refresh_window_days = $1 WHERE id = $2`,
-      [days, id]
+      `UPDATE datasets SET refresh_window_days = $1 WHERE id = $2 AND tenant_id = $3`,
+      [days, id, req.user!.tenantId]
     );
 
     // Yeni partial_refresh job oluştur
@@ -2196,17 +2230,20 @@ app.get('/clickhouse/tables/:name', authenticate, async (req: Request, res: Resp
       LIMIT 12
     `);
     
+    // SECURITY: SQL Injection koruması
+    const safeName = sanitizeTableName(name);
+    
     // Kolon bilgisi
     const columns = await clickhouse.query(`
       SELECT name, type, default_kind, comment
       FROM system.columns
-      WHERE database = 'clixer_analytics' AND table = '${name}'
+      WHERE database = 'clixer_analytics' AND table = '${safeName}'
       ORDER BY position
     `);
     
     // Örnek veri (ilk 5 satır)
     const sampleData = await clickhouse.query(`
-      SELECT * FROM clixer_analytics.${name} LIMIT 5
+      SELECT * FROM clixer_analytics.${safeName} LIMIT 5
     `);
     
     res.json({
@@ -2227,11 +2264,13 @@ app.get('/clickhouse/tables/:name', authenticate, async (req: Request, res: Resp
 app.delete('/clickhouse/tables/:name', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name } = req.params;
+    // SECURITY: SQL Injection koruması
+    const safeName = sanitizeTableName(name);
     
     // İlgili dataset var mı kontrol et
     const dataset = await db.queryOne(
       'SELECT id, name FROM datasets WHERE clickhouse_table = $1',
-      [name]
+      [safeName]
     );
     
     if (dataset) {
@@ -2239,10 +2278,10 @@ app.delete('/clickhouse/tables/:name', authenticate, authorize(ROLES.ADMIN), asy
     }
     
     // Tabloyu sil
-    await clickhouse.execute(`DROP TABLE IF EXISTS clixer_analytics.${name}`);
+    await clickhouse.execute(`DROP TABLE IF EXISTS clixer_analytics.${safeName}`);
     
-    logger.info('ClickHouse table deleted by admin', { table: name, userId: req.user!.userId });
-    res.json({ success: true, message: `Tablo "${name}" silindi` });
+    logger.info('ClickHouse table deleted by admin', { table: safeName, userId: req.user!.userId });
+    res.json({ success: true, message: `Tablo "${safeName}" silindi` });
   } catch (error) {
     next(error);
   }
@@ -2252,11 +2291,13 @@ app.delete('/clickhouse/tables/:name', authenticate, authorize(ROLES.ADMIN), asy
 app.post('/clickhouse/tables/:name/truncate', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name } = req.params;
+    // SECURITY: SQL Injection koruması
+    const safeName = sanitizeTableName(name);
     
-    await clickhouse.execute(`TRUNCATE TABLE clixer_analytics.${name}`);
+    await clickhouse.execute(`TRUNCATE TABLE clixer_analytics.${safeName}`);
     
-    logger.info('ClickHouse table truncated by admin', { table: name, userId: req.user!.userId });
-    res.json({ success: true, message: `Tablo "${name}" temizlendi` });
+    logger.info('ClickHouse table truncated by admin', { table: safeName, userId: req.user!.userId });
+    res.json({ success: true, message: `Tablo "${safeName}" temizlendi` });
   } catch (error) {
     next(error);
   }
@@ -2266,11 +2307,13 @@ app.post('/clickhouse/tables/:name/truncate', authenticate, authorize(ROLES.ADMI
 app.post('/clickhouse/tables/:name/optimize', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name } = req.params;
+    // SECURITY: SQL Injection koruması
+    const safeName = sanitizeTableName(name);
     
-    await clickhouse.execute(`OPTIMIZE TABLE clixer_analytics.${name} FINAL`);
+    await clickhouse.execute(`OPTIMIZE TABLE clixer_analytics.${safeName} FINAL`);
     
-    logger.info('ClickHouse table optimized by admin', { table: name, userId: req.user!.userId });
-    res.json({ success: true, message: `Tablo "${name}" optimize edildi` });
+    logger.info('ClickHouse table optimized by admin', { table: safeName, userId: req.user!.userId });
+    res.json({ success: true, message: `Tablo "${safeName}" optimize edildi` });
   } catch (error) {
     next(error);
   }
@@ -2667,7 +2710,7 @@ app.get('/performance/connections/:id', authenticate, async (req: Request, res: 
         port: connection.port || 1433,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         options: {
           encrypt: connection.host?.includes('.database.windows.net') || false,
           trustServerCertificate: true
@@ -3063,6 +3106,10 @@ app.get('/clickhouse/tables/:table/preview-delete', authenticate, authorize(ROLE
     const { table } = req.params;
     const { dateColumn, startDate, endDate, days } = req.query;
     
+    // SECURITY: SQL Injection koruması
+    const safeTable = sanitizeTableName(table);
+    const safeDateColumn = sanitizeTableName(dateColumn as string || '');
+    
     if (!dateColumn) {
       throw new ValidationError('dateColumn parametresi zorunlu');
     }
@@ -3071,20 +3118,23 @@ app.get('/clickhouse/tables/:table/preview-delete', authenticate, authorize(ROLE
     
     if (days) {
       // Son X gün
-      whereClause = `toDate(${dateColumn}) >= today() - ${parseInt(days as string)}`;
+      const safeDays = parseInt(days as string) || 0;
+      whereClause = `toDate(${safeDateColumn}) >= today() - ${safeDays}`;
     } else if (startDate && endDate) {
-      // Tarih aralığı
-      whereClause = `toDate(${dateColumn}) >= '${startDate}' AND toDate(${dateColumn}) <= '${endDate}'`;
+      // Tarih aralığı - sanitize date strings
+      const safeStartDate = String(startDate).replace(/[^0-9-]/g, '');
+      const safeEndDate = String(endDate).replace(/[^0-9-]/g, '');
+      whereClause = `toDate(${safeDateColumn}) >= '${safeStartDate}' AND toDate(${safeDateColumn}) <= '${safeEndDate}'`;
     } else {
       throw new ValidationError('days veya startDate/endDate parametresi gerekli');
     }
     
     const countResult = await clickhouse.queryOne(`
-      SELECT count() as cnt FROM clixer_analytics.${table} WHERE ${whereClause}
+      SELECT count() as cnt FROM clixer_analytics.${safeTable} WHERE ${whereClause}
     `);
     
     const totalResult = await clickhouse.queryOne(`
-      SELECT count() as cnt FROM clixer_analytics.${table}
+      SELECT count() as cnt FROM clixer_analytics.${safeTable}
     `);
     
     res.json({
@@ -3109,6 +3159,10 @@ app.delete('/clickhouse/tables/:table/rows', authenticate, authorize(ROLES.ADMIN
     const { table } = req.params;
     const { dateColumn, startDate, endDate, days } = req.body;
     
+    // SECURITY: SQL Injection koruması
+    const safeTable = sanitizeTableName(table);
+    const safeDateColumn = sanitizeTableName(dateColumn || '');
+    
     if (!dateColumn) {
       throw new ValidationError('dateColumn parametresi zorunlu');
     }
@@ -3116,16 +3170,19 @@ app.delete('/clickhouse/tables/:table/rows', authenticate, authorize(ROLES.ADMIN
     let whereClause = '';
     
     if (days !== undefined) {
-      whereClause = `toDate(${dateColumn}) >= today() - ${parseInt(days)}`;
+      const safeDays = parseInt(days) || 0;
+      whereClause = `toDate(${safeDateColumn}) >= today() - ${safeDays}`;
     } else if (startDate && endDate) {
-      whereClause = `toDate(${dateColumn}) >= '${startDate}' AND toDate(${dateColumn}) <= '${endDate}'`;
+      const safeStartDate = String(startDate).replace(/[^0-9-]/g, '');
+      const safeEndDate = String(endDate).replace(/[^0-9-]/g, '');
+      whereClause = `toDate(${safeDateColumn}) >= '${safeStartDate}' AND toDate(${safeDateColumn}) <= '${safeEndDate}'`;
     } else {
       throw new ValidationError('days veya startDate/endDate parametresi gerekli');
     }
     
     // Önce kaç satır silineceğini say
     const countBefore = await clickhouse.queryOne(`
-      SELECT count() as cnt FROM clixer_analytics.${table} WHERE ${whereClause}
+      SELECT count() as cnt FROM clixer_analytics.${safeTable} WHERE ${whereClause}
     `);
     const rowsToDelete = Number(countBefore?.cnt || 0);
     
@@ -3138,7 +3195,7 @@ app.delete('/clickhouse/tables/:table/rows', authenticate, authorize(ROLES.ADMIN
     
     // DELETE işlemi (async, arka planda çalışır)
     await clickhouse.execute(`
-      ALTER TABLE clixer_analytics.${table} DELETE WHERE ${whereClause}
+      ALTER TABLE clixer_analytics.${safeTable} DELETE WHERE ${whereClause}
     `);
     
     // Audit log
@@ -3172,19 +3229,22 @@ app.post('/clickhouse/tables/:table/delete-partition', authenticate, authorize(R
     const { table } = req.params;
     const { partition } = req.body; // Format: '202601' veya '2026-01'
     
+    // SECURITY: SQL Injection koruması
+    const safeTable = sanitizeTableName(table);
+    
     if (!partition) {
       throw new ValidationError('partition parametresi zorunlu (örn: 202601 veya 2026-01)');
     }
     
-    // Partition formatını normalize et
-    const normalizedPartition = partition.replace('-', '');
+    // Partition formatını normalize et ve sanitize et (sadece rakam ve tire)
+    const normalizedPartition = String(partition).replace(/[^0-9]/g, '');
     
     await clickhouse.execute(`
-      ALTER TABLE clixer_analytics.${table} DROP PARTITION '${normalizedPartition}'
+      ALTER TABLE clixer_analytics.${safeTable} DROP PARTITION '${normalizedPartition}'
     `);
     
     logger.info('ClickHouse partition deleted', {
-      table,
+      table: safeTable,
       partition: normalizedPartition,
       userId: (req as any).user?.userId
     });
@@ -3193,7 +3253,7 @@ app.post('/clickhouse/tables/:table/delete-partition', authenticate, authorize(R
       success: true,
       data: {
         message: `Partition ${normalizedPartition} silindi`,
-        table,
+        table: safeTable,
         partition: normalizedPartition
       }
     });
@@ -3208,20 +3268,23 @@ app.post('/clickhouse/tables/:table/truncate', authenticate, authorize(ROLES.ADM
     const { table } = req.params;
     const { confirm } = req.body;
     
+    // SECURITY: SQL Injection koruması
+    const safeTable = sanitizeTableName(table);
+    
     if (confirm !== 'TRUNCATE') {
       throw new ValidationError('Güvenlik için body içinde { confirm: "TRUNCATE" } göndermelisiniz');
     }
     
     // Önce satır sayısını al
     const countResult = await clickhouse.queryOne(`
-      SELECT count() as cnt FROM clixer_analytics.${table}
+      SELECT count() as cnt FROM clixer_analytics.${safeTable}
     `);
     const totalRows = Number(countResult?.cnt || 0);
     
-    await clickhouse.execute(`TRUNCATE TABLE clixer_analytics.${table}`);
+    await clickhouse.execute(`TRUNCATE TABLE clixer_analytics.${safeTable}`);
     
     logger.warn('ClickHouse table truncated', {
-      table,
+      table: safeTable,
       rowsDeleted: totalRows,
       userId: (req as any).user?.userId,
       tenantId: (req as any).user?.tenantId
@@ -3231,7 +3294,7 @@ app.post('/clickhouse/tables/:table/truncate', authenticate, authorize(ROLES.ADM
       success: true,
       data: {
         message: `Tablo truncate edildi`,
-        table,
+        table: safeTable,
         rowsDeleted: totalRows
       }
     });
@@ -3244,20 +3307,22 @@ app.post('/clickhouse/tables/:table/truncate', authenticate, authorize(ROLES.ADM
 app.post('/clickhouse/tables/:table/optimize', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { table } = req.params;
+    // SECURITY: SQL Injection koruması
+    const safeTable = sanitizeTableName(table);
     
     // Part sayısını al (öncesi)
     const partsBefore = await clickhouse.queryOne(`
       SELECT count() as cnt FROM system.parts 
-      WHERE database = 'clixer_analytics' AND table = '${table}' AND active = 1
+      WHERE database = 'clixer_analytics' AND table = '${safeTable}' AND active = 1
     `);
     
-    await clickhouse.execute(`OPTIMIZE TABLE clixer_analytics.${table} FINAL`);
+    await clickhouse.execute(`OPTIMIZE TABLE clixer_analytics.${safeTable} FINAL`);
     
     // Part sayısını al (sonrası) - biraz bekle
     await new Promise(resolve => setTimeout(resolve, 2000));
     const partsAfter = await clickhouse.queryOne(`
       SELECT count() as cnt FROM system.parts 
-      WHERE database = 'clixer_analytics' AND table = '${table}' AND active = 1
+      WHERE database = 'clixer_analytics' AND table = '${safeTable}' AND active = 1
     `);
     
     logger.info('ClickHouse table optimized', {
@@ -3345,7 +3410,8 @@ app.get('/datasets/:id/compare', authenticate, authorize(ROLES.ADMIN), async (re
   try {
     const { id } = req.params;
     // ⚠️ KULLANICI PK KOLONUNU SEÇEBİLİR - hardcoded değil!
-    const pkColumn = (req.query.pkColumn as string) || 'id';
+    // SECURITY: SQL Injection koruması
+    const pkColumn = sanitizeTableName((req.query.pkColumn as string) || 'id');
     
     // Dataset bilgilerini al
     const dataset = await db.queryOne(`
@@ -3359,13 +3425,16 @@ app.get('/datasets/:id/compare', authenticate, authorize(ROLES.ADMIN), async (re
       throw new NotFoundError('Dataset bulunamadı');
     }
     
+    // SECURITY: SQL Injection koruması - dataset.clickhouse_table de sanitize edilmeli
+    const safeClickhouseTable = sanitizeTableName(dataset.clickhouse_table);
+    
     // ClickHouse istatistikleri - DİNAMİK KOLON
     const chStats = await clickhouse.queryOne(`
       SELECT 
         count() as total_rows,
         min(${pkColumn}) as min_id,
         max(${pkColumn}) as max_id
-      FROM clixer_analytics.${dataset.clickhouse_table}
+      FROM clixer_analytics.${safeClickhouseTable}
     `);
     
     // Kaynak DB'den istatistik çek
@@ -3490,7 +3559,8 @@ app.get('/datasets/:id/missing-ranges', authenticate, authorize(ROLES.ADMIN), as
   try {
     const { id } = req.params;
     // ⚠️ KULLANICI PK KOLONUNU SEÇEBİLİR - hardcoded değil!
-    const pkColumn = (req.query.pkColumn as string) || 'id';
+    // SECURITY: SQL Injection koruması
+    const pkColumn = sanitizeTableName((req.query.pkColumn as string) || 'id');
     // 100M+ satır için optimizasyon parametreleri
     const blockSize = parseInt(req.query.blockSize as string) || 100000; // 100K blok (10K yerine)
     const maxBlocks = parseInt(req.query.maxBlocks as string) || 100; // Max 100 blok tarama
@@ -3499,13 +3569,16 @@ app.get('/datasets/:id/missing-ranges', authenticate, authorize(ROLES.ADMIN), as
     const dataset = await db.queryOne('SELECT * FROM datasets WHERE id = $1', [id]);
     if (!dataset) throw new NotFoundError('Dataset bulunamadı');
     
+    // SECURITY: SQL Injection koruması
+    const safeClickhouseTable = sanitizeTableName(dataset.clickhouse_table);
+    
     // ClickHouse'dan min/max ve count al - TEK SORGU
     const chStats = await clickhouse.queryOne(`
       SELECT 
         min(${pkColumn}) as min_id, 
         max(${pkColumn}) as max_id,
         count() as total_rows
-      FROM clixer_analytics.${dataset.clickhouse_table}
+      FROM clixer_analytics.${safeClickhouseTable}
     `);
     
     const chMinId = Number(chStats?.min_id) || 0;
@@ -3587,7 +3660,7 @@ app.get('/datasets/:id/missing-ranges', authenticate, authorize(ROLES.ADMIN), as
       
       const blockStats = await clickhouse.queryOne(`
         SELECT count() as actual_count
-        FROM clixer_analytics.${dataset.clickhouse_table}
+        FROM clixer_analytics.${safeClickhouseTable}
         WHERE ${pkColumn} >= ${blockStart} AND ${pkColumn} <= ${blockEnd}
       `);
       
@@ -3676,7 +3749,9 @@ app.post('/datasets/:id/sync-missing', authenticate, authorize(ROLES.ADMIN), asy
 app.post('/datasets/:id/sync-new-records', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { pkColumn = 'id', limit } = req.body;
+    // SECURITY: SQL Injection koruması
+    const safePkColumn = sanitizeTableName(req.body.pkColumn || 'id');
+    const { limit } = req.body;
     
     const dataset = await db.queryOne(`
       SELECT d.*, c.type as connection_type, c.host, c.port, c.database_name, c.username, c.password_encrypted
@@ -3687,9 +3762,12 @@ app.post('/datasets/:id/sync-new-records', authenticate, authorize(ROLES.ADMIN),
     
     if (!dataset) throw new NotFoundError('Dataset bulunamadı');
     
+    // SECURITY: SQL Injection koruması
+    const safeClickhouseTable = sanitizeTableName(dataset.clickhouse_table);
+    
     // ClickHouse'daki max ID'yi al
     const chStats = await clickhouse.queryOne(`
-      SELECT max(${pkColumn}) as max_id FROM clixer_analytics.${dataset.clickhouse_table}
+      SELECT max(${safePkColumn}) as max_id FROM clixer_analytics.${safeClickhouseTable}
     `);
     const chMaxId = Number(chStats?.max_id) || 0;
     
@@ -3707,7 +3785,7 @@ app.post('/datasets/:id/sync-new-records', authenticate, authorize(ROLES.ADMIN),
       datasetId: id,
       jobId: jobResult.id,
       action: 'new_records_sync',
-      pkColumn: pkColumn,
+      pkColumn: safePkColumn,
       afterId: chMaxId,
       limit: limit || null
     });
@@ -3733,13 +3811,16 @@ app.get('/datasets/:id/duplicate-analysis', authenticate, authorize(ROLES.ADMIN)
     const dataset = await db.queryOne('SELECT * FROM datasets WHERE id = $1', [id]);
     if (!dataset) throw new NotFoundError('Dataset bulunamadı');
     
+    // SECURITY: SQL Injection koruması
+    const safeClickhouseTable = sanitizeTableName(dataset.clickhouse_table);
+    
     // Toplam ve unique sayısı - sampling ile
     const stats = await clickhouse.queryOne(`
       SELECT 
         count() as total_rows,
         min(id) as min_id,
         max(id) as max_id
-      FROM clixer_analytics.${dataset.clickhouse_table}
+      FROM clixer_analytics.${safeClickhouseTable}
     `);
     
     const totalRows = Number(stats?.total_rows) || 0;
@@ -3753,7 +3834,7 @@ app.get('/datasets/:id/duplicate-analysis', authenticate, authorize(ROLES.ADMIN)
     try {
       const sampleResult = await clickhouse.queryOne(`
         SELECT count() - countDistinct(id) as dup_count
-        FROM clixer_analytics.${dataset.clickhouse_table}
+        FROM clixer_analytics.${safeClickhouseTable}
         WHERE id <= 1000000
       `);
       sampleDuplicates = Number(sampleResult?.dup_count) || 0;

@@ -20,7 +20,7 @@ export interface ClickHouseConfig {
 }
 
 export interface QueryOptions {
-  timeout?: number;  // Query timeout in milliseconds (default: 10000)
+  timeout?: number;  // Query timeout in milliseconds (default: 30000)
 }
 
 /**
@@ -34,7 +34,7 @@ export function createClickHouseClient(config?: ClickHouseConfig): ClickHouseCli
     username: config?.username || process.env.CLICKHOUSE_USER || 'clixer',
     password: config?.password || process.env.CLICKHOUSE_PASSWORD || '',
     database: config?.database || process.env.CLICKHOUSE_DB || 'clixer_analytics',
-    request_timeout: config?.request_timeout || 30000
+    request_timeout: config?.request_timeout || parseInt(process.env.CH_REQUEST_TIMEOUT || '60000')  // 60sn - büyük tablolar için
   };
 
   client = createClient(chConfig);
@@ -61,7 +61,7 @@ export function getClient(): ClickHouseClient {
  */
 export async function query<T = any>(sql: string, options?: QueryOptions): Promise<T[]> {
   const ch = getClient();
-  const timeout = options?.timeout || 10000; // Default 10 saniye timeout
+  const timeout = options?.timeout || parseInt(process.env.CH_QUERY_TIMEOUT || '30000'); // Default 30 saniye timeout
   
   try {
     const start = Date.now();

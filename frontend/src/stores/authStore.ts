@@ -24,12 +24,22 @@ interface AuthState {
   error: string | null
   hasHydrated: boolean
   
-  login: (email: string, password: string) => Promise<void>
+  // 2FA State
+  requiresTwoFactor: boolean
+  twoFactorEmail: string | null  // 2FA bekleyen kullanıcının email'i
+  
+  // 2FA Setup State (ilk kurulum için)
+  requires2FASetup: boolean
+  setupToken: string | null  // 2FA kurulumu için geçici token
+  
+  login: (email: string, password: string, twoFactorCode?: string, rememberDevice?: boolean) => Promise<void>
   logout: () => void
   refreshAccessToken: () => Promise<boolean>
   clearError: () => void
   setHasHydrated: (state: boolean) => void
   setUser: (user: User) => void
+  clearTwoFactor: () => void  // 2FA state'ini temizle
+  clear2FASetup: () => void   // 2FA setup state'ini temizle
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -42,12 +52,58 @@ export const useAuthStore = create<AuthState>()(
       isLoading: false,
       error: null,
       hasHydrated: false,
+      
+      // 2FA State
+      requiresTwoFactor: false,
+      twoFactorEmail: null,
+      
+      // 2FA Setup State
+      requires2FASetup: false,
+      setupToken: null,
 
-      login: async (email: string, password: string) => {
+      login: async (email: string, password: string, twoFactorCode?: string, rememberDevice?: boolean) => {
         set({ isLoading: true, error: null })
         try {
-          const response = await api.post('/auth/login', { email, password })
-          const { accessToken, refreshToken, user } = response.data.data
+          // Device token varsa gönder (trusted device kontrolü için)
+          const deviceToken = localStorage.getItem('trusted_device_token')
+          
+          const response = await api.post('/auth/login', { 
+            email, 
+            password,
+            twoFactorCode,
+            rememberDevice,
+            deviceToken
+          })
+          
+          // 2FA Setup gerekiyorsa (ilk kurulum)
+          if (response.data.requires2FASetup) {
+            set({
+              isLoading: false,
+              requires2FASetup: true,
+              setupToken: response.data.setupToken,
+              twoFactorEmail: email,
+              error: null
+            })
+            return
+          }
+          
+          // 2FA gerekiyorsa (zaten kurulu, kod lazım)
+          if (response.data.requiresTwoFactor) {
+            set({
+              isLoading: false,
+              requiresTwoFactor: true,
+              twoFactorEmail: email,
+              error: null
+            })
+            return
+          }
+          
+          const { accessToken, refreshToken, user, trustedDeviceToken } = response.data.data
+          
+          // Trusted device token'ı kaydet (30 gün hatırla)
+          if (trustedDeviceToken) {
+            localStorage.setItem('trusted_device_token', trustedDeviceToken)
+          }
           
           set({
             user,
@@ -55,6 +111,10 @@ export const useAuthStore = create<AuthState>()(
             refreshToken,
             isAuthenticated: true,
             isLoading: false,
+            requiresTwoFactor: false,
+            twoFactorEmail: null,
+            requires2FASetup: false,
+            setupToken: null,
           })
         } catch (error: any) {
           set({
@@ -98,6 +158,21 @@ export const useAuthStore = create<AuthState>()(
       setHasHydrated: (state: boolean) => set({ hasHydrated: state }),
       
       setUser: (user: User) => set({ user }),
+      
+      // 2FA state'ini temizle (iptal veya yeni giriş denemesi için)
+      clearTwoFactor: () => set({ 
+        requiresTwoFactor: false, 
+        twoFactorEmail: null,
+        error: null 
+      }),
+      
+      // 2FA setup state'ini temizle
+      clear2FASetup: () => set({
+        requires2FASetup: false,
+        setupToken: null,
+        twoFactorEmail: null,
+        error: null
+      }),
     }),
     {
       name: 'clixer-auth',
@@ -106,6 +181,7 @@ export const useAuthStore = create<AuthState>()(
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
+        // 2FA state persist edilmez - her seferinde yeniden sorulmalı
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true)

@@ -1,0 +1,132 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "analyzer": {
+        "turkish_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "turkish_stemmer", "turkish_stop"]
+        },
+        "autocomplete_analyzer": {
+          "type": "custom",
+          "tokenizer": "autocomplete_tokenizer",
+          "filter": ["lowercase"]
+        },
+        "autocomplete_search": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase"]
+        }
+      },
+      "tokenizer": {
+        "autocomplete_tokenizer": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20,
+          "token_chars": ["letter", "digit"]
+        }
+      },
+      "filter": {
+        "turkish_stemmer": {
+          "type": "stemmer",
+          "language": "turkish"
+        },
+        "turkish_stop": {
+          "type": "stop",
+          "stopwords": "_turkish_"
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "type": {
+        "type": "keyword"
+      },
+      "tenant_id": {
+        "type": "keyword"
+      },
+      "entity_id": {
+        "type": "keyword"
+      },
+      "name": {
+        "type": "text",
+        "analyzer": "turkish_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword"
+          },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_analyzer",
+            "search_analyzer": "autocomplete_search"
+          },
+          "suggest": {
+            "type": "completion",
+            "analyzer": "simple",
+            "preserve_separators": true,
+            "preserve_position_increments": true,
+            "max_input_length": 50
+          }
+        }
+      },
+      "label": {
+        "type": "text",
+        "analyzer": "turkish_analyzer",
+        "fields": {
+          "keyword": {
+            "type": "keyword"
+          },
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_analyzer",
+            "search_analyzer": "autocomplete_search"
+          }
+        }
+      },
+      "description": {
+        "type": "text",
+        "analyzer": "turkish_analyzer"
+      },
+      "code": {
+        "type": "keyword",
+        "fields": {
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete_analyzer",
+            "search_analyzer": "autocomplete_search"
+          }
+        }
+      },
+      "keywords": {
+        "type": "text",
+        "analyzer": "turkish_analyzer"
+      },
+      "path": {
+        "type": "keyword"
+      },
+      "icon": {
+        "type": "keyword"
+      },
+      "parent": {
+        "type": "keyword"
+      },
+      "is_active": {
+        "type": "boolean"
+      },
+      "metadata": {
+        "type": "object",
+        "enabled": true,
+        "dynamic": true
+      },
+      "created_at": {
+        "type": "date"
+      },
+      "updated_at": {
+        "type": "date"
+      }
+    }
+  }
+}

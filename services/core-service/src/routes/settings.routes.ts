@@ -129,18 +129,20 @@ router.put('/:key', authenticate, authorize(ROLES.ADMIN), async (req: Request, r
 /**
  * DELETE /settings/:key
  * Delete a system setting (Admin only)
+ * SECURITY: Sadece tenant'a ait ayarlar silinebilir, global ayarlar (tenant_id IS NULL) silinemez
  */
 router.delete('/:key', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { key } = req.params;
     
+    // SECURITY: Sadece tenant'a ait ayarları sil - global ayarlar korunur
     const result = await db.query(
-      'DELETE FROM system_settings WHERE (tenant_id = $1 OR tenant_id IS NULL) AND key = $2 RETURNING id',
+      'DELETE FROM system_settings WHERE tenant_id = $1 AND key = $2 RETURNING id',
       [req.user!.tenantId, key]
     );
     
     if (result.rowCount === 0) {
-      throw new NotFoundError('Ayar');
+      throw new NotFoundError('Ayar (sadece tenant ayarları silinebilir)');
     }
     
     logger.info('System setting deleted', { key, user: req.user!.email });

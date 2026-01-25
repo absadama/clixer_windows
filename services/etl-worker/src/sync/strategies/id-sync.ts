@@ -10,7 +10,8 @@ import {
   cache,
   ensureTableExists, 
   extractTableFromQuery,
-  transformBatchForClickHouse
+  transformBatchForClickHouse,
+  decrypt
 } from '../shared';
 
 // Forward declaration
@@ -64,7 +65,7 @@ export async function syncById(dataset: any, connection: any, jobId?: string): P
       
       const config = {
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         server: connection.host,
         database: connection.database_name,
         port: connection.port || 1433,
@@ -134,7 +135,7 @@ export async function syncById(dataset: any, connection: any, jobId?: string): P
         host: connection.host,
         port: connection.port || 3306,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         database: connection.database_name,
         charset: 'utf8mb4',
         dateStrings: true
@@ -186,7 +187,7 @@ export async function syncById(dataset: any, connection: any, jobId?: string): P
         host: connection.host,
         port: connection.port || 5432,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         database: connection.database_name
       });
       

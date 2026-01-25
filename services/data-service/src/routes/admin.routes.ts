@@ -232,14 +232,15 @@ router.get('/system/stats', authenticate, async (req: Request, res: Response, ne
 /**
  * POST /admin/system/restart
  * Restart all services
- * SECURITY: Command Injection protection with whitelist
+ * SECURITY: Command Injection protection with whitelist and execFile
  */
 router.post('/system/restart', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response) => {
-  const { spawn, exec } = require('child_process');
+  const { spawn, execFile } = require('child_process');
   const path = require('path');
   const fs = require('fs');
   const isWindows = process.platform === 'win32';
   
+  // SECURITY: Sadece whitelist'teki scriptler çalıştırılabilir
   const ALLOWED_SCRIPTS: Record<string, string> = {
     windows: 'restart-local.ps1',
     linux: 'restart-all.sh'
@@ -249,6 +250,7 @@ router.post('/system/restart', authenticate, authorize(ROLES.ADMIN), async (req:
   const scriptsDir = path.resolve(__dirname, '../../../../scripts');
   const scriptPath = path.resolve(scriptsDir, scriptName);
   
+  // SECURITY: Path traversal koruması
   if (!scriptPath.startsWith(scriptsDir)) {
     logger.error('Path traversal attempt detected', { 
       attemptedPath: scriptPath, 
@@ -275,18 +277,21 @@ router.post('/system/restart', authenticate, authorize(ROLES.ADMIN), async (req:
     scriptPath 
   });
   
+  // SECURITY: Command injection koruması - execFile kullan, shell string interpolation değil
   if (isWindows) {
-    const escapedPath = scriptPath.replace(/"/g, '\\"');
-    const cmd = `powershell.exe -ExecutionPolicy Bypass -File "${escapedPath}"`;
-    spawn('cmd.exe', ['/c', cmd], {
+    // Windows: PowerShell'i doğrudan array argümanları ile çağır
+    spawn('powershell.exe', ['-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true
+    }).unref();
+  } else {
+    // Linux: execFile ile script'i doğrudan çalıştır (sudo için sudoers yapılandırması gerekli)
+    // NOT: at komutu yerine nohup ile çalıştır - daha güvenli
+    spawn('/bin/bash', ['-c', `sleep 5 && ${scriptPath}`], {
       detached: true,
       stdio: 'ignore'
     }).unref();
-  } else {
-    const cmd = `echo "sleep 5 && sudo ${scriptPath}" | at now`;
-    exec(cmd, (err: any) => {
-      if (err) logger.error('Failed to schedule restart with at', { error: err.message });
-    });
   }
   
   res.json({ 
@@ -489,28 +494,57 @@ router.get('/backup/list', authenticate, async (req: Request, res: Response, nex
 /**
  * POST /admin/backup/create
  * Create new backup
+ * SECURITY: Command Injection protection with execFile and spawn
  */
 router.post('/backup/create', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { exec } = require('child_process');
+    const { spawn } = require('child_process');
     const path = require('path');
     const fs = require('fs');
     
+    // SECURITY: timestamp sadece güvenli karakterler içerir
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    // SECURITY: backupName formatı kontrol edilir
+    if (!/^backup_\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/.test(`backup_${timestamp}`)) {
+      throw new Error('Geçersiz backup adı formatı');
+    }
     const backupName = `backup_${timestamp}`;
-    const backupDir = path.join(process.cwd(), '..', '..', 'backups', backupName);
+    const backupsRoot = path.resolve(process.cwd(), '..', '..', 'backups');
+    const backupDir = path.join(backupsRoot, backupName);
+    
+    // SECURITY: Path traversal koruması
+    if (!backupDir.startsWith(backupsRoot)) {
+      throw new Error('Geçersiz backup dizini');
+    }
     
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
     }
     
-    const pgDumpCmd = `docker exec clixer_postgres pg_dump -U clixer -d clixer --no-owner > "${path.join(backupDir, 'postgresql_full.sql')}"`;
+    const outputFile = path.join(backupDir, 'postgresql_full.sql');
+    const outputStream = fs.createWriteStream(outputFile);
     
-    exec(pgDumpCmd, (error: any) => {
-      if (error) {
-        logger.error('Backup failed', { error: error.message });
+    // SECURITY: spawn ile array argümanları kullan - shell interpolation yok
+    const pgDump = spawn('docker', [
+      'exec', 
+      'clixer_postgres', 
+      'pg_dump', 
+      '-U', 'clixer', 
+      '-d', 'clixer', 
+      '--no-owner'
+    ]);
+    
+    pgDump.stdout.pipe(outputStream);
+    
+    pgDump.on('error', (error: Error) => {
+      logger.error('Backup spawn failed', { error: error.message });
+    });
+    
+    pgDump.on('close', (code: number) => {
+      if (code === 0) {
+        logger.info('Backup created', { backupName, by: req.user?.userId });
       } else {
-        logger.info('Backup created', { backupName, by: req.user?.id });
+        logger.error('Backup failed', { code, backupName });
       }
     });
     

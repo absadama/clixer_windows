@@ -27,6 +27,8 @@ import ldapRoutes from './ldap.routes';
 import importRoutes from './import.routes';
 import gridDesignsRoutes from './grid-designs.routes';
 import whitelabelRoutes from './whitelabel.routes';
+import searchRoutes from './search.routes';
+import navigationRoutes from './navigation.routes';
 
 const router = Router();
 
@@ -66,5 +68,11 @@ router.use('/grid-designs', gridDesignsRoutes);
 
 // WhiteLabel routes (logo upload, manifest.json)
 router.use('/', whitelabelRoutes);  // /upload/logo, /logo-info, /manifest.json
+
+// Unified Search
+router.use('/search', searchRoutes);
+
+// Dynamic Navigation (for search index)
+router.use('/navigation', navigationRoutes);
 
 export default router;

@@ -2,7 +2,7 @@
  * Shared utilities for sync operations
  */
 
-import { createLogger, db, clickhouse, cache } from '@clixer/shared';
+import { createLogger, db, clickhouse, cache, decrypt, validateExternalUrl, safeFetch } from '@clixer/shared';
 import { 
   convertToClickHouseDateTime, 
   isDateLikeValue,
@@ -12,8 +12,10 @@ import {
 export const logger = createLogger({ service: 'etl-worker' });
 
 // Re-export for convenience
-export { db, clickhouse, cache };
+export { db, clickhouse, cache, decrypt };
 export { parseColumnMapping };
+// SECURITY: SSRF koruması
+export { validateExternalUrl, safeFetch };
 
 // ============================================
 // SQL → CLICKHOUSE TYPE MAPPING

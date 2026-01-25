@@ -1,0 +1,180 @@
+---
+description: Clixer security implementations - 2FA, authentication, session management
+alwaysApply: true
+---
+
+# Clixer Security Implementations (25 Ocak 2026 - Güncelleme 2)
+
+## 2FA (Two-Factor Authentication) Sistemi
+
+### Sistem Geneli 2FA Zorunluluğu
+- Admin Panel → Sistem Ayarları → Güvenlik → "2FA Zorunlu" ayarı
+- `system_settings` tablosunda `key = '2fa_enabled'` veya `key = 'require_2fa'`
+- Value formatı: `{"type": "boolean", "value": "true", ...}` (JSONB)
+
+### PostgreSQL JSONB Parsing Dikkat!
+PostgreSQL driver JSONB kolonları otomatik parse eder. `JSON.parse()` çağırma!
+
+```typescript
+// YANLIŞ - Hata verir çünkü value zaten object
+const parsed = JSON.parse(twoFactorSetting.value);
+
+// DOĞRU - Önce tip kontrolü yap
+if (typeof val === 'object' && val !== null) {
+  systemRequires2FA = val.value === 'true' || val.value === true;
+} else if (typeof val === 'string') {
+  const parsed = JSON.parse(val);
+  systemRequires2FA = parsed?.value === 'true';
+}
+```
+
+### 2FA Setup Akışı
+1. Kullanıcı login olur (email + şifre)
+2. Sistem 2FA zorunlu ama kullanıcı kurulum yapmamışsa → `requires2FASetup: true` + `setupToken` döner
+3. Frontend QR kod ekranı gösterir
+4. Kullanıcı Google Authenticator ile tarar
+5. 6 haneli kod girer, doğrulanır
+6. Backup kodları gösterilir
+7. Login tamamlanır
+
+### Remember Device (Cihazı Hatırla)
+- 30 gün TTL ile Redis'te trusted device token saklanır
+- Key: `trusted_device:${userId}:${deviceToken}`
+- 2FA doğrulandıktan sonra "Bu cihazı hatırla" seçilirse oluşturulur
+- Sonraki loginlerde 2FA bypass edilir
+
+## Session Security
+
+### Redis Token Blacklist
+Kullanıcı deaktif edildiğinde veya silindiğinde token'ı blacklist'e al:
+```typescript
+await cache.set(`blacklist:${userId}`, 'true', 86400);
+```
+
+Her authenticated request'te kontrol:
+```typescript
+const isBlacklisted = await isUserBlacklisted(userId);
+if (isBlacklisted) throw new AuthenticationError('Session revoked');
+```
+
+### Phone Number Security Layer
+- `users` tablosunda `phone_number` ve `phone_active` kolonları
+- `phone_active = false` → Kullanıcı login olamaz
+- Admin Panel'den yönetilir (whitelist mantığı)
+
+## Güvenlik Düzeltmeleri (Pentest Sonrası)
+
+### 1. Purpose Token Koruması
+2FA setup token'ları genel endpoint'lerde kullanılamaz:
+```typescript
+// shared/src/auth.ts - authenticate middleware
+if ((user as any).purpose) {
+  throw new AuthenticationError('Bu token genel erişim için kullanılamaz');
+}
+```
+
+### 2. 2FA Setup Token Tek Kullanım
+```typescript
+// auth-service - /2fa/setup endpoint
+const tokenUsedKey = `2fa_setup_used:${userId}`;
+const alreadyUsed = await cache.get(tokenUsedKey);
+if (alreadyUsed) {
+  throw new AuthenticationError('Bu kurulum token\'ı zaten kullanıldı');
+}
+// Kullanıldıktan sonra işaretle
+await cache.set(tokenUsedKey, 'true', 3600);
+```
+
+### 3. LDAP Fallback Kaldırıldı
+LDAP kullanıcısı SADECE LDAP ile giriş yapabilir. Database password fallback **backdoor** oluşturuyordu.
+```typescript
+// ESKİ (GÜVENSİZ) - Kaldırıldı
+if (!isValid) {
+  isValid = await verifyPassword(password, user.password_hash);
+}
+```
+
+### 4. Trusted Device IP/UA Binding
+Trusted device token çalınsa bile farklı IP/UA'dan kullanılamaz:
+```typescript
+const ipHash = crypto.createHash('md5').update(currentIp).digest('hex');
+const uaHash = crypto.createHash('md5').update(userAgent).digest('hex');
+await cache.set(trustedKey, JSON.stringify({ ipHash, uaHash }), TTL);
+```
+
+### 5. Data Connection Password Encryption
+```typescript
+// data-service - INSERT/UPDATE
+const { encrypt } = require('@clixer/shared');
+const encryptedPassword = password ? encrypt(password) : null;
+```
+
+### 6. Position Permissions - SUPER_ADMIN Only
+Pozisyon izinleri tüm tenant'ları etkiler, sadece SUPER_ADMIN değiştirebilir:
+```typescript
+router.put('/:code/permissions', authenticate, authorize(ROLES.SUPER_ADMIN), ...)
+```
+
+### 7. Analytics Endpoints - Authorization
+ClickHouse raw query sadece SUPER_ADMIN:
+```typescript
+app.post('/clickhouse/query', authenticate, authorize(ROLES.SUPER_ADMIN), ...)
+app.get('/clickhouse/tables', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), ...)
+```
+
+### 8. Gateway IP Spoofing Fix
+```typescript
+// ESKİ (GÜVENSİZ)
+const forwarded = req.headers['x-forwarded-for']; // Spoofable!
+
+// YENİ (GÜVENLİ)
+return req.ip || req.socket.remoteAddress || ''; // Trust proxy ayarına güvenir
+```
+
+### 9. Redis Fail-Closed (Production)
+```typescript
+if (process.env.NODE_ENV === 'production') {
+  throw new AuthenticationError('Kimlik doğrulama servisi geçici olarak kullanılamıyor');
+}
+```
+
+### 10. SSRF DNS Rebinding Koruması
+```typescript
+// safeFetch içinde DNS çözümlemesi doğrulaması
+const dnsValidation = await resolveAndValidateHost(hostname);
+if (!dnsValidation.valid) {
+  throw new Error(`SSRF koruması (DNS): ${dnsValidation.error}`);
+}
+```
+
+## Kritik Dosyalar
+
+| Dosya | Sorumluluk |
+|-------|------------|
+| `auth-service/src/index.ts` | Login, 2FA, token generation |
+| `frontend/src/stores/authStore.ts` | Auth state, 2FA setup state |
+| `frontend/src/pages/LoginPage.tsx` | 2FA setup UI, QR kod ekranı |
+| `shared/src/auth.ts` | Token validation, blacklist check, purpose token |
+| `shared/src/security.ts` | Encryption, SSRF protection, sanitization |
+| `gateway/src/index.ts` | Rate limiting, IP whitelist, proxy |
+| `data-service/src/index.ts` | Connection management, password encryption |
+| `core-service/routes/positions.routes.ts` | Position permissions (SUPER_ADMIN) |
+
+## Kabul Edilen Riskler
+
+| Risk | Neden Kabul Edilebilir |
+|------|------------------------|
+| ETL custom_where SQL | Admin yetkisi gerektirir |
+| ETL source_query | Admin yetkisi gerektirir |
+| Timing attack | Pratik istismarı imkansıza yakın |
+
+## Test Komutları
+
+```powershell
+# Login test (2FA setup kontrolü)
+$body = '{"email":"admin@clixer","password":"Admin123!"}'
+Invoke-WebRequest -Uri "http://localhost:4001/login" -Method POST -ContentType "application/json" -Body $body
+
+# Beklenen response (2FA zorunlu ama kurulu değilse):
+# {"success":false,"requires2FASetup":true,"setupToken":"..."}
+```

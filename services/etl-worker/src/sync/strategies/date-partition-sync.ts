@@ -6,7 +6,8 @@
 import { 
   logger, 
   clickhouse, 
-  ensureTableExists
+  ensureTableExists,
+  decrypt
 } from '../shared';
 
 // Forward declaration
@@ -95,7 +96,7 @@ export async function syncByDatePartition(dataset: any, connection: any, jobId?:
       port: connection.port,
       database: connection.database_name,
       user: connection.username,
-      password: connection.password_encrypted
+      password: decrypt(connection.password_encrypted)
     });
     await client.connect();
 

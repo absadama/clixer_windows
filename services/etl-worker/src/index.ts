@@ -20,7 +20,10 @@ import {
   createLogger,
   db,
   clickhouse,
-  cache
+  cache,
+  decrypt,  // SECURITY: Password decryption
+  validateExternalUrl,  // SECURITY: SSRF koruması
+  safeFetch  // SECURITY: SSRF korumalı fetch
 } from '@clixer/shared';
 
 // Import modular helpers
@@ -948,7 +951,7 @@ async function streamingPostgreSQLSync(
     port: connection.port || 5432,
     database: connection.database_name,
     user: connection.username,
-    password: connection.password_encrypted,
+    password: decrypt(connection.password_encrypted),
   });
   
   await client.connect();
@@ -1193,7 +1196,7 @@ async function initialTestSync(dataset: any, connection: any, jobId?: string): P
         port: connection.port || 5432,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
       });
       await client.connect();
       const result = await client.query(query);
@@ -1207,7 +1210,7 @@ async function initialTestSync(dataset: any, connection: any, jobId?: string): P
         port: connection.port || 3306,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         charset: 'utf8mb4',
         dateStrings: true
       });
@@ -1223,7 +1226,7 @@ async function initialTestSync(dataset: any, connection: any, jobId?: string): P
         port: connection.port || 1433,
         database: connection.database_name,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         options: { encrypt: isAzure, trustServerCertificate: !isAzure }
       });
       const result = await pool.request().query(query);
@@ -1496,7 +1499,7 @@ async function syncById(dataset: any, connection: any, jobId?: string): Promise<
       
       const config = {
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         server: connection.host,
         database: connection.database_name,
         port: connection.port || 1433,
@@ -1582,7 +1585,7 @@ async function syncById(dataset: any, connection: any, jobId?: string): Promise<
         host: connection.host,
         port: connection.port || 3306,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         database: connection.database_name,
         charset: 'utf8mb4',
         dateStrings: true
@@ -1666,7 +1669,7 @@ async function syncById(dataset: any, connection: any, jobId?: string): Promise<
         host: connection.host,
         port: connection.port || 5432,
         user: connection.username,
-        password: connection.password_encrypted,
+        password: decrypt(connection.password_encrypted),
         database: connection.database_name
       });
       
@@ -1757,7 +1760,7 @@ async function syncById(dataset: any, connection: any, jobId?: string): Promise<
         const isAzure = connection.host?.includes('.database.windows.net');
         const config = {
           user: connection.username,
-          password: connection.password_encrypted,
+          password: decrypt(connection.password_encrypted),
           server: connection.host,
           database: connection.database_name,
           port: connection.port || 1433,
@@ -1774,7 +1777,7 @@ async function syncById(dataset: any, connection: any, jobId?: string): Promise<
           host: connection.host,
           port: connection.port || 3306,
           user: connection.username,
-          password: connection.password_encrypted,
+          password: decrypt(connection.password_encrypted),
           database: connection.database_name
         });
         const [rows] = await conn.execute(`SELECT COUNT(*) as cnt FROM ${sourceTableName}`);
@@ -1786,7 +1789,7 @@ async function syncById(dataset: any, connection: any, jobId?: string): Promise<
           host: connection.host,
           port: connection.port || 5432,
           user: connection.username,
-          password: connection.password_encrypted,
+          password: decrypt(connection.password_encrypted),
           database: connection.database_name
         });
         await client.connect();
@@ -2123,7 +2126,7 @@ async function syncNewRecordsAfterMaxId(
       port: connection.port || 5432,
       database: connection.database_name,
       user: connection.username,
-      password: connection.password_encrypted,
+      password: decrypt(connection.password_encrypted),
       max: 5
     });
     
@@ -2171,7 +2174,7 @@ async function syncNewRecordsAfterMaxId(
       port: connection.port || 3306,
       database: connection.database_name,
       user: connection.username,
-      password: connection.password_encrypted,
+      password: decrypt(connection.password_encrypted),
       charset: 'utf8mb4'
     });
     
@@ -2553,7 +2556,7 @@ async function syncByDatePartition(dataset: any, connection: any, jobId?: string
       port: connection.port,
       database: connection.database_name,
       user: connection.username,
-      password: connection.password_encrypted
+      password: decrypt(connection.password_encrypted)
     });
     await client.connect();
 
@@ -2812,7 +2815,7 @@ async function mssqlSync(
     port: connection.port || 1433,
     database: connection.database_name,
     user: connection.username,
-    password: connection.password_encrypted,
+    password: decrypt(connection.password_encrypted),
     options: { 
       encrypt: isAzure, 
       trustServerCertificate: !isAzure,
@@ -3198,7 +3201,7 @@ async function mysqlSync(
       port: connection.port || 3306,
       database: connection.database_name,
       user: connection.username,
-      password: connection.password_encrypted,
+      password: decrypt(connection.password_encrypted),
       charset: 'utf8mb4',
       dateStrings: true
     });
@@ -3359,13 +3362,19 @@ async function fullRefresh(dataset: any, connection: any, jobId?: string): Promi
       // URL oluştur - Trim ile boşlukları temizle
       let url = connection.host.trim().replace(/\/$/, '');
       
+      // SECURITY: SSRF koruması - internal/private adreslere erişimi engelle
+      const baseUrlValidation = validateExternalUrl(url);
+      if (!baseUrlValidation.valid) {
+        throw new Error(`SSRF koruması: ${baseUrlValidation.error}`);
+      }
+      
       // HTTP -> HTTPS otomatik dönüşüm (301 redirect'i önlemek için)
       if (url.startsWith('http://')) {
         const httpsUrl = url.replace('http://', 'https://');
         logger.info('Trying HTTPS first', { httpsUrl: httpsUrl.substring(0, 100) });
         
         try {
-          const testRes = await fetch(httpsUrl, { method: 'HEAD' });
+          const testRes = await safeFetch(httpsUrl, { method: 'HEAD' });
           if (testRes.ok || testRes.status < 400) {
             url = httpsUrl;
             logger.info('Using HTTPS', { url: url.substring(0, 100) });
@@ -3425,7 +3434,8 @@ async function fullRefresh(dataset: any, connection: any, jobId?: string): Promi
         }
       }
       
-      const response = await fetch(url, fetchOptions);
+      // SECURITY: safeFetch kullan (SSRF korumalı)
+      const response = await safeFetch(url, fetchOptions);
       
       if (!response.ok) {
         throw new Error(`API error: ${response.status} ${response.statusText}`);

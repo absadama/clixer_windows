@@ -8,7 +8,8 @@ import {
   db, 
   clickhouse, 
   parseColumnMapping,
-  transformBatchForClickHouse
+  transformBatchForClickHouse,
+  decrypt
 } from '../shared';
 
 export async function syncMissingRanges(
@@ -52,7 +53,7 @@ export async function syncMissingRanges(
   if (connection.type === 'mssql') {
     const mssql = require('mssql');
     const connStr = connection.connection_string || 
-      `Server=${connection.host},${connection.port || 1433};Database=${connection.database_name};User Id=${connection.username};Password=${connection.password_encrypted};Encrypt=${connection.host?.includes('.database.windows.net')};TrustServerCertificate=true;Connection Timeout=30;Request Timeout=120000`;
+      `Server=${connection.host},${connection.port || 1433};Database=${connection.database_name};User Id=${connection.username};Password=${decrypt(connection.password_encrypted)};Encrypt=${connection.host?.includes('.database.windows.net')};TrustServerCertificate=true;Connection Timeout=30;Request Timeout=120000`;
     
     const pool = await mssql.connect(connStr);
     

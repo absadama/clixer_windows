@@ -1,6 +1,6 @@
 # CLİXER - Enterprise Analytics Platform
 # "Olağanüstü Veri Hızı" - Power BI / Tableau / Qlik Rakibi
-# Versiyon: v4.36 | Tarih: 24 Ocak 2026
+# Versiyon: v4.37 | Tarih: 25 Ocak 2026
 
 ---
 
@@ -436,6 +436,79 @@ import { useDataStore, Connection, Dataset } from '../stores/dataStore'
 import type { Connection } from '../stores/dataStore'
 ```
 
+### 14. PostgreSQL JSONB Parsing (25 Ocak 2026)
+PostgreSQL node driver JSONB kolonları otomatik JavaScript objesine çevirir.
+`JSON.parse()` çağırma - zaten object!
+```typescript
+// YANLIŞ - Obje üzerinde JSON.parse hata verir
+const parsed = JSON.parse(dbRow.jsonbColumn);
+
+// DOĞRU - Önce tip kontrolü
+if (typeof dbRow.jsonbColumn === 'object') {
+  // Zaten parse edilmiş, direkt kullan
+  const value = dbRow.jsonbColumn.value;
+} else if (typeof dbRow.jsonbColumn === 'string') {
+  // String ise parse et
+  const parsed = JSON.parse(dbRow.jsonbColumn);
+}
+```
+
+### 15. 2FA Setup Response Kontrolü
+Login endpoint'i 2FA zorunlu ama kurulu değilse:
+```typescript
+// Response:
+{ success: false, requires2FASetup: true, setupToken: "..." }
+
+// Frontend bu response'u alınca QR ekranı göstermeli
+```
+
+---
+
+## GÜVENLİK İMPLEMENTASYONLARI (25 Ocak 2026 - v2)
+
+> **Detaylı bilgi:** `.cursor/rules/security-implementations.mdc`
+
+### Yapılan Güvenlik Geliştirmeleri
+
+| Özellik | Açıklama | Dosyalar |
+|---------|----------|----------|
+| 2FA (Google Authenticator) | Sistem geneli zorunlu 2FA | `auth-service/index.ts`, `LoginPage.tsx` |
+| 2FA Setup Token Tek Kullanım | Token reuse engellendi | `auth-service/index.ts` |
+| Purpose Token Koruması | 2fa_setup token genel endpoint'lerde reddedilir | `shared/auth.ts` |
+| LDAP Backdoor Fix | Fallback kaldırıldı | `auth-service/index.ts` |
+| Trusted Device IP/UA Binding | Token çalınsa bile kullanılamaz | `auth-service/index.ts` |
+| Password Encryption Fix | Connection password şifreleme | `data-service/index.ts` |
+| Position Permissions | SUPER_ADMIN only | `core-service/positions.routes.ts` |
+| Analytics Authorization | SUPER_ADMIN/ADMIN kontrolü | `analytics-service/index.ts` |
+| Gateway IP Spoofing Fix | req.ip kullanımı | `gateway/index.ts` |
+| Redis Fail-Closed | Production'da fail-closed | `shared/auth.ts` |
+| SSRF DNS Rebinding | DNS çözümleme doğrulaması | `shared/security.ts` |
+| Rate Limit Fix | Socket IP kullanımı | `auth-service/index.ts` |
+
+### Production Status: ✅ AÇILABILIR
+
+### 2FA Kritik Bilgiler
+
+```typescript
+// PostgreSQL JSONB kolonlar otomatik parse edilir!
+// YANLIŞ:
+const parsed = JSON.parse(twoFactorSetting.value); // HATA!
+
+// DOĞRU:
+if (typeof val === 'object') {
+  systemRequires2FA = val.value === 'true';
+}
+```
+
+### 2FA Test
+
+```powershell
+# 2FA setup response kontrolü
+$body = '{"email":"admin@clixer","password":"Admin123!"}'
+Invoke-WebRequest -Uri "http://localhost:4001/login" -Method POST -ContentType "application/json" -Body $body
+# Beklenen: {"requires2FASetup":true,"setupToken":"..."}
+```
+
 ---
 
 ## DOKUNMA! KORUNAN DOSYALAR
@@ -455,8 +528,17 @@ import type { Connection } from '../stores/dataStore'
 | `frontend/src/stores/designerStore.ts` | 24 Ocak - Designer state management |
 | `frontend/src/stores/dataStore.ts` | 24 Ocak - Data page state management |
 | `frontend/src/stores/adminStore.ts` | 24 Ocak - Admin state (genişletildi) |
+| `services/auth-service/src/index.ts` | 25 Ocak - 2FA, login, session security |
+| `shared/src/auth.ts` | 25 Ocak - Purpose token, blacklist, fail-closed |
+| `shared/src/security.ts` | 25 Ocak - SSRF, encryption, sanitization |
+| `gateway/src/index.ts` | 25 Ocak - IP spoofing fix, rate limiting |
+| `services/core-service/src/routes/positions.routes.ts` | 25 Ocak - SUPER_ADMIN only |
+| `frontend/src/stores/authStore.ts` | 25 Ocak - 2FA setup state |
+| `frontend/src/pages/LoginPage.tsx` | 25 Ocak - 2FA setup UI |
+| `shared/src/auth.ts` | 25 Ocak - Token blacklist, validation |
+| `shared/src/security.ts` | 25 Ocak - SSRF protection |
 
-**Stabil Versiyon:** v4.36 (24 Ocak 2026)
+**Stabil Versiyon:** v4.37 (25 Ocak 2026)
 
 ---
 

@@ -84,6 +84,9 @@ CREATE TABLE IF NOT EXISTS public.users (
     filter_value text,
     two_factor_backup_codes text[],
     can_see_all_categories boolean DEFAULT false,
+    -- Telefon güvenlik katmanı
+    phone_number character varying(20),
+    phone_active boolean DEFAULT true,
     UNIQUE (tenant_id, email)
 );
 
