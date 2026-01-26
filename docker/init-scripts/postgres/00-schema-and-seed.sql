@@ -752,6 +752,72 @@ INSERT INTO public.system_settings (tenant_id, category, key, value) VALUES
 ON CONFLICT (tenant_id, category, key) DO NOTHING;
 
 -- ============================================
+-- NOTIFICATION SERVICE TABLOLARI
+-- Report Subscriptions & Email Settings
+-- ============================================
+
+-- Email Settings tablosu
+CREATE TABLE IF NOT EXISTS public.email_settings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+    smtp_host character varying(255),
+    smtp_port integer DEFAULT 587,
+    smtp_secure boolean DEFAULT false,
+    smtp_user character varying(255),
+    smtp_password_encrypted text,
+    from_email character varying(255),
+    from_name character varying(255),
+    is_configured boolean DEFAULT false,
+    last_test_at timestamp without time zone,
+    last_test_result text,
+    created_by uuid REFERENCES public.users(id),
+    updated_by uuid REFERENCES public.users(id),
+    created_at timestamp without time zone DEFAULT now(),
+    updated_at timestamp without time zone DEFAULT now(),
+    UNIQUE(tenant_id)
+);
+
+-- Report Subscriptions tablosu
+CREATE TABLE IF NOT EXISTS public.report_subscriptions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+    name character varying(255) NOT NULL,
+    description text,
+    design_id uuid NOT NULL,
+    design_type character varying(50) NOT NULL CHECK (design_type IN ('cockpit', 'analysis')),
+    recipient_user_ids uuid[] NOT NULL DEFAULT '{}',
+    recipient_emails text[],
+    schedule_cron character varying(100) NOT NULL,
+    schedule_description character varying(255),
+    is_active boolean DEFAULT true,
+    last_sent_at timestamp without time zone,
+    last_error text,
+    send_count integer DEFAULT 0,
+    created_by uuid REFERENCES public.users(id),
+    created_at timestamp without time zone DEFAULT now(),
+    updated_at timestamp without time zone DEFAULT now()
+);
+
+-- Subscription Logs tablosu
+CREATE TABLE IF NOT EXISTS public.subscription_logs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    subscription_id uuid NOT NULL REFERENCES public.report_subscriptions(id) ON DELETE CASCADE,
+    tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+    status character varying(50) NOT NULL,
+    action character varying(50),
+    recipients_count integer,
+    error_message text,
+    sent_at timestamp without time zone DEFAULT now()
+);
+
+-- Notification Service Indexleri
+CREATE INDEX IF NOT EXISTS idx_email_settings_tenant ON public.email_settings(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_report_subscriptions_tenant ON public.report_subscriptions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_report_subscriptions_active ON public.report_subscriptions(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_subscription_logs_subscription ON public.subscription_logs(subscription_id);
+CREATE INDEX IF NOT EXISTS idx_subscription_logs_tenant ON public.subscription_logs(tenant_id);
+
+-- ============================================
 -- KURULUM TAMAMLANDI
 -- Login: admin@clixer / Admin1234!
 -- ============================================

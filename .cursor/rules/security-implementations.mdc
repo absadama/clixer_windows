@@ -331,3 +331,235 @@ localStorage.setItem('clixer-auth', JSON.stringify(authState));
 # Subscription tetikle
 echo '{"subscriptionId":"<UUID>","tenantId":"<TENANT>","manual":true}' | docker exec -i clixer_redis redis-cli -x PUBLISH subscription:send
 ```
+
+---
+
+# Production Deployment Checklist (26 Ocak 2026 - Tavukdunyası)
+
+## PM2 Environment Variables Sorunu
+
+PM2 `.env` dosyasını otomatik yüklemez! `ecosystem.config.js` düzenlenmeli:
+
+```javascript
+// ecosystem.config.js - EN BAŞA EKLE
+require('dotenv').config();
+
+const commonEnv = {
+  NODE_ENV: 'production',
+  JWT_SECRET: process.env.JWT_SECRET,
+  ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
+  DATABASE_URL: process.env.DATABASE_URL,
+  REDIS_URL: process.env.REDIS_URL,
+  CLICKHOUSE_URL: process.env.CLICKHOUSE_URL
+};
+
+module.exports = {
+  apps: [
+    {
+      name: 'notification',
+      script: './services/notification-service/dist/index.js',
+      env: {
+        ...commonEnv,
+        PORT: 4004
+      }
+    },
+    // ... diğer servisler de commonEnv kullanmalı
+  ]
+};
+```
+
+## Notification Service Database Tabloları
+
+Sunucuda bu tablolar MUTLAKA olmalı. Yoksa 500 hatası alırsın:
+
+```sql
+-- Docker ile çalıştır:
+-- docker exec -i clixer_postgres psql -U clixer -d clixer << 'EOF'
+
+-- Email Settings tablosu
+CREATE TABLE IF NOT EXISTS email_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
+    smtp_host VARCHAR(255),
+    smtp_port INTEGER DEFAULT 587,
+    smtp_secure BOOLEAN DEFAULT false,
+    smtp_user VARCHAR(255),
+    smtp_password_encrypted TEXT,
+    from_email VARCHAR(255),
+    from_name VARCHAR(255),
+    is_configured BOOLEAN DEFAULT false,
+    last_test_at TIMESTAMP,
+    last_test_result TEXT,
+    created_by UUID REFERENCES users(id),
+    updated_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(tenant_id)
+);
+
+-- Report Subscriptions tablosu
+CREATE TABLE IF NOT EXISTS report_subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    design_id UUID NOT NULL,
+    design_type VARCHAR(50) NOT NULL CHECK (design_type IN ('cockpit', 'analysis')),
+    recipient_user_ids UUID[] NOT NULL DEFAULT '{}',
+    recipient_emails TEXT[],
+    schedule_cron VARCHAR(100) NOT NULL,
+    schedule_description VARCHAR(255),
+    is_active BOOLEAN DEFAULT true,
+    last_sent_at TIMESTAMP,
+    last_error TEXT,
+    send_count INTEGER DEFAULT 0,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Subscription Logs tablosu
+CREATE TABLE IF NOT EXISTS subscription_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    subscription_id UUID NOT NULL REFERENCES report_subscriptions(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
+    status VARCHAR(50) NOT NULL,
+    action VARCHAR(50),
+    recipients_count INTEGER,
+    error_message TEXT,
+    sent_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexler
+CREATE INDEX IF NOT EXISTS idx_email_settings_tenant ON email_settings(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_report_subscriptions_tenant ON report_subscriptions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_report_subscriptions_active ON report_subscriptions(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_subscription_logs_subscription ON subscription_logs(subscription_id);
+```
+
+## Users Tablosu - token_version Kolonu
+
+Şifre değiştirme için gerekli:
+
+```sql
+ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0;
+```
+
+## Puppeteer Chromium Kurulumu (Ubuntu)
+
+```bash
+# Sistem Chromium yükle
+sudo apt update && sudo apt install -y chromium-browser
+
+# Puppeteer Chromium indirmesini atla
+cd /opt/clixer/services/notification-service
+sudo PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm install
+```
+
+## Gateway Port Binding Sorunu (EADDRINUSE)
+
+PM2 cluster mode'da port sorunu olursa:
+
+```bash
+# Gateway'i tamamen durdur ve sil
+sudo pm2 stop gateway
+sudo pm2 delete gateway
+
+# Port'u kullanan süreçleri öldür
+sudo kill -9 $(sudo lsof -t -i :4000)
+
+# Gateway'i yeniden derle
+cd /opt/clixer/gateway
+sudo npm run build
+
+# Yeniden başlat
+cd /opt/clixer
+sudo pm2 start ecosystem.config.js --only gateway
+```
+
+## Deployment Sırası
+
+1. **Git Pull**
+   ```bash
+   cd /opt/clixer
+   sudo git pull origin master
+   ```
+
+2. **Shared Module Build** (diğerleri buna bağımlı)
+   ```bash
+   cd /opt/clixer/shared
+   sudo npm install
+   sudo npm run build
+   ```
+
+3. **Her Servis İçin**
+   ```bash
+   cd /opt/clixer/services/<service-name>
+   sudo npm install
+   sudo npm run build
+   ```
+
+4. **Gateway Build**
+   ```bash
+   cd /opt/clixer/gateway
+   sudo npm install
+   sudo npm run build
+   ```
+
+5. **Frontend Build** (production için)
+   ```bash
+   cd /opt/clixer/frontend
+   sudo npm install
+   sudo npm run build
+   ```
+
+6. **PM2 Restart**
+   ```bash
+   cd /opt/clixer
+   sudo pm2 restart all
+   # veya
+   sudo pm2 start ecosystem.config.js
+   ```
+
+7. **Database Migrations** (varsa)
+   ```bash
+   docker exec -i clixer_postgres psql -U clixer -d clixer < migrations.sql
+   ```
+
+## Log Kontrol Komutları
+
+```bash
+# Tüm servisler
+sudo pm2 status
+
+# Belirli servis logları
+sudo pm2 logs notification --lines 50
+sudo pm2 logs gateway --lines 50
+
+# Hata logları
+sudo pm2 logs --err --lines 100
+```
+
+## Hızlı Sorun Giderme
+
+| Hata | Çözüm |
+|------|-------|
+| `JWT_SECRET environment variable is required` | ecosystem.config.js'e commonEnv ekle |
+| `relation "xxx" does not exist` | Yukarıdaki SQL'leri çalıştır |
+| `column "xxx" does not exist` | ALTER TABLE ile kolon ekle |
+| `EADDRINUSE :4000` | Gateway port temizle ve restart |
+| `404 on /api/notification/*` | Gateway rebuild + restart |
+| `502 Bad Gateway` | İlgili servis çalışmıyor, pm2 logs kontrol |
+
+## Docker Container İsimleri (Tavukdunyası)
+
+```bash
+# PostgreSQL
+docker exec -i clixer_postgres psql -U clixer -d clixer
+
+# Redis
+docker exec -i clixer_redis redis-cli
+
+# ClickHouse
+docker exec -i clixer_clickhouse clickhouse-client
+```
