@@ -204,6 +204,7 @@ export async function captureScreenshot(options: ScreenshotOptions): Promise<Scr
     // Clear any existing localStorage and set fresh auth state
     await page.evaluate((token: string, tId: string) => {
       // Clear all localStorage to ensure fresh state
+      // @ts-ignore - localStorage is available in browser context
       localStorage.clear();
       
       const authState = {
