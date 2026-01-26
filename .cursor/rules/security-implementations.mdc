@@ -563,3 +563,138 @@ docker exec -i clixer_redis redis-cli
 # ClickHouse
 docker exec -i clixer_clickhouse clickhouse-client
 ```
+
+---
+
+# Production Güncellemeleri (26 Ocak 2026 - Akşam Oturumu)
+
+## 2FA Reset Özelliği
+
+Admin Panel'den kullanıcı 2FA'sı sıfırlanabilir:
+- **UI**: Kullanıcı listesinde 🔑 (anahtar) butonu
+- **Endpoint**: `POST /core/users/:id/reset-2fa`
+- **Dosyalar**: 
+  - `services/core-service/src/routes/users.routes.ts`
+  - `frontend/src/components/admin/UsersTab.tsx`
+
+```bash
+# Manuel sıfırlama (acil durum)
+docker exec -it clixer_postgres psql -U clixer -d clixer -c \
+  "UPDATE users SET two_factor_secret = NULL, two_factor_enabled = false WHERE email = 'kullanici@email.com';"
+```
+
+## CategoryId Validation
+
+Frontend boş string gönderebilir, UUID hatası verir. Backend'de kontrol:
+
+```typescript
+// analytics-service/src/index.ts - POST/PUT /designs
+const validCategoryId = categoryId && typeof categoryId === 'string' && categoryId.trim().length > 0 
+  ? categoryId 
+  : null;
+```
+
+## PM2 Kritik Uyarılar
+
+### 1. Port Conflict (EADDRINUSE)
+```bash
+# Servis restart öncesi port'u temizle
+sudo pm2 stop <service>
+sudo fuser -k <PORT>/tcp
+sudo pm2 start <service>
+```
+
+### 2. Farklı PM2 Daemon Sorunu
+```bash
+# YANLIŞ - Root user'da yeni daemon oluşturur
+sudo pm2 status  # Boş liste gösterir!
+
+# DOĞRU - Mevcut daemon'ı kullan
+pm2 status  # (sudo olmadan)
+# veya ecosystem.config.js ile
+sudo pm2 start ecosystem.config.js
+```
+
+## Database Migration Checklist
+
+Production'da yeni kolon eklendiğinde **MUTLAKA** ALTER TABLE çalıştır:
+
+```sql
+-- designs tablosu - category_id
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS category_id UUID;
+
+-- report_subscriptions tablosu - yeni kolonlar
+ALTER TABLE report_subscriptions ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id);
+ALTER TABLE report_subscriptions ADD COLUMN IF NOT EXISTS schedule_timezone VARCHAR(100) DEFAULT 'Europe/Istanbul';
+ALTER TABLE report_subscriptions ADD COLUMN IF NOT EXISTS error_count INTEGER DEFAULT 0;
+
+-- subscription_logs tablosu - yeni kolonlar
+ALTER TABLE subscription_logs ADD COLUMN IF NOT EXISTS recipient_count INTEGER;
+ALTER TABLE subscription_logs ADD COLUMN IF NOT EXISTS execution_time_ms INTEGER;
+ALTER TABLE subscription_logs ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}';
+ALTER TABLE subscription_logs ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id);
+```
+
+## Screenshot Service - Production Ayarları
+
+### 1. SSRF Whitelist (.env)
+```bash
+# Produksiyonda domain'i ekle
+SCREENSHOT_ALLOWED_HOSTS=dinamo.tavukdunyasi.com,localhost,127.0.0.1
+FRONTEND_URL=https://dinamo.tavukdunyasi.com
+```
+
+### 2. Hairpin NAT Sorunu
+Sunucu kendi domain'ine erişemiyorsa `/etc/hosts` düzenle:
+```bash
+echo "127.0.0.1 dinamo.tavukdunyasi.com" | sudo tee -a /etc/hosts
+```
+
+### 3. SSL Certificate Bypass
+Self-signed certificate varsa Puppeteer'da:
+```typescript
+browserInstance = await puppeteer.launch({
+  args: ['--ignore-certificate-errors', ...]
+});
+```
+
+### 4. Browser Cache Temizleme
+Her screenshot'ta fresh data için:
+```typescript
+await page.setCacheEnabled(false);
+await page.evaluate(() => localStorage.clear());
+```
+
+## Yeni Müşteri Kurulumu Checklist
+
+1. ✅ Database tabloları oluştur (00-schema-and-seed.sql)
+2. ✅ `.env` dosyasında `SCREENSHOT_ALLOWED_HOSTS` ve `FRONTEND_URL` ayarla
+3. ✅ `/etc/hosts` ile hairpin NAT çöz (gerekirse)
+4. ✅ PM2 ecosystem.config.js'te `commonEnv` kullan
+5. ✅ Puppeteer Chromium kurulumu (`apt install chromium-browser`)
+6. ✅ `pm2 save` ile process listesini kaydet
+
+## Hızlı Deploy Script
+
+```bash
+#!/bin/bash
+cd /opt/clixer
+sudo git pull
+
+# Servisleri rebuild et
+for svc in core-service analytics-service data-service auth-service notification-service; do
+  cd /opt/clixer/services/$svc
+  sudo npm run build
+done
+
+cd /opt/clixer/gateway
+sudo npm run build
+
+# PM2 restart (port conflict önleme)
+sudo pm2 stop all
+sleep 2
+sudo fuser -k 4000/tcp 4001/tcp 4002/tcp 4003/tcp 4004/tcp 4005/tcp 2>/dev/null
+sudo pm2 start all
+sudo pm2 save
+sudo pm2 status
+```
