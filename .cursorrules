@@ -677,3 +677,57 @@ Invoke-RestMethod "http://localhost:4000/api/analytics/designs" -Headers $header
 **Cursor AI:** Bu dosyaları gerektiğinde oku veya kullanıcı `@dosya` ile referans versin.
 
 ---
+
+## PRODUCTION DEPLOYMENT (v4.36+)
+
+### Kritik Deployment Gereksinimleri
+
+| Gereksinim | Açıklama |
+|------------|----------|
+| `EnvironmentFile` | Tüm systemd servislerde `/opt/clixer/.env` yüklenmeli |
+| `pg` paketi | Gateway'de `npm install pg` gerekli (IP whitelist için) |
+| `JWT_SECRET` | .env'de en az 32 karakter olmalı |
+| `ENCRYPTION_KEY` | .env'de `openssl rand -hex 32` ile üretilmeli |
+| `CORS_ORIGIN` | `*` DEĞİL, spesifik domain olmalı |
+
+### Database Migration'ları (v4.36)
+
+```sql
+-- users tablosu
+ALTER TABLE users ADD COLUMN IF NOT EXISTS can_see_all_categories BOOLEAN DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS filter_level VARCHAR(50) DEFAULT 'store';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(20);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_active BOOLEAN DEFAULT true;
+
+-- report_categories tablosu (code kolonu dahil)
+-- user_report_categories tablosu (assigned_by, assigned_at dahil)
+-- navigation_items tablosu
+```
+
+### Systemd EnvironmentFile Ekleme
+
+```bash
+for f in /etc/systemd/system/clixer-*.service; do
+  sudo grep -q "EnvironmentFile" "$f" || sudo sed -i '/WorkingDirectory=/a EnvironmentFile=/opt/clixer/.env' "$f"
+done
+sudo systemctl daemon-reload
+```
+
+### Firewall Güvenliği
+
+```bash
+# 4000 ve 3000 portları KAPALI olmalı
+sudo ufw delete allow 4000/tcp
+sudo ufw delete allow 3000/tcp
+# Sadece 22, 80, 443 açık olmalı
+```
+
+### Deploy Dosyaları
+
+| Dosya | Kullanım |
+|-------|----------|
+| `deploy/PRODUCTION-DEPLOYMENT-CHECKLIST.md` | Tam adım adım rehber |
+| `deploy/QUICK-DEPLOY.md` | Hızlı referans |
+| `deploy/migrate-v436.sh` | Otomatik migration script |
+
+---

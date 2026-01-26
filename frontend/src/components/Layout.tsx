@@ -336,19 +336,80 @@ export default function Layout({ children }: LayoutProps) {
     }
   }, [accessToken, user?.positionCode, loadMenuPermissions])
 
-  // Varsayılan temayı uygula
+  // Kullanıcı tercihlerini yükle (öncelikli)
   useEffect(() => {
+    const loadUserPreferences = async () => {
+      if (!accessToken || !user?.id) return
+      
+      try {
+        const response = await fetch(`${API_BASE}/core/users/${user.id}/preferences`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          const prefs = result.data || {}
+          
+          console.debug('User preferences loaded:', prefs)
+          
+          // Kullanıcı teması varsa uygula
+          if (prefs.theme && ['clixer', 'light', 'corporate'].includes(prefs.theme)) {
+            setCurrentTheme(prefs.theme as ThemeType)
+            localStorage.setItem('clixer-user-theme', prefs.theme)
+          }
+          
+          // Kullanıcı dili varsa uygula
+          if (prefs.language && ['tr', 'en'].includes(prefs.language)) {
+            setLanguage(prefs.language as 'tr' | 'en')
+            localStorage.setItem('clixer-user-language', prefs.language)
+          }
+        } else {
+          console.debug('User preferences API returned:', response.status)
+        }
+      } catch (err) {
+        console.debug('User preferences could not be loaded, using defaults:', err)
+      }
+    }
+    
+    loadUserPreferences()
+  }, [accessToken, user?.id])
+
+  // Sistem varsayılan temasını uygula (kullanıcı tercihi yoksa)
+  useEffect(() => {
+    // Sadece kullanıcı tercihi yüklenmemişse sistem varsayılanını kullan
+    // Bu useEffect, yukarıdaki loadUserPreferences'dan sonra çalışır
+    // ama kullanıcı tercihi varsa override edilir
     if (isLoaded && defaultTheme) {
-      setCurrentTheme(defaultTheme)
+      // localStorage'da kullanıcı tercihi var mı kontrol et
+      const cachedUserTheme = localStorage.getItem('clixer-user-theme')
+      if (!cachedUserTheme) {
+        setCurrentTheme(defaultTheme)
+      }
     }
   }, [isLoaded, defaultTheme])
 
-  // Varsayılan dili uygula
+  // Varsayılan dili uygula (kullanıcı tercihi yoksa)
   useEffect(() => {
     if (isLoaded && defaultLanguage) {
-      setLanguage(defaultLanguage)
+      const cachedUserLang = localStorage.getItem('clixer-user-language')
+      if (!cachedUserLang) {
+        setLanguage(defaultLanguage)
+      }
     }
   }, [isLoaded, defaultLanguage])
+
+  // Tema değiştiğinde localStorage'a kaydet (flash önleme)
+  useEffect(() => {
+    localStorage.setItem('clixer-user-theme', currentTheme)
+  }, [currentTheme])
+
+  // Dil değiştiğinde localStorage'a kaydet
+  useEffect(() => {
+    localStorage.setItem('clixer-user-language', language)
+  }, [language])
 
   // Body class'ını tema değişikliğine göre güncelle (Clixer glow efekti için)
   useEffect(() => {

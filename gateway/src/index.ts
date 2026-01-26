@@ -507,6 +507,13 @@ app.use('/api/core/navigation', createProxyMiddleware({
   pathRewrite: { '^/api/core': '' }
 }));
 
+// User preferences route (IP whitelist gerektirmez - kullanıcı kendi tercihlerini güncelleyebilir)
+// Pattern: /api/core/users/:id/preferences
+app.use(/^\/api\/core\/users\/[^/]+\/preferences$/, createProxyMiddleware({
+  ...proxyOptions(SERVICES.CORE),
+  pathRewrite: { '^/api/core': '' }
+}));
+
 // Core routes (users, tenants, designs, components, settings, roles)
 // /api/core/* -> Core Service (yeni prefix)
 // Admin endpoint'leri IP whitelist kontrolü altında

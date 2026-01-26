@@ -11,6 +11,7 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/opt/clixer/gateway
+EnvironmentFile=/opt/clixer/.env
 ExecStart=/usr/bin/npm run dev
 Restart=on-failure
 RestartSec=10
@@ -26,9 +27,6 @@ Environment=PORT=4000
 # Process management
 KillMode=mixed
 TimeoutStopSec=30
-
-[Install]
-WantedBy=multi-user.target
 
 [Install]
 WantedBy=multi-user.target

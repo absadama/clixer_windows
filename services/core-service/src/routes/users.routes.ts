@@ -263,4 +263,85 @@ router.delete('/:id', authenticate, authorize(ROLES.ADMIN), async (req: Request,
   }
 });
 
+/**
+ * PUT /users/:id/preferences
+ * Update user's own preferences (theme, language, etc.)
+ * Users can only update their own preferences
+ */
+router.put('/:id/preferences', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { theme, language, emailNotifications, pushNotifications, weeklyReport } = req.body;
+    
+    // Kullanıcı sadece kendi tercihlerini güncelleyebilir (veya admin herkesin tercihlerini)
+    const userId = (req.user as any).userId || (req.user as any).id;
+    if (id !== userId && (req.user as any).role !== 'ADMIN') {
+      throw new ForbiddenError('Sadece kendi tercihlerinizi güncelleyebilirsiniz');
+    }
+    
+    // Mevcut preferences'ı al
+    const currentResult = await db.query(
+      'SELECT preferences FROM users WHERE id = $1',
+      [id]
+    );
+    
+    if (currentResult.rows.length === 0) {
+      throw new NotFoundError('Kullanıcı');
+    }
+    
+    const currentPrefs = currentResult.rows[0].preferences || {};
+    
+    // Yeni tercihleri mevcut tercihlerle birleştir
+    const newPrefs = {
+      ...currentPrefs,
+      ...(theme && { theme }),
+      ...(language && { language }),
+      ...(typeof emailNotifications === 'boolean' && { emailNotifications }),
+      ...(typeof pushNotifications === 'boolean' && { pushNotifications }),
+      ...(typeof weeklyReport === 'boolean' && { weeklyReport }),
+    };
+    
+    // Güncelle
+    await db.query(
+      'UPDATE users SET preferences = $1, updated_at = NOW() WHERE id = $2',
+      [JSON.stringify(newPrefs), id]
+    );
+    
+    logger.info('User preferences updated', { userId: id, preferences: newPrefs });
+    res.json({ success: true, data: newPrefs });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /users/:id/preferences
+ * Get user's preferences
+ * Users can only get their own preferences
+ */
+router.get('/:id/preferences', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    
+    // Kullanıcı sadece kendi tercihlerini görebilir (veya admin tüm kullanıcıları)
+    const userId = (req.user as any).userId || (req.user as any).id;
+    if (id !== userId && (req.user as any).role !== 'ADMIN') {
+      throw new ForbiddenError('Bu kullanıcının tercihlerine erişim yetkiniz yok');
+    }
+    
+    const result = await db.query(
+      'SELECT preferences FROM users WHERE id = $1',
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      throw new NotFoundError('Kullanıcı');
+    }
+    
+    res.json({ success: true, data: result.rows[0].preferences || {} });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

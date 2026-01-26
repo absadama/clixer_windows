@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useTheme } from '../components/Layout'
+import { useState, useEffect } from 'react'
+import { useTheme, ThemeType } from '../components/Layout'
 import { 
   User,
   Mail,
@@ -11,11 +11,11 @@ import {
   Bell,
   Key,
   Sun,
-  Moon,
   Zap,
   Loader2,
   Lock,
-  Palette
+  Palette,
+  Activity
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuthStore } from '../stores/authStore'
@@ -24,13 +24,14 @@ import { UserRole } from '../types'
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 export default function ProfilePage() {
-  const { theme, isDark } = useTheme()
+  const { theme, isDark, currentTheme, setCurrentTheme } = useTheme()
   const { user, accessToken, setUser } = useAuthStore()
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'preferences'>('profile')
   const [isEditing, setIsEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [preferenceSaving, setPreferenceSaving] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -39,12 +40,74 @@ export default function ProfilePage() {
   })
 
   const [preferences, setPreferences] = useState({
-    theme: 'light',
+    theme: currentTheme as string,
     language: 'tr',
     emailNotifications: true,
     pushNotifications: false,
     weeklyReport: true,
   })
+
+  // Mevcut temayı yükle
+  useEffect(() => {
+    setPreferences(prev => ({ ...prev, theme: currentTheme }))
+  }, [currentTheme])
+
+  // Tema değişikliğini kaydet
+  const handleThemeChange = async (newTheme: ThemeType) => {
+    // Önce UI'ı güncelle
+    setPreferences(prev => ({ ...prev, theme: newTheme }))
+    setCurrentTheme(newTheme)
+    
+    // Sonra backend'e kaydet
+    setPreferenceSaving(true)
+    setSuccess(null)
+    setError(null)
+    
+    try {
+      const response = await fetch(`${API_BASE}/core/users/${user?.id}/preferences`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ theme: newTheme })
+      })
+      
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        console.error('Tema kaydetme hatası:', response.status, data)
+        setError(`Tema kaydedilemedi: ${data.message || response.statusText}`)
+      } else {
+        setSuccess('Tema tercihi kaydedildi')
+        // 2 saniye sonra mesajı kaldır
+        setTimeout(() => setSuccess(null), 2000)
+      }
+    } catch (err) {
+      console.error('Tema tercihi kaydedilemedi:', err)
+      setError('Tema tercihi kaydedilemedi')
+    } finally {
+      setPreferenceSaving(false)
+    }
+  }
+
+  // Dil değişikliğini kaydet
+  const handleLanguageChange = async (newLang: 'tr' | 'en') => {
+    setPreferences(prev => ({ ...prev, language: newLang }))
+    
+    // Backend'e kaydet
+    try {
+      await fetch(`${API_BASE}/core/users/${user?.id}/preferences`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ language: newLang })
+      })
+    } catch (err) {
+      console.error('Dil tercihi kaydedilemedi:', err)
+    }
+  }
 
   // Şifre değiştirme state
   const [passwordForm, setPasswordForm] = useState({
@@ -516,10 +579,30 @@ export default function ProfilePage() {
       {activeTab === 'preferences' && (
         <div className={clsx('rounded-2xl p-8 space-y-8', theme.cardBg)}>
           <div>
-            <h2 className={clsx('text-lg font-bold mb-6', theme.contentText)}>Görünüm</h2>
-            <div className="grid grid-cols-2 gap-4 max-w-md">
+            <h2 className={clsx('text-lg font-bold mb-6', theme.contentText)}>
+              Görünüm
+              {preferenceSaving && <Loader2 size={16} className="inline ml-2 animate-spin" />}
+            </h2>
+            <div className="grid grid-cols-3 gap-4 max-w-lg">
+              {/* Clixer Theme */}
               <button
-                onClick={() => setPreferences({...preferences, theme: 'light'})}
+                onClick={() => handleThemeChange('clixer')}
+                className={clsx(
+                  'p-4 rounded-xl border-2 transition-all',
+                  preferences.theme === 'clixer'
+                    ? 'border-[#00CFDE] bg-[#00CFDE]/10'
+                    : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
+                )}
+              >
+                <div className="flex justify-center mb-2">
+                  <Activity size={20} className={preferences.theme === 'clixer' ? 'text-[#00CFDE]' : theme.contentTextMuted} />
+                </div>
+                <p className={clsx('text-sm font-bold text-center', preferences.theme === 'clixer' ? 'text-[#00CFDE]' : theme.contentText)}>Clixer</p>
+              </button>
+              
+              {/* Light Theme */}
+              <button
+                onClick={() => handleThemeChange('light')}
                 className={clsx(
                   'p-4 rounded-xl border-2 transition-all',
                   preferences.theme === 'light'
@@ -527,27 +610,15 @@ export default function ProfilePage() {
                     : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
                 )}
               >
-                <div className="flex gap-2 mb-2">
+                <div className="flex justify-center mb-2">
                   <Sun size={20} className={preferences.theme === 'light' ? 'text-indigo-600' : theme.contentTextMuted} />
                 </div>
-                <p className={clsx('text-sm font-bold', preferences.theme === 'light' ? 'text-indigo-600' : theme.contentText)}>Aydınlık</p>
+                <p className={clsx('text-sm font-bold text-center', preferences.theme === 'light' ? 'text-indigo-600' : theme.contentText)}>Aydınlık</p>
               </button>
+              
+              {/* Corporate Theme */}
               <button
-                onClick={() => setPreferences({...preferences, theme: 'dark'})}
-                className={clsx(
-                  'p-4 rounded-xl border-2 transition-all',
-                  preferences.theme === 'dark'
-                    ? 'border-indigo-500 bg-indigo-500/10'
-                    : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
-                )}
-              >
-                <div className="flex gap-2 mb-2">
-                  <Moon size={20} className={preferences.theme === 'dark' ? 'text-indigo-400' : theme.contentTextMuted} />
-                </div>
-                <p className={clsx('text-sm font-bold', preferences.theme === 'dark' ? 'text-indigo-400' : theme.contentText)}>Karanlık</p>
-              </button>
-              <button
-                onClick={() => setPreferences({...preferences, theme: 'corporate'})}
+                onClick={() => handleThemeChange('corporate')}
                 className={clsx(
                   'p-4 rounded-xl border-2 transition-all',
                   preferences.theme === 'corporate'
@@ -555,10 +626,10 @@ export default function ProfilePage() {
                     : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300')
                 )}
               >
-                <div className="flex gap-2 mb-2">
+                <div className="flex justify-center mb-2">
                   <Zap size={20} className={preferences.theme === 'corporate' ? 'text-[#026E81]' : theme.contentTextMuted} />
                 </div>
-                <p className={clsx('text-sm font-bold', preferences.theme === 'corporate' ? 'text-[#026E81]' : theme.contentText)}>Kurumsal</p>
+                <p className={clsx('text-sm font-bold text-center', preferences.theme === 'corporate' ? 'text-[#026E81]' : theme.contentText)}>Kurumsal</p>
               </button>
             </div>
           </div>
@@ -567,7 +638,7 @@ export default function ProfilePage() {
             <h2 className={clsx('text-lg font-bold mb-6', theme.contentText)}>Dil</h2>
             <div className="flex gap-4">
               <button
-                onClick={() => setPreferences({...preferences, language: 'tr'})}
+                onClick={() => handleLanguageChange('tr')}
                 className={clsx(
                   'flex items-center gap-2 px-4 py-2 rounded-xl border-2 transition-all font-bold',
                   preferences.language === 'tr'
@@ -578,7 +649,7 @@ export default function ProfilePage() {
                 🇹🇷 Türkçe
               </button>
               <button
-                onClick={() => setPreferences({...preferences, language: 'en'})}
+                onClick={() => handleLanguageChange('en')}
                 className={clsx(
                   'flex items-center gap-2 px-4 py-2 rounded-xl border-2 transition-all font-bold',
                   preferences.language === 'en'
