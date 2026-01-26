@@ -170,6 +170,9 @@ export async function captureScreenshot(options: ScreenshotOptions): Promise<Scr
     const browser = await getBrowser();
     page = await browser.newPage();
 
+    // Disable cache to ensure fresh data on each screenshot
+    await page.setCacheEnabled(false);
+
     // Capture browser console logs
     page.on('console', (msg) => {
       const text = msg.text();
@@ -197,9 +200,12 @@ export async function captureScreenshot(options: ScreenshotOptions): Promise<Scr
       throw navError;
     }
 
-    logger.info('Step 2: Setting localStorage');
-    // Now set localStorage in the correct origin context
+    logger.info('Step 2: Clearing and setting localStorage');
+    // Clear any existing localStorage and set fresh auth state
     await page.evaluate((token: string, tId: string) => {
+      // Clear all localStorage to ensure fresh state
+      localStorage.clear();
+      
       const authState = {
         state: {
           user: {
