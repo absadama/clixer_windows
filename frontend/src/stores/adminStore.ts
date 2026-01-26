@@ -96,7 +96,7 @@ export interface DatasetImportMapping {
   manager_name: string
 }
 
-export type AdminTab = 'settings' | 'labels' | 'performance' | 'master' | 'monitor' | 'backup' | 'users' | 'roles' | 'report-categories' | 'ldap'
+export type AdminTab = 'settings' | 'labels' | 'performance' | 'master' | 'monitor' | 'backup' | 'users' | 'roles' | 'report-categories' | 'subscriptions' | 'ldap'
 export type MasterTab = 'stores' | 'regions' | 'groups'
 export type LabelsTab = 'menu' | 'position' | 'data'
 
