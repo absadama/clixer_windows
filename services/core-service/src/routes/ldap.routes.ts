@@ -275,8 +275,17 @@ router.post('/sync', authenticate, authorize(ROLES.ADMIN), async (req: Request, 
       
       for (const entry of searchEntries) {
         try {
-          const email = entry.mail as string;
-          const name = (entry.displayName || entry.sAMAccountName) as string;
+          // Handle mail field - can be string or array, may have leading colons
+          let email = Array.isArray(entry.mail) ? entry.mail[0] : entry.mail as string;
+          if (email) {
+            email = email.toString().replace(/^:+/, '').trim(); // Remove leading colons
+          }
+          
+          // Handle name field
+          let name = (entry.displayName || entry.sAMAccountName) as string;
+          if (Array.isArray(name)) name = name[0];
+          if (name) name = name.toString().replace(/^:+/, '').trim();
+          
           const dn = entry.dn;
           const memberOf = (Array.isArray(entry.memberOf) ? entry.memberOf : [entry.memberOf].filter(Boolean)) as string[];
           
@@ -301,17 +310,23 @@ router.post('/sync', authenticate, authorize(ROLES.ADMIN), async (req: Request, 
           
           const existingUser = await db.queryOne('SELECT id FROM users WHERE email = $1 AND tenant_id = $2', [email, req.user!.tenantId]);
           
+          // Sanitize memberOf for PostgreSQL - remove null bytes and escape special chars
+          const sanitizedMemberOf = memberOf.map((g: string) => 
+            g ? g.toString().replace(/\x00/g, '').replace(/\\/g, '\\\\') : ''
+          ).filter(Boolean);
+          const memberOfJson = JSON.stringify(sanitizedMemberOf).replace(/\\u0000/g, '');
+          
           if (existingUser) {
             await db.query(
               `UPDATE users SET name = $1, ldap_dn = $2, ldap_synced = TRUE, ldap_last_sync_at = NOW(), ldap_groups = $3, is_active = TRUE, updated_at = NOW() WHERE id = $4`,
-              [name, dn, JSON.stringify(memberOf), existingUser.id]
+              [name, dn, memberOfJson, existingUser.id]
             );
             stats.updated++;
           } else {
             const newUser = await db.queryOne(
               `INSERT INTO users (tenant_id, email, name, password_hash, role, position_code, ldap_dn, ldap_synced, ldap_last_sync_at, ldap_groups, is_active)
                VALUES ($1, $2, $3, '', 'USER', $4, $5, TRUE, NOW(), $6, TRUE) RETURNING id`,
-              [req.user!.tenantId, email, name, positionCode, dn, JSON.stringify(memberOf)]
+              [req.user!.tenantId, email, name, positionCode, dn, memberOfJson]
             );
             
             for (const storeId of storeIds) {
@@ -321,7 +336,10 @@ router.post('/sync', authenticate, authorize(ROLES.ADMIN), async (req: Request, 
             }
             stats.created++;
           }
-        } catch (userError: any) { stats.errors.push({ user: entry.mail, error: userError.message }); }
+        } catch (userError: any) { 
+          const errorEmail = Array.isArray(entry.mail) ? entry.mail[0] : entry.mail;
+          stats.errors.push({ user: errorEmail, error: userError.message }); 
+        }
       }
       
       if (ldapUserDns.length > 0) {
@@ -332,9 +350,16 @@ router.post('/sync', authenticate, authorize(ROLES.ADMIN), async (req: Request, 
         stats.deactivated = deactivated.rowCount || 0;
       }
       
+      // Sanitize errors for PostgreSQL
+      const sanitizedErrors = stats.errors.map(e => ({
+        user: e.user ? e.user.toString().replace(/\x00/g, '') : '',
+        error: e.error ? e.error.toString().replace(/\x00/g, '').replace(/\\u0000/g, '') : ''
+      }));
+      const errorsJson = JSON.stringify(sanitizedErrors).replace(/\\u0000/g, '');
+      
       await db.query(
         `UPDATE ldap_sync_logs SET status = $1, completed_at = NOW(), users_found = $2, users_created = $3, users_updated = $4, users_deactivated = $5, users_skipped = $6, errors = $7, summary = $8 WHERE id = $9`,
-        [stats.errors.length > 0 ? 'partial' : 'success', stats.found, stats.created, stats.updated, stats.deactivated, stats.skipped, JSON.stringify(stats.errors), `${stats.found} kullanıcı bulundu, ${stats.created} oluşturuldu, ${stats.updated} güncellendi, ${stats.deactivated} deaktive edildi`, syncLog.id]
+        [stats.errors.length > 0 ? 'partial' : 'success', stats.found, stats.created, stats.updated, stats.deactivated, stats.skipped, errorsJson, `${stats.found} kullanıcı bulundu, ${stats.created} oluşturuldu, ${stats.updated} güncellendi, ${stats.deactivated} deaktive edildi`, syncLog.id]
       );
       
       await db.query('UPDATE ldap_config SET last_sync_at = NOW() WHERE tenant_id = $1', [req.user!.tenantId]);
@@ -343,8 +368,11 @@ router.post('/sync', authenticate, authorize(ROLES.ADMIN), async (req: Request, 
       res.json({ success: true, message: `LDAP senkronizasyonu tamamlandı: ${stats.found} kullanıcı bulundu, ${stats.created} oluşturuldu, ${stats.updated} güncellendi`, data: stats });
       
     } catch (ldapError: any) {
-      await db.query(`UPDATE ldap_sync_logs SET status = 'failed', completed_at = NOW(), errors = $1, summary = $2 WHERE id = $3`, [JSON.stringify([{ error: ldapError.message }]), `Senkronizasyon başarısız: ${ldapError.message}`, syncLog.id]);
-      throw new AppError(`LDAP senkronizasyonu başarısız: ${ldapError.message}`, 500);
+      // Sanitize error message for PostgreSQL
+      const sanitizedError = (ldapError.message || 'Unknown error').toString().replace(/\x00/g, '').replace(/\\u0000/g, '');
+      const errorJson = JSON.stringify([{ error: sanitizedError }]).replace(/\\u0000/g, '');
+      await db.query(`UPDATE ldap_sync_logs SET status = 'failed', completed_at = NOW(), errors = $1, summary = $2 WHERE id = $3`, [errorJson, `Senkronizasyon başarısız: ${sanitizedError}`, syncLog.id]);
+      throw new AppError(`LDAP senkronizasyonu başarısız: ${sanitizedError}`, 500);
     }
   } catch (error) { next(error); }
 });
