@@ -6,13 +6,13 @@
  * All routes are organized in separate modules under ./routes/
  */
 
+// CRITICAL: Load environment FIRST
+import './env';
+
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import dotenv from 'dotenv';
-
-dotenv.config({ path: '../../.env' });
 
 import {
   createLogger,

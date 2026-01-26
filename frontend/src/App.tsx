@@ -21,9 +21,18 @@ function App() {
   const { isAuthenticated, hasHydrated, logout, accessToken } = useAuthStore()
   const [isTokenValidated, setIsTokenValidated] = useState(false)
 
+  // Check for screenshot mode (bypasses auth for server-side screenshot capture)
+  const isScreenshotMode = new URLSearchParams(window.location.search).get('screenshot') === 'true'
+
   // Sayfa açıldığında token geçerliliğini kontrol et
   // Layout'u render etmeden ÖNCE token'ı doğrula
   useEffect(() => {
+    // Screenshot mode için validation atlama
+    if (isScreenshotMode) {
+      setIsTokenValidated(true)
+      return
+    }
+
     if (hasHydrated && isAuthenticated && accessToken) {
       // Token'ı sessizce test et - verify endpoint ile (hafif)
       api.get('/auth/verify')
@@ -42,7 +51,34 @@ function App() {
       // Zaten login değil, validation gerekmiyor
       setIsTokenValidated(true)
     }
-  }, [hasHydrated, isAuthenticated, accessToken, logout])
+  }, [hasHydrated, isAuthenticated, accessToken, logout, isScreenshotMode])
+
+  // Screenshot mode için tüm auth kontrollerini atla
+  if (isScreenshotMode) {
+    // Screenshot modunda direkt içeriği göster
+    return (
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/kokpit" element={<DashboardPage />} />
+          <Route path="/finance" element={<FinancePage />} />
+          <Route path="/operations" element={<OperationsPage />} />
+          <Route path="/analysis" element={<AnalysisPage />} />
+          <Route path="/detayli-analiz" element={<AnalysisPage />} />
+          <Route path="/stores" element={<StoresPage />} />
+          <Route path="/designer" element={<DesignerPage />} />
+          <Route path="/data" element={<DataPage />} />
+          <Route path="/metrics" element={<MetricsPage />} />
+          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/datagrid-demo" element={<DataGridDemoPage />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </Layout>
+    )
+  }
 
   // Zustand store henüz localStorage'dan yüklenmediyse bekle
   if (!hasHydrated) {

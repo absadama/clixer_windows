@@ -3,7 +3,7 @@ description: Clixer security implementations - 2FA, authentication, session mana
 alwaysApply: true
 ---
 
-# Clixer Security Implementations (25 Ocak 2026 - Güncelleme 2)
+# Clixer Security Implementations (26 Ocak 2026 - Güncelleme 3)
 
 ## 2FA (Two-Factor Authentication) Sistemi
 
@@ -177,4 +177,157 @@ Invoke-WebRequest -Uri "http://localhost:4001/login" -Method POST -ContentType "
 
 # Beklenen response (2FA zorunlu ama kurulu değilse):
 # {"success":false,"requires2FASetup":true,"setupToken":"..."}
+```
+
+---
+
+# Report Subscription & Screenshot Sistemi (26 Ocak 2026)
+
+## Kritik Öğrenimler
+
+### 1. Puppeteer IPv4 Zorunluluğu (Windows)
+Windows'ta Puppeteer `localhost` yerine `127.0.0.1` kullanmalı:
+```typescript
+// YANLIŞ - Windows'ta IPv6'ya çözümlenir, bağlantı başarısız
+const frontendUrl = 'http://localhost:3000';
+
+// DOĞRU - Explicit IPv4
+const frontendUrl = 'http://127.0.0.1:3000';
+```
+
+Vite config'de de host ayarı:
+```typescript
+// vite.config.ts
+server: {
+  host: '127.0.0.1',
+  port: 3000
+}
+```
+
+### 2. Screenshot Modunda Zustand Store Sorunu
+Puppeteer headless modunda Zustand store düzgün hydrate olmaz. **Local state kullan!**
+
+```typescript
+// YANLIŞ - Zustand store hydrate olmayabilir
+const { widgets } = useDashboardStore();
+
+// DOĞRU - Screenshot modunda local state kullan
+const [localWidgets, setLocalWidgets] = useState<any[]>([]);
+const isScreenshotMode = searchParams.get('screenshot') === 'true';
+
+// Screenshot modunda API'den direkt local state'e yükle
+if (isScreenshotMode) {
+  const response = await fetch(`/api/designs/${designId}`);
+  const data = await response.json();
+  setLocalWidgets(data.widgets); // Zustand değil, local state
+}
+
+// Render'da conditional kullan
+const sortedWidgets = useMemo(() => {
+  const source = isScreenshotMode ? localWidgets : storeWidgets;
+  return source.sort(...);
+}, [isScreenshotMode, localWidgets, storeWidgets]);
+```
+
+### 3. Sidebar Gizleme için Data Attribute
+CSS selector ile sidebar bulunamaz, explicit attribute ekle:
+
+```tsx
+// Layout.tsx - Sidebar container'a attribute ekle
+<div 
+  data-sidebar="desktop"
+  className="hidden lg:flex lg:fixed..."
+>
+  <SidebarContent />
+</div>
+```
+
+```typescript
+// screenshot.service.ts - Doğru selector
+const sidebar = document.querySelector('[data-sidebar="desktop"]');
+if (sidebar) sidebar.style.display = 'none';
+
+// Main content padding'i kaldır
+const wrapper = document.querySelector('[data-testid="dashboard-content"]')
+  ?.closest('div[class*="lg:pl-"]');
+if (wrapper) wrapper.style.paddingLeft = '0';
+```
+
+### 4. CSS Grid Headless Modda Expand Olmaz
+Grid container'a explicit height ve row template ver:
+
+```typescript
+const gridContainer = document.querySelector('[data-testid="dashboard-content"] > div:nth-child(2)');
+if (gridContainer) {
+  gridContainer.style.overflow = 'visible';
+  gridContainer.style.height = 'auto';
+  gridContainer.style.gridTemplateRows = 'repeat(50, 40px)'; // Force rows
+}
+```
+
+### 5. Widget Stabilization Polling
+Widget'ların yüklenmesini beklemek için count polling:
+
+```typescript
+let lastCount = 0, stableCount = 0;
+while (stableCount < 3) {
+  const currentCount = await page.evaluate(() => 
+    document.querySelectorAll('[data-widget]').length
+  );
+  if (currentCount === lastCount && currentCount > 0) {
+    stableCount++;
+  } else {
+    stableCount = 0;
+    lastCount = currentCount;
+  }
+  await page.waitForTimeout(1000);
+}
+```
+
+### 6. Service Token - Purpose Field OLMAMALI
+Screenshot service token'ında `purpose` field olmamalı, yoksa authenticate middleware reject eder:
+
+```typescript
+// DOĞRU - purpose yok
+jwt.sign({
+  userId: 'screenshot-service',
+  tenantId,
+  role: 'ADMIN',
+  iat: Math.floor(Date.now() / 1000)
+}, secret, { expiresIn: '5m' });
+```
+
+### 7. localStorage Auth State Yapısı
+Puppeteer'da localStorage'a Zustand-compatible format:
+
+```typescript
+const authState = {
+  state: {
+    user: { id, email, name, role, tenantId, ... },
+    accessToken: token,
+    isAuthenticated: true,
+    hasHydrated: true,  // KRİTİK!
+    // ...diğer alanlar
+  },
+  version: 0
+};
+localStorage.setItem('clixer-auth', JSON.stringify(authState));
+```
+
+## Kritik Dosyalar - Screenshot
+
+| Dosya | Sorumluluk |
+|-------|------------|
+| `notification-service/src/services/screenshot.service.ts` | Puppeteer screenshot capture |
+| `notification-service/src/services/scheduler.service.ts` | Cron jobs, subscription processing |
+| `notification-service/src/services/email.service.ts` | Email gönderimi |
+| `frontend/src/pages/DashboardPage.tsx` | Cockpit screenshot render |
+| `frontend/src/pages/AnalysisPage.tsx` | Analysis screenshot render |
+| `frontend/src/components/Layout.tsx` | Sidebar data-attribute |
+
+## Manuel Test
+
+```powershell
+# Subscription tetikle
+echo '{"subscriptionId":"<UUID>","tenantId":"<TENANT>","manual":true}' | docker exec -i clixer_redis redis-cli -x PUBLISH subscription:send
 ```

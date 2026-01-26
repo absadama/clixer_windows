@@ -3,14 +3,14 @@
  * Login, JWT, 2FA, Password management
  */
 
+// CRITICAL: Load environment FIRST before ANY other imports
+import './env';
+
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
-
-dotenv.config({ path: '../../.env' });
 
 import {
   createLogger,

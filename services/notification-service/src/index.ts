@@ -1,15 +1,16 @@
 /**
  * Clixer - Notification Service
- * Alerts, WebSocket, Email, Push
+ * Alerts, WebSocket, Email, Push, Report Subscriptions
  */
+
+// CRITICAL: Load environment FIRST before ANY other imports
+// This must be the very first import to ensure JWT_SECRET is available
+import './env';
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import dotenv from 'dotenv';
-
-dotenv.config({ path: '../../.env' });
 
 import {
   createLogger,
@@ -21,6 +22,12 @@ import {
   AppError,
   formatError
 } from '@clixer/shared';
+
+// Import routes
+import { subscriptionsRoutes, emailSettingsRoutes } from './routes';
+
+// Import services
+import { startScheduler, stopScheduler, closeBrowser, getActiveJobsCount } from './services';
 
 const logger = createLogger({ service: 'notification-service' });
 const app = express();
@@ -43,15 +50,30 @@ app.use(requestLogger(logger));
 app.get('/health', async (req: Request, res: Response) => {
   const dbHealthy = await db.checkHealth();
   const cacheHealthy = await cache.checkHealth();
+  const schedulerJobs = getActiveJobsCount();
+  
   res.json({
     service: 'notification-service',
     status: dbHealthy && cacheHealthy ? 'healthy' : 'degraded',
+    scheduler: {
+      activeJobs: schedulerJobs
+    },
     timestamp: new Date().toISOString()
   });
 });
 
-// Get notifications
-app.get('/notifications', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
+// ============================================
+// ROUTES
+// ============================================
+
+// Report Subscriptions
+app.use('/subscriptions', subscriptionsRoutes);
+
+// Email Settings
+app.use('/email-settings', emailSettingsRoutes);
+
+// In-app Notifications
+app.get('/notifications', authenticate as any, tenantIsolation as any, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { unreadOnly } = req.query;
     let query = 'SELECT * FROM notifications WHERE user_id = $1';
@@ -66,7 +88,7 @@ app.get('/notifications', authenticate, tenantIsolation, async (req: Request, re
 });
 
 // Mark as read
-app.put('/notifications/:id/read', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+app.put('/notifications/:id/read', authenticate as any, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await db.query(
       'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = $1 AND user_id = $2',
@@ -80,6 +102,16 @@ app.put('/notifications/:id/read', authenticate, async (req: Request, res: Respo
 
 // Error handler
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  // Debug: Log auth errors
+  if (err.name === 'AuthenticationError' || err.name === 'TokenExpiredError' || err.name === 'InvalidTokenError') {
+    logger.error('Auth error details', {
+      name: err.name,
+      message: err.message,
+      hasAuthHeader: !!req.headers.authorization,
+      authHeaderPrefix: req.headers.authorization?.substring(0, 20)
+    });
+  }
+  
   const errorResponse = formatError(err, process.env.NODE_ENV !== 'production');
   const statusCode = err instanceof AppError ? err.statusCode : 500;
   res.status(statusCode).json(errorResponse);
@@ -104,6 +136,15 @@ async function start() {
       // TODO: Kullanıcıya bildirim gönder
     });
 
+    // Start report subscription scheduler
+    try {
+      await startScheduler();
+      logger.info('Report subscription scheduler started');
+    } catch (schedulerError: any) {
+      logger.error('Failed to start scheduler', { error: schedulerError.message });
+      // Continue without scheduler - service still works for API
+    }
+
     server = app.listen(PORT, () => {
       logger.info(`🔔 Notification Service running on port ${PORT}`);
     });
@@ -125,10 +166,18 @@ async function gracefulShutdown(signal: string) {
       logger.info('HTTP server closed');
       
       try {
+        // Stop scheduler first
+        await stopScheduler();
+        logger.info('Scheduler stopped');
+
+        // Close Puppeteer browser
+        await closeBrowser();
+        logger.info('Browser closed');
+
         await db.closePool();
         logger.info('Database pool closed');
         
-        await cache.close();
+        await cache.closeClients();
         logger.info('Redis connection closed');
         
         logger.info('Graceful shutdown completed');

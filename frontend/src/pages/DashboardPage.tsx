@@ -122,8 +122,26 @@ const formatCompactNumber = (num: number | string | null | undefined, isMobile: 
 
 export default function DashboardPage() {
   const { designs, currentDesign, widgets, isLoading, lastUpdated, fetchDesigns, selectDesign, fetchDashboardData } = useDashboardStore()
-  const { accessToken, user } = useAuthStore()
+  const { accessToken: storeAccessToken, user } = useAuthStore()
   const { startDate, endDate, datePreset, selectedRegionIds, selectedGroupIds, selectedStoreIds } = useFilterStore()
+  
+  // Screenshot modunda localStorage'dan token oku (Zustand hydration beklemeden)
+  const isScreenshotMode = new URLSearchParams(window.location.search).get('screenshot') === 'true'
+  const accessToken = useMemo(() => {
+    if (storeAccessToken) return storeAccessToken
+    if (isScreenshotMode) {
+      try {
+        const stored = localStorage.getItem('clixer-auth')
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          return parsed?.state?.accessToken || null
+        }
+      } catch (e) {
+        console.error('Failed to parse localStorage auth:', e)
+      }
+    }
+    return null
+  }, [storeAccessToken, isScreenshotMode])
   const [showDesignSelector, setShowDesignSelector] = useState(false)
   
   // Seçimleri stabil string'e çevir - useEffect dependency için
@@ -137,16 +155,22 @@ export default function DashboardPage() {
   // Pagination state for each widget
   const [widgetPages, setWidgetPages] = useState<Record<string, number>>({})
   
+  // Screenshot modunda local state kullan (Zustand store yerine)
+  const [localWidgets, setLocalWidgets] = useState<any[]>([])
+  const [localDesign, setLocalDesign] = useState<any>(null)
+  
   // Responsive breakpoints
   const isMobile = width < 768
   const isTablet = width >= 768 && width < 1024
 
   // Widget'ları ORİJİNAL grid koordinatlarına göre sırala (tarih değişse bile sabit sıralama)
   // Önce Y (satır), sonra X (sütun) koordinatına göre sırala
+  // Screenshot modunda localWidgets kullan (Zustand store yerine)
   const sortedWidgets = useMemo(() => {
-    if (!widgets || widgets.length === 0) return []
+    const widgetSource = isScreenshotMode ? localWidgets : widgets
+    if (!widgetSource || widgetSource.length === 0) return []
     
-    return [...widgets].sort((a, b) => {
+    return [...widgetSource].sort((a, b) => {
       // Store'da x ve y kullanılıyor (gridPosition'dan geliyor)
       const aY = (a as any).y ?? 0
       const bY = (b as any).y ?? 0
@@ -158,7 +182,10 @@ export default function DashboardPage() {
       // Aynı satırdaysa X'e göre sırala (soldan sağa)
       return aX - bX
     })
-  }, [widgets])
+  }, [widgets, localWidgets, isScreenshotMode])
+  
+  // Screenshot modunda localDesign kullan
+  const activeDesign = isScreenshotMode ? localDesign : currentDesign
 
   // Kullanıcı pozisyon kodu ve kategori bilgileri
   const userPositionCode = user?.positionCode || 'VIEWER'
@@ -202,18 +229,125 @@ export default function DashboardPage() {
   }
 
   const accessibleDesigns = getAccessibleDesigns()
+  
+  // Screenshot modunda API_BASE kullan
+  const API_BASE = '/api'
+
+  // Screenshot modunda direkt design yükle (store'a bağımlı olmadan)
+  const loadDesignDirectly = async (designId: string) => {
+    if (!accessToken) return
+    
+    console.log('[DashboardPage] loadDesignDirectly called', { designId, isScreenshotMode })
+    
+    try {
+      // Filtre bilgilerini al
+      const { startDate, endDate, datePreset, selectedRegionIds, selectedGroupIds, selectedStoreIds, stores } = useFilterStore.getState()
+      
+      const requestBody: Record<string, any> = {}
+      
+      if (datePreset === 'all') {
+        requestBody.allTime = 'true'
+      } else {
+        if (startDate) requestBody.startDate = startDate
+        if (endDate) requestBody.endDate = endDate
+      }
+      
+      if (selectedRegionIds.length > 0) {
+        requestBody.regionIds = selectedRegionIds.join(',')
+      }
+      
+      if (selectedGroupIds.length > 0) {
+        requestBody.groupIds = selectedGroupIds.join(',')
+      }
+      
+      const allStoresSelected = stores.length > 0 && selectedStoreIds.length === stores.length
+      if (selectedStoreIds.length > 0 && !allStoresSelected) {
+        requestBody.storeIds = selectedStoreIds.join(',')
+      }
+      
+      console.log('[DashboardPage] Fetching design', { designId, requestBody })
+      
+      const res = await fetch(`${API_BASE}/analytics/dashboard/${designId}/full`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        console.log('[DashboardPage] Design loaded successfully', { design: data.data?.design?.name, widgetCount: data.data?.widgets?.length })
+        
+        const design = data.data?.design
+        const widgetsData = data.data?.widgets || []
+        
+        if (design) {
+          // Screenshot modunda LOCAL STATE kullan (Zustand store yerine)
+          // AnalysisPage ile aynı yaklaşım - bu çalışıyor
+          const mappedWidgets = widgetsData.map((w: any) => ({
+            id: w.id,
+            type: w.type,
+            label: w.label,
+            metricId: w.metricId,
+            metricName: w.metricName,
+            metric_visualization_type: w.metric_visualization_type,
+            x: w.gridPosition?.x ?? w.x ?? 0,
+            y: w.gridPosition?.y ?? w.y ?? 0,
+            w: w.gridPosition?.w ?? w.w ?? 4,
+            h: w.gridPosition?.h ?? w.h ?? 4,
+            minW: w.minW,
+            minH: w.minH,
+            icon: w.icon,
+            color: w.color,
+            chartConfig: w.chartConfig || {},
+            data: w.data
+          }))
+          
+          console.log('[DashboardPage] Setting local state with widgets', { count: mappedWidgets.length })
+          
+          setLocalDesign({
+            id: design.id,
+            name: design.name,
+            type: design.type || 'cockpit',
+            description: design.description,
+            layoutConfig: design.layoutConfig
+          })
+          setLocalWidgets(mappedWidgets)
+        }
+      } else {
+        console.error('[DashboardPage] Failed to load design', { status: res.status })
+      }
+    } catch (error) {
+      console.error('[DashboardPage] Error loading design', error)
+    }
+  }
 
   useEffect(() => {
     // Token hazır olduğunda API çağrısı yap
-    if (accessToken) {
-    fetchDesigns()
+    // Screenshot modunda fetchDesigns çağırma - direkt yükleyeceğiz
+    if (accessToken && !isScreenshotMode) {
+      fetchDesigns()
     }
-  }, [fetchDesigns, accessToken])
+  }, [fetchDesigns, accessToken, isScreenshotMode])
+  
+  // Screenshot modunda direkt design yükle
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlDesignId = urlParams.get('designId');
+    const isScreenshotModeUrl = urlParams.get('screenshot') === 'true';
+    
+    if (isScreenshotModeUrl && urlDesignId && accessToken && !currentDesign) {
+      console.log('[DashboardPage] Screenshot mode - loading design directly', { urlDesignId })
+      loadDesignDirectly(urlDesignId)
+    }
+  }, [accessToken, currentDesign, isScreenshotMode])
 
   // Filtreler değiştiğinde verileri yeniden yükle (tarih, bölge, mağaza, tip)
   // Debounce ile çoklu mağaza seçiminde gereksiz istekleri önle
   useEffect(() => {
-    if (currentDesign && accessToken) {
+    if (currentDesign && accessToken && !isScreenshotMode) {
       const timeoutId = setTimeout(() => {
         fetchDashboardData(currentDesign.id)
       }, 300) // 300ms debounce - kullanıcı seçmeyi bitirene kadar bekle
@@ -221,9 +355,12 @@ export default function DashboardPage() {
       return () => clearTimeout(timeoutId)
     }
   // useMemo ile hesaplanan stabil key'ler - değişiklikleri doğru yakalar
-  }, [startDate, endDate, regionIdsKey, groupIdsKey, storeIdsKey, currentDesign?.id, fetchDashboardData, accessToken])
+  }, [startDate, endDate, regionIdsKey, groupIdsKey, storeIdsKey, currentDesign?.id, fetchDashboardData, accessToken, isScreenshotMode])
 
   useEffect(() => {
+    // Screenshot modunda bu useEffect çalışmasın
+    if (isScreenshotMode) return
+    
     // URL'den designId parametresini oku
     const urlParams = new URLSearchParams(window.location.search);
     const urlDesignId = urlParams.get('designId');
@@ -244,7 +381,7 @@ export default function DashboardPage() {
     } else if (cockpitDesigns.length > 0 && !currentDesign) {
       selectDesign(cockpitDesigns[0].id)
     }
-  }, [accessibleDesigns, currentDesign, selectDesign])
+  }, [accessibleDesigns, currentDesign, selectDesign, isScreenshotMode])
 
   const getColorClasses = (color: string) => {
     const colors: Record<string, { bg: string; text: string; icon: string }> = {
@@ -273,21 +410,21 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6 overflow-hidden">
+    <div className="space-y-6 overflow-hidden" data-testid="dashboard-content">
       {/* Global Filter Bar */}
       <FilterBar />
 
       {/* Header - Detaylı Analiz ile aynı format */}
-      {currentDesign && (
+      {activeDesign && (
         <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
             <div className="p-3 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-2xl">
               <LayoutDashboard size={24} className="text-white" />
           </div>
           <div>
-              <h1 className={clsx('text-2xl font-bold', theme.contentText)}>{currentDesign.name}</h1>
+              <h1 className={clsx('text-2xl font-bold', theme.contentText)}>{activeDesign.name}</h1>
               <p className={clsx('text-sm', theme.contentTextMuted)}>
-                {currentDesign.description || 'Kokpit tasarımı'} • {sortedWidgets.length} Widget
+                {activeDesign.description || 'Kokpit tasarımı'} • {sortedWidgets.length} Widget
               </p>
             </div>
           </div>
@@ -432,6 +569,7 @@ export default function DashboardPage() {
             return (
               <div
                 key={widget.id}
+                data-widget={widget.id}
                 className={clsx(
                   // Mobilde daha kompakt kartlar (6 kart görünsün)
                   isMobile ? 'rounded-xl p-3' : 'rounded-[20px] p-5',

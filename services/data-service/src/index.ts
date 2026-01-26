@@ -3,13 +3,13 @@
  * Data Connections, Datasets, ETL Configuration
  */
 
+// CRITICAL: Load environment FIRST
+import './env';
+
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import dotenv from 'dotenv';
-
-dotenv.config({ path: '../../.env' });
 
 // NOT: SSL sertifika doğrulaması artık connection bazlı yapılıyor
 // Her bağlantı için ssl_verify alanı kullanılarak kontrol edilir

@@ -523,7 +523,9 @@ export default function Layout({ children }: LayoutProps) {
       </div>
 
         {/* Desktop sidebar - ALWAYS visible with lg:flex */}
-        <div className={clsx(
+        <div 
+          data-sidebar="desktop"
+          className={clsx(
           'hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 transition-all duration-300 flex-col',
           isCollapsed ? 'lg:w-20' : 'lg:w-72'
         )}>

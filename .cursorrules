@@ -462,6 +462,30 @@ Login endpoint'i 2FA zorunlu ama kurulu değilse:
 // Frontend bu response'u alınca QR ekranı göstermeli
 ```
 
+### 16. Security-First Development (26 Ocak 2026)
+**Bu uygulama dış dünyaya açık!** Her yeni özellik siber güvenlik önlemleri alınarak tasarlanmalı:
+
+| Kontrol | Açıklama |
+|---------|----------|
+| **Input Validation** | Tüm kullanıcı girdileri sanitize edilmeli (XSS, SQL Injection) |
+| **Authorization** | Her endpoint'te `req.user` kontrolü, role-based access |
+| **Rate Limiting** | Brute-force koruması, IP bazlı limit |
+| **Encryption** | Hassas veriler (password, token, SMTP credentials) AES ile şifreli |
+| **SSRF Protection** | Dış URL çağrılarında DNS rebinding kontrolü |
+| **File Upload** | Dosya tipi, boyut, içerik doğrulama |
+| **Error Handling** | Detaylı hata mesajları client'a sızdırılmamalı |
+| **Audit Logging** | Kritik işlemler loglanmalı (kim, ne zaman, ne yaptı) |
+| **Token Security** | JWT expiry, refresh token rotation, blacklist |
+| **CORS** | Spesifik origin, `*` kullanılmamalı |
+
+**Yeni özellik eklerken checklist:**
+- [ ] Input'lar sanitize ediliyor mu?
+- [ ] Yetki kontrolü var mı?
+- [ ] Hassas veri şifreleniyor mu?
+- [ ] Rate limit uygulandı mı?
+- [ ] Hata mesajları güvenli mi?
+- [ ] Audit log eklendi mi?
+
 ---
 
 ## GÜVENLİK İMPLEMENTASYONLARI (25 Ocak 2026 - v2)

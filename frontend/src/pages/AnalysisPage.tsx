@@ -190,7 +190,25 @@ const demoReports = [
 
 export default function AnalysisPage() {
   const { theme, isDark, currentTheme } = useTheme()
-  const { accessToken, user } = useAuthStore()
+  const { accessToken: storeAccessToken, user } = useAuthStore()
+  
+  // Screenshot modunda localStorage'dan token oku (Zustand hydration beklemeden)
+  const isScreenshotMode = new URLSearchParams(window.location.search).get('screenshot') === 'true'
+  const accessToken = useMemo(() => {
+    if (storeAccessToken) return storeAccessToken
+    if (isScreenshotMode) {
+      try {
+        const stored = localStorage.getItem('clixer-auth')
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          return parsed?.state?.accessToken || null
+        }
+      } catch (e) {
+        console.error('Failed to parse localStorage auth:', e)
+      }
+    }
+    return null
+  }, [storeAccessToken, isScreenshotMode])
   const { 
     startDate, endDate, datePreset, selectedRegionIds, selectedGroupIds, selectedStoreIds,
     crossFilters, drillDown, 
@@ -280,7 +298,15 @@ export default function AnalysisPage() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const urlDesignId = urlParams.get('designId');
+    const isScreenshotModeUrl = urlParams.get('screenshot') === 'true';
     
+    // Screenshot modunda direkt yükle (savedDesigns kontrolü yapma)
+    if (isScreenshotModeUrl && urlDesignId && !selectedDesign) {
+      loadDesignDetail(urlDesignId);
+      return;
+    }
+    
+    // Normal modda savedDesigns kontrolü yap
     if (urlDesignId && savedDesigns.length > 0 && !selectedDesign) {
       // URL'deki tasarım erişilebilir mi kontrol et
       const targetDesign = savedDesigns.find(d => d.id === urlDesignId);
@@ -450,7 +476,7 @@ export default function AnalysisPage() {
   // Kaydedilen tasarım görüntüleme
   if (selectedDesign) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6" data-testid="dashboard-content">
         {/* Global Filter Bar - Her zaman görünür */}
         <FilterBar />
         
@@ -1839,7 +1865,7 @@ export default function AnalysisPage() {
     if (!report) return null
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-6" data-testid="dashboard-content">
         {/* Rapor Başlığı */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -1962,7 +1988,7 @@ export default function AnalysisPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" data-testid="dashboard-content">
       {/* Global Filter Bar */}
       <FilterBar />
 

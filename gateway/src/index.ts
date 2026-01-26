@@ -598,6 +598,18 @@ app.use('/api/notifications', createProxyMiddleware({
   pathRewrite: { '^/api': '' }
 }));
 
+// Report Subscriptions routes (notification service)
+app.use('/api/notification/subscriptions', createProxyMiddleware({
+  ...proxyOptions(SERVICES.NOTIFICATION),
+  pathRewrite: { '^/api/notification': '' }
+}));
+
+// Email Settings routes (notification service)
+app.use('/api/notification/email-settings', createProxyMiddleware({
+  ...proxyOptions(SERVICES.NOTIFICATION),
+  pathRewrite: { '^/api/notification': '' }
+}));
+
 // Admin Database routes (Redis, PostgreSQL, ClickHouse reconnect) - Data Service
 // NOT: Spesifik route'lar genel route'tan ÖNCE gelmeli!
 app.use('/api/admin/redis', createProxyMiddleware({

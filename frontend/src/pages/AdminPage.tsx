@@ -36,10 +36,11 @@ import {
   Tag,
   Save,
   FolderTree,
+  Mail,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { SystemSetting } from '../types'
-import { LabelsTab, RolesTab, ReportCategoriesTab, BackupTab, MonitorTab, LdapTab, PerformanceTab, UsersTab, MasterDataTab } from '../components/admin'
+import { LabelsTab, RolesTab, ReportCategoriesTab, BackupTab, MonitorTab, LdapTab, PerformanceTab, UsersTab, MasterDataTab, ReportSubscriptionsTab } from '../components/admin'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -55,6 +56,7 @@ const menuItems = [
   { id: 'users', label: 'Kullanıcı Yönetimi', icon: Users, category: 'KULLANICILAR' },
   { id: 'roles', label: 'Rol & Yetkiler', icon: Lock, category: 'KULLANICILAR' },
   { id: 'report-categories', label: 'Rapor Kategorileri', icon: FolderTree, category: 'KULLANICILAR' },
+  { id: 'subscriptions', label: 'Rapor Abonelikleri', icon: Mail, category: 'KULLANICILAR' },
   { id: 'ldap', label: 'LDAP / SSO', icon: Key, category: 'KULLANICILAR' },
 ]
 
@@ -1719,6 +1721,11 @@ export default function AdminPage() {
         {/* LDAP / SSO */}
         {activeTab === 'ldap' && (
           <LdapTab theme={theme} isDark={isDark} positions={positions} />
+        )}
+
+        {/* Rapor Abonelikleri */}
+        {activeTab === 'subscriptions' && (
+          <ReportSubscriptionsTab theme={theme} isDark={isDark} />
         )}
 
         {/* Sistem Monitörü */}

@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS public.users (
     -- Telefon güvenlik katmanı
     phone_number character varying(20),
     phone_active boolean DEFAULT true,
+    -- Token invalidation için
+    token_version integer DEFAULT 0,
     UNIQUE (tenant_id, email)
 );
 
