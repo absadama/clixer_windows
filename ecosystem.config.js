@@ -9,6 +9,19 @@
  *   pm2 restart all
  */
 
+// Load .env file
+require('dotenv').config();
+
+// Common environment variables from .env
+const commonEnv = {
+  NODE_ENV: 'production',
+  JWT_SECRET: process.env.JWT_SECRET,
+  ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
+  DATABASE_URL: process.env.DATABASE_URL,
+  REDIS_URL: process.env.REDIS_URL,
+  CLICKHOUSE_URL: process.env.CLICKHOUSE_URL
+};
+
 module.exports = {
   apps: [
     // ============================================
@@ -22,7 +35,7 @@ module.exports = {
       exec_mode: 'cluster',
       max_memory_restart: '500M',
       env: {
-        NODE_ENV: 'production',
+        ...commonEnv,
         PORT: 4000
       },
       error_file: './logs/gateway-error.log',
@@ -42,7 +55,7 @@ module.exports = {
       exec_mode: 'cluster',
       max_memory_restart: '1G',
       env: {
-        NODE_ENV: 'production',
+        ...commonEnv,
         PORT: 4005
       },
       error_file: './logs/analytics-error.log',
@@ -62,7 +75,7 @@ module.exports = {
       exec_mode: 'cluster',
       max_memory_restart: '300M',
       env: {
-        NODE_ENV: 'production',
+        ...commonEnv,
         PORT: 4001
       },
       error_file: './logs/auth-error.log',
@@ -82,7 +95,7 @@ module.exports = {
       exec_mode: 'cluster',
       max_memory_restart: '500M',
       env: {
-        NODE_ENV: 'production',
+        ...commonEnv,
         PORT: 4002
       },
       error_file: './logs/core-error.log',
@@ -102,7 +115,7 @@ module.exports = {
       exec_mode: 'cluster',
       max_memory_restart: '500M',
       env: {
-        NODE_ENV: 'production',
+        ...commonEnv,
         PORT: 4003
       },
       error_file: './logs/data-error.log',
@@ -120,9 +133,9 @@ module.exports = {
       script: './services/notification-service/dist/index.js',
       instances: 1,
       exec_mode: 'fork',  // Tek instance, fork mode
-      max_memory_restart: '200M',
+      max_memory_restart: '500M',  // Puppeteer için artırıldı
       env: {
-        NODE_ENV: 'production',
+        ...commonEnv,
         PORT: 4004
       },
       error_file: './logs/notification-error.log',
@@ -142,7 +155,7 @@ module.exports = {
       exec_mode: 'fork',
       max_memory_restart: '2G',  // ETL için daha fazla memory
       env: {
-        NODE_ENV: 'production'
+        ...commonEnv
       },
       error_file: './logs/etl-worker-error.log',
       out_file: './logs/etl-worker-out.log',
