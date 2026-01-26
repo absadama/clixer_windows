@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Users, Plus, Edit2, Trash2, Search, Loader2, Check, FolderTree } from 'lucide-react'
+import { Users, Plus, Edit2, Trash2, Search, Loader2, Check, FolderTree, KeyRound } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '../../stores/authStore'
@@ -197,6 +197,17 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
       await apiCall(`/core/users/${userId}`, { method: 'DELETE' })
       loadUsers()
       toast.success('Kullanıcı silindi')
+    } catch (err: any) {
+      toast.error('Hata: ' + err.message)
+    }
+  }
+
+  // Reset 2FA for user
+  const reset2FA = async (userId: string, userName: string) => {
+    if (!confirm(`${userName} için 2FA'yı sıfırlamak istediğinize emin misiniz?\n\nKullanıcı bir sonraki girişte 2FA kurulumunu tekrar yapacak.`)) return
+    try {
+      await apiCall(`/core/users/${userId}/reset-2fa`, { method: 'POST' })
+      toast.success('2FA sıfırlandı')
     } catch (err: any) {
       toast.error('Hata: ' + err.message)
     }
@@ -429,12 +440,21 @@ export function UsersTab({ theme, isDark, positions, availableStores, regions, g
                     <button 
                       onClick={() => editUser(user)}
                       className={clsx('p-2 rounded-lg transition-colors', theme.buttonSecondary)}
+                      title="Düzenle"
                     >
                       <Edit2 size={16} />
                     </button>
                     <button 
+                      onClick={() => reset2FA(user.id, user.name)}
+                      className={clsx('p-2 rounded-lg transition-colors', 'hover:bg-amber-500/20 text-amber-500')}
+                      title="2FA Sıfırla"
+                    >
+                      <KeyRound size={16} />
+                    </button>
+                    <button 
                       onClick={() => deleteUser(user.id)}
                       className={clsx('p-2 rounded-lg transition-colors', 'hover:bg-rose-500/20 text-rose-500')}
+                      title="Sil"
                     >
                       <Trash2 size={16} />
                     </button>

@@ -783,17 +783,20 @@ CREATE TABLE IF NOT EXISTS public.report_subscriptions (
     tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     name character varying(255) NOT NULL,
     description text,
-    design_id uuid NOT NULL,
+    design_id uuid,
     design_type character varying(50) NOT NULL CHECK (design_type IN ('cockpit', 'analysis')),
     recipient_user_ids uuid[] NOT NULL DEFAULT '{}',
     recipient_emails text[],
     schedule_cron character varying(100) NOT NULL,
     schedule_description character varying(255),
+    schedule_timezone character varying(100) DEFAULT 'Europe/Istanbul',
     is_active boolean DEFAULT true,
     last_sent_at timestamp without time zone,
     last_error text,
     send_count integer DEFAULT 0,
+    error_count integer DEFAULT 0,
     created_by uuid REFERENCES public.users(id),
+    updated_by uuid REFERENCES public.users(id),
     created_at timestamp without time zone DEFAULT now(),
     updated_at timestamp without time zone DEFAULT now()
 );
@@ -801,13 +804,16 @@ CREATE TABLE IF NOT EXISTS public.report_subscriptions (
 -- Subscription Logs tablosu
 CREATE TABLE IF NOT EXISTS public.subscription_logs (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    subscription_id uuid NOT NULL REFERENCES public.report_subscriptions(id) ON DELETE CASCADE,
+    subscription_id uuid REFERENCES public.report_subscriptions(id) ON DELETE CASCADE,
     tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     status character varying(50) NOT NULL,
     action character varying(50),
-    recipients_count integer,
+    recipient_count integer,
     error_message text,
-    sent_at timestamp without time zone DEFAULT now()
+    execution_time_ms integer,
+    metadata jsonb DEFAULT '{}',
+    created_by uuid REFERENCES public.users(id),
+    created_at timestamp without time zone DEFAULT now()
 );
 
 -- Notification Service Indexleri

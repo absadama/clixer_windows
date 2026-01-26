@@ -315,6 +315,40 @@ router.put('/:id/preferences', authenticate, async (req: Request, res: Response,
 });
 
 /**
+ * POST /users/:id/reset-2fa
+ * Reset 2FA for a user (Admin only)
+ * Clears 2FA secret so user can set it up again on next login
+ */
+router.post('/:id/reset-2fa', authenticate, authorize(ROLES.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if user exists in tenant
+    const user = await db.queryOne(
+      'SELECT id, email, two_factor_enabled FROM users WHERE id = $1 AND tenant_id = $2',
+      [id, req.user!.tenantId]
+    );
+    
+    if (!user) throw new NotFoundError('Kullanıcı');
+    
+    // Reset 2FA
+    await db.query(
+      `UPDATE users SET 
+         two_factor_secret = NULL, 
+         two_factor_enabled = false,
+         updated_at = NOW()
+       WHERE id = $1`,
+      [id]
+    );
+    
+    logger.info('2FA reset for user', { userId: id, email: user.email, by: req.user!.email });
+    res.json({ success: true, message: '2FA sıfırlandı. Kullanıcı tekrar kurulum yapabilir.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /users/:id/preferences
  * Get user's preferences
  * Users can only get their own preferences
