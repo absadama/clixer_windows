@@ -1,0 +1,93 @@
+# Production Deployment - Kritik Bilgiler (26 Ocak 2026)
+
+## Sunucu dist/ Artifacts Sorunu
+
+### Problem
+Sunucuda (`/opt/clixer`) eski `dist/` dosyaları kalabilir ve yanlış import path'leri içerebilir.
+Git pull yeni kaynak kodu getirir ama **dist/ klasörünü güncellemez**.
+
+### Belirtiler
+```
+Error: Cannot find module '@clixer/shared/src/logger'
+```
+veya benzeri modül bulunamadı hataları.
+
+### Çözüm
+Sunucuda her deployment'ta:
+```bash
+cd /opt/clixer/services/<service-name>
+sudo rm -rf dist
+sudo npx tsc --skipLibCheck 2>/dev/null
+sudo pm2 restart <service-name>
+```
+
+### EADDRINUSE Hatası
+Servis başarıyla derlendi ama port kullanımda:
+```bash
+sudo fuser -k <PORT>/tcp
+sleep 2
+sudo pm2 restart <service-name>
+```
+
+Port numaraları:
+- Gateway: 4000
+- Auth: 4001
+- Core: 4002
+- Data: 4003
+- ETL Worker: 4004
+- Analytics: 4005
+- Notification: 4006
+
+## TypeScript Tip Uyumsuzlukları
+
+### Problem
+`@types/express` versiyonları `shared` ve servisler arasında farklı olabilir.
+Bu derleme sırasında 100+ hata gösterir ama **runtime'da sorun çıkarmaz**.
+
+### Çözüm
+`--skipLibCheck` flag'i kullan:
+```bash
+sudo npx tsc --skipLibCheck 2>/dev/null
+```
+
+## Deployment Checklist
+
+1. **Lokal'de değişiklikleri commit et ve push et**
+   ```powershell
+   git add .
+   git commit -m "mesaj"
+   git push origin master
+   ```
+
+2. **Sunucuda güncelle**
+   ```bash
+   cd /opt/clixer
+   sudo git stash  # varsa local değişiklikleri sakla
+   sudo git pull origin master
+   ```
+
+3. **Değişen servisleri rebuild et**
+   ```bash
+   cd /opt/clixer/services/<service-name>
+   sudo rm -rf dist
+   sudo npx tsc --skipLibCheck 2>/dev/null
+   ```
+
+4. **Servisleri restart et**
+   ```bash
+   sudo pm2 restart <service-name>
+   # veya tümünü: sudo pm2 restart all
+   ```
+
+5. **Durumu kontrol et**
+   ```bash
+   sudo pm2 status
+   sudo pm2 logs <service-name> --lines 20
+   ```
+
+## Önemli Notlar
+
+- **ASLA** sunucuda doğrudan kaynak kodu düzenleme - her zaman lokal'den push et
+- **dist/ klasörünü silmeden** rebuild yapmak eski dosyaları bırakabilir
+- TypeScript hataları görünse bile `--skipLibCheck` ile derleme başarılı olabilir
+- PM2 servisi restart etmeden önce portu `fuser -k` ile temizle
