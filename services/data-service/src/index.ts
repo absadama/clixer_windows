@@ -83,7 +83,7 @@ app.use(routes);
 app.get('/connections', authenticate, tenantIsolation, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const connections = await db.queryAll(
-      'SELECT id, name, type, host, port, database_name, status, created_at FROM data_connections WHERE tenant_id = $1 ORDER BY created_at DESC',
+      'SELECT id, name, type, host, port, database_name, username, status, created_at FROM data_connections WHERE tenant_id = $1 ORDER BY created_at DESC',
       [req.user!.tenantId]
     );
     res.json({ success: true, data: connections });

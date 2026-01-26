@@ -4,8 +4,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { authenticate, authorize, ROLES, audit } from '@clixer/shared';
-import createLogger from '@clixer/shared/src/logger';
+import { authenticate, authorize, ROLES, audit, createLogger } from '@clixer/shared';
 
 const router = Router();
 const logger = createLogger({ service: 'etl-worker-routes' });

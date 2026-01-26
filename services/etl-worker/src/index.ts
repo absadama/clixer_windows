@@ -877,9 +877,9 @@ async function processETLJob(job: ETLJob): Promise<void> {
         }
       }
 
-      // Job başarılı
+      // Job başarılı - error_message'ı temizle
       await db.query(
-        `UPDATE etl_jobs SET status = 'completed', completed_at = NOW(), rows_processed = $1 WHERE id = $2`,
+        `UPDATE etl_jobs SET status = 'completed', completed_at = NOW(), rows_processed = $1, error_message = NULL WHERE id = $2`,
         [rowsProcessed, etlJob.id]
       );
 
@@ -3796,9 +3796,9 @@ async function processPendingJobs(): Promise<void> {
             [job.job_id]
           );
         } else {
-          // Job başarılı
+          // Job başarılı - error_message'ı temizle
           await db.query(
-            `UPDATE etl_jobs SET status = 'completed', completed_at = NOW(), rows_processed = $1 WHERE id = $2`,
+            `UPDATE etl_jobs SET status = 'completed', completed_at = NOW(), rows_processed = $1, error_message = NULL WHERE id = $2`,
             [rowsProcessed, job.job_id]
           );
 

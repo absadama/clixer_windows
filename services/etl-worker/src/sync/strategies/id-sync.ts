@@ -234,10 +234,10 @@ export async function syncById(dataset: any, connection: any, jobId?: string): P
       }
     }
     
-    // Job complete
+    // Job complete - error_message'ı temizle
     if (jobId) {
       await db.query(
-        `UPDATE etl_jobs SET status = 'completed', completed_at = NOW(), rows_processed = $1 WHERE id = $2`,
+        `UPDATE etl_jobs SET status = 'completed', completed_at = NOW(), rows_processed = $1, error_message = NULL WHERE id = $2`,
         [totalInserted, jobId]
       );
     }
