@@ -15,13 +15,14 @@ import { createLogger } from '@clixer/shared';
 
 const logger = createLogger({ service: 'screenshot-service' });
 
-// Allowed hosts for SSRF protection
-const ALLOWED_HOSTS = [
-  'localhost',
-  '127.0.0.1',
-  'frontend',
-  'clixer-frontend'
-];
+// Allowed hosts for SSRF protection (read from env or use defaults)
+const ALLOWED_HOSTS = (process.env.SCREENSHOT_ALLOWED_HOSTS || 'localhost,127.0.0.1,frontend,clixer-frontend')
+  .split(',')
+  .map(h => h.trim())
+  .filter(Boolean);
+
+// Log allowed hosts at module load
+logger.info('Screenshot service initialized', { allowedHosts: ALLOWED_HOSTS });
 
 // Browser instance (singleton for performance)
 let browserInstance: Browser | null = null;
