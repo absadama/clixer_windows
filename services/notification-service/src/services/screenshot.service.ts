@@ -47,6 +47,7 @@ async function getBrowser(): Promise<Browser> {
       '--disable-gpu',
       '--disable-web-security',
       '--disable-features=IsolateOrigins,site-per-process',
+      '--ignore-certificate-errors',
       '--window-size=1920,1080'
     ],
     // Resource limits
