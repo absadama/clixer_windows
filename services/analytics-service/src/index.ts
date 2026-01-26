@@ -2838,6 +2838,9 @@ app.post('/designs', authenticate, tenantIsolation, async (req: Request, res: Re
       throw new ValidationError('Tasarım adı zorunludur');
     }
 
+    // categoryId boş string olarak gelebilir, UUID geçerli mi kontrol et
+    const validCategoryId = categoryId && typeof categoryId === 'string' && categoryId.trim().length > 0 ? categoryId : null;
+
     // Eğer varsayılan yapılıyorsa diğerlerini kaldır
     if (isDefault) {
       await db.query(
@@ -2871,7 +2874,7 @@ app.post('/designs', authenticate, tenantIsolation, async (req: Request, res: Re
     `, [
       req.user!.tenantId, name, description || null, type || 'cockpit',
       JSON.stringify(layoutConfig || {}), JSON.stringify(settings || {}), JSON.stringify(rolesArray), positionsArray,
-      categoryId || null, isDefault || false, req.user!.userId
+      validCategoryId, isDefault || false, req.user!.userId
     ]);
 
     // Yetki ekle
@@ -2903,6 +2906,9 @@ app.put('/designs/:designId', authenticate, tenantIsolation, async (req: Request
   try {
     const { designId } = req.params;
     const { name, description, type, layoutConfig, settings, targetRoles, allowedPositions, categoryId, gridColumns, rowHeight, themeConfig, isActive, isDefault, lastUpdatedAt } = req.body;
+
+    // categoryId boş string olarak gelebilir, UUID geçerli mi kontrol et
+    const validCategoryId = categoryId && typeof categoryId === 'string' && categoryId.trim().length > 0 ? categoryId : null;
 
     // OPTIMISTIC LOCKING: Concurrent edit kontrolü
     if (lastUpdatedAt) {
@@ -2987,7 +2993,7 @@ app.put('/designs/:designId', authenticate, tenantIsolation, async (req: Request
       isDefault, 
       designId, 
       req.user!.tenantId,
-      categoryId || null
+      validCategoryId
     ]);
 
     // Cache temizle
