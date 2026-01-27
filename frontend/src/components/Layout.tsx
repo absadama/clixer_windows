@@ -789,9 +789,10 @@ function SidebarContent({
             const getExternalUrl = () => {
               const hostname = window.location.hostname
               if (hostname === 'localhost' || hostname === '127.0.0.1') {
-                return 'http://localhost:3001'
+                return 'http://localhost:3001/edu'
               }
-              return `https://docs.${hostname}`
+              // Production'da aynı domain üzerinde /edu path'i kullan
+              return `${window.location.origin}/edu`
             }
             
             return (

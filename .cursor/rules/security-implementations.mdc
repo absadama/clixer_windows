@@ -861,7 +861,8 @@ Clixer Wiki, kullanıcılara uygulamanın nasıl kullanılacağını anlatan ba�
 
 - **Konum:** `/wiki` klasörü (ana repo içinde)
 - **Teknoloji:** React 19 + Vite 6 + TypeScript + TailwindCSS + FlexSearch
-- **Port:** Development: 3001, Production: `docs.{domain}` subdomain
+- **URL:** `{domain}/edu` (örn: `dinamo.tavukdunyasi.com/edu`)
+- **Base Path:** `/edu/` (vite.config.ts ve BrowserRouter'da tanımlı)
 - **Dil Desteği:** Türkçe ve İngilizce
 
 ## Sidebar Entegrasyonu
@@ -874,8 +875,8 @@ Clixer Wiki, kullanıcılara uygulamanın nasıl kullanılacağını anlatan ba�
 ```
 
 Dinamik URL mantığı:
-- Localhost: `http://localhost:3001`
-- Production: `https://docs.{hostname}` (örn: `docs.dinamo.tavukdunyasi.com`)
+- Localhost: `http://localhost:3001/edu`
+- Production: `{origin}/edu` (örn: `https://dinamo.tavukdunyasi.com/edu`)
 
 ## Production Deploy
 
@@ -886,44 +887,31 @@ npm install
 npm run build
 ```
 
-### 2. Nginx Konfigürasyonu
+### 2. Nginx Konfigürasyonu (Mevcut config'e ekle)
+Mevcut Clixer Nginx config dosyasına (`/etc/nginx/sites-available/clixer`) şu location bloklarını ekle:
+
 ```nginx
-server {
-    listen 80;
-    server_name docs.dinamo.tavukdunyasi.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name docs.dinamo.tavukdunyasi.com;
-
-    ssl_certificate /etc/letsencrypt/live/docs.dinamo.tavukdunyasi.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/docs.dinamo.tavukdunyasi.com/privkey.pem;
-
-    root /opt/clixer/wiki/dist;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
+    # Wiki / Egitim Merkezi - /edu path'i
+    location /edu {
+        alias /opt/clixer/wiki/dist;
+        index index.html;
+        try_files $uri $uri/ /edu/index.html;
     }
 
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
+    location /edu/ {
+        alias /opt/clixer/wiki/dist/;
+        index index.html;
+        try_files $uri $uri/ /edu/index.html;
     }
-}
 ```
 
-### 3. SSL Sertifikası
+### 3. Nginx Reload
 ```bash
-sudo certbot --nginx -d docs.dinamo.tavukdunyasi.com
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
-### 4. DNS Kaydı
-```
-docs.dinamo    A    <sunucu-ip>
-```
+**Not:** Ayrı subdomain veya SSL gerekmez, mevcut domain ve SSL kullanılır.
 
 ## İçerik Yapısı
 

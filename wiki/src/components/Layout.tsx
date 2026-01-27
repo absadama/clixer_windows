@@ -22,11 +22,10 @@ export default function Layout({ children }: LayoutProps) {
       if (hostname === 'localhost' || hostname === '127.0.0.1') {
         return 'http://localhost:3000'
       }
-      // Production'da ana domain'e yönlendir (docs.musteri.com -> musteri.com)
-      const domain = hostname.replace(/^docs\./, '')
-      return `https://${domain}`
+      // Production'da aynı domain'in root'una yönlendir (/edu'dan /'a)
+      return window.location.origin
     }
-    return 'https://clixer.io'
+    return '/'
   }
 
   return (
