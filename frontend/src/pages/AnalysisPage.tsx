@@ -697,8 +697,8 @@ export default function AnalysisPage() {
                     const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
                     const widgetType = (widget as any).type || (widget as any).widgetType;
                     
-                    // Öncelik sırası: PARAMETER kontrolü > widgetType > metricVizType > varsayılan
-                    let vizType = isParameterMetric ? 'parameter_filter' : (widgetType || metricVizType || 'kpi_card');
+                    // Öncelik sırası: PARAMETER kontrolü > metricVizType > widgetType > varsayılan
+                    let vizType = isParameterMetric ? 'parameter_filter' : (metricVizType || widgetType || 'kpi_card');
                     // Veri widget.data.data veya widget.data.value içinde olabilir
                     const chartData = widget.data?.data || (Array.isArray(widget.data?.value) ? widget.data.value : []) || (widget.data as any)?.chartData || [];
                     const CHART_COLORS = ['#14B8A6', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#6366F1'];
@@ -1615,7 +1615,7 @@ export default function AnalysisPage() {
                     const isParameterMetric = aggregationType === 'PARAMETER';
                     const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
                     const widgetType = (widget as any).type || (widget as any).widgetType;
-                    const vizType = isParameterMetric ? 'parameter_filter' : (widgetType || metricVizType || 'kpi_card');
+                    const vizType = isParameterMetric ? 'parameter_filter' : (metricVizType || widgetType || 'kpi_card');
                     
                     // Chart ve özel görselleştirme tipleri için tablo gösterme
                     const skipTableTypes = [
@@ -1819,8 +1819,8 @@ export default function AnalysisPage() {
                     const isParameterMetric = aggregationType === 'PARAMETER';
                     const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
                     const widgetType = (widget as any).type || (widget as any).widgetType;
-                    const vizType = isParameterMetric ? 'parameter_filter' : (widgetType || metricVizType || 'kpi_card');
-                    
+                    const vizType = isParameterMetric ? 'parameter_filter' : (metricVizType || widgetType || 'kpi_card');
+
                     // Özel tipler için KPI gösterme
                     const specialTypes = [
                       'pie_chart', 'donut_chart', 'bar_chart', 'line_chart', 'area_chart',

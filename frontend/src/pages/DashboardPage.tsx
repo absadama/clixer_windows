@@ -541,14 +541,14 @@ export default function DashboardPage() {
             
             // Görselleştirme tipi belirleme
             // 1. PARAMETER tipi metrikler için otomatik parameter_filter
-            // 2. Backend'den gelen widget tipi (type/widgetType)
-            // 3. Metrik görselleştirme tipi
+            // 2. Metrik görselleştirme tipi (pie_chart, line_chart vb.) - ÖNCELİKLİ
+            // 3. Widget tipi
             // 4. Fallback: kpi_card
             const aggregationType = (widget as any).aggregation_type || (widget as any).aggregationType;
             const isParameterMetric = aggregationType === 'PARAMETER';
-            const widgetType = (widget as any).type || (widget as any).widgetType || (widget as any).visualization_type || (widget as any).visualizationType;
             const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
-            const vizType = isParameterMetric ? 'parameter_filter' : (widgetType || metricVizType || 'kpi_card');
+            const widgetType = (widget as any).type || (widget as any).widgetType || (widget as any).visualization_type || (widget as any).visualizationType;
+            const vizType = isParameterMetric ? 'parameter_filter' : (metricVizType || widgetType || 'kpi_card');
             
             // Grafik ve ranking tipleri - mobilde TEK SÜTUN (full-width) olacaklar
             const FULL_WIDTH_TYPES = [
