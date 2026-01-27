@@ -796,16 +796,14 @@ function SidebarContent({
             }
             
             return (
-              <a
+              <button
                 key={item.id}
-                href={getExternalUrl()}
-                target="_blank"
-                rel="noopener noreferrer"
+                type="button"
                 onClick={(e) => {
-                  e.stopPropagation()
-                  // Manuel olarak yeni sekmede aç
-                  window.open(getExternalUrl(), '_blank', 'noopener,noreferrer')
                   e.preventDefault()
+                  e.stopPropagation()
+                  const url = getExternalUrl()
+                  window.open(url, '_blank')
                 }}
                 className={clsx(
                   'flex items-center w-full py-3 text-sm font-bold rounded-xl transition-all duration-200 group relative',
@@ -828,7 +826,7 @@ function SidebarContent({
                     <ExternalLink size={14} className="ml-auto opacity-50" />
                   </>
                 )}
-              </a>
+              </button>
             )
           }
           
