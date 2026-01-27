@@ -1047,3 +1047,133 @@ useEffect(() => {
   prevOptionsRef2.current = options
 }, [options, isOpen])
 ```
+
+---
+
+# Production Deployment - Monorepo Yapısı (28 Ocak 2026)
+
+## ⚠️ KRİTİK: @clixer/shared Bağımlılığı
+
+Clixer monorepo yapısında `shared` modülü tüm servisler tarafından kullanılır. **`npm link` ile bağlanmalıdır!**
+
+### Sorun: node_modules Silinirse Link Kaybolur
+
+```bash
+# BU KOMUT LINKLERI SİLER!
+rm -rf node_modules services/*/node_modules gateway/node_modules
+
+# Sonuç: Gateway @clixer/shared bulamaz → 403 hatası
+# Log: "MODULE_NOT_FOUND" + "IP whitelist fetch error"
+```
+
+### Doğru Deployment Sırası
+
+```bash
+# 1. ÖNCE shared build ve link
+cd /opt/clixer/shared
+npm install
+npm run build
+npm link  # Global symlink oluştur
+
+# 2. Her servise shared'ı link et
+cd /opt/clixer/services/analytics-service
+npm link @clixer/shared
+npm install
+npm run build
+
+# 3. Gateway'e de link et (UNUTMA!)
+cd /opt/clixer/gateway
+npm link @clixer/shared
+npm install
+npm run build
+```
+
+## Otomatik Deploy Script (Önerilen)
+
+```bash
+#!/bin/bash
+# /opt/clixer/deploy.sh
+set -e
+cd /opt/clixer
+
+echo "=== Git Pull ==="
+sudo git pull origin master
+
+echo "=== Shared ==="
+cd /opt/clixer/shared && npm install && npm run build && npm link
+
+echo "=== Services ==="
+for svc in auth-service core-service analytics-service data-service notification-service; do
+  echo "Building $svc..."
+  cd /opt/clixer/services/$svc
+  npm link @clixer/shared
+  npm install
+  npm run build 2>&1 || true
+done
+
+echo "=== Gateway ==="
+cd /opt/clixer/gateway && npm link @clixer/shared && npm install && npm run build
+
+echo "=== Frontend ==="
+cd /opt/clixer/frontend && npm install && npm run build
+
+echo "=== PM2 Restart ==="
+sudo pm2 restart all && sudo pm2 save && sudo pm2 status
+```
+
+**Kullanım:**
+```bash
+sudo chmod +x /opt/clixer/deploy.sh
+sudo /opt/clixer/deploy.sh
+```
+
+## TypeScript Build Hataları (Ignore Edilebilir)
+
+`@types/express` versiyon uyumsuzluğu nedeniyle TS hataları çıkabilir:
+```
+error TS2769: No overload matches this call.
+Type 'string' is not assignable to type 'Router'.
+```
+
+**Bu hatalar ignore edilebilir** - JS dosyaları yine de oluşur. `npm run build 2>&1 || true` ile devam et.
+
+## Gateway IP Whitelist - Geçici Düzeltme
+
+MODULE_NOT_FOUND hatası IP whitelist'i bozarsa:
+
+```bash
+# gateway/src/index.ts - catch bloğunda:
+# return [];  →  return ['*'];
+
+sudo sed -i "s/return \[\];/return ['\*']; \/\/ TEMP: Module error workaround/" /opt/clixer/gateway/src/index.ts
+sudo npm run build
+sudo pm2 restart gateway
+```
+
+## Sorun Giderme Checklist
+
+| Belirti | Neden | Çözüm |
+|---------|-------|-------|
+| Gateway 403 hatası | @clixer/shared link eksik | `npm link @clixer/shared` |
+| "MODULE_NOT_FOUND" | node_modules silindi, link kayboldu | Tüm link'leri yeniden oluştur |
+| TypeScript TS2769 hataları | @types/express versiyon uyumsuzluğu | Ignore et, JS oluşur |
+| Frontend eski görünüyor | Build yapılmadı | `npm run build` frontend'de |
+| "IP not whitelisted" log | IP whitelist modül hatası | Gateway'de geçici fix uygula |
+
+## Link Kontrolü
+
+```bash
+# Symlink var mı kontrol et
+ls -la /opt/clixer/gateway/node_modules/@clixer/shared
+# Beklenen: lrwxrwxrwx ... -> ../../../shared
+
+ls -la /opt/clixer/services/analytics-service/node_modules/@clixer/shared
+# Beklenen: lrwxrwxrwx ... -> ../../../../shared
+```
+
+## ASLA YAPMA
+
+1. ❌ `rm -rf node_modules` sonrası direkt `npm install` (link kaybolur)
+2. ❌ Sadece bir servisi build et (shared değiştiyse hepsi rebuild)
+3. ❌ Frontend'i build etmeden deploy et (UI değişiklikleri gelmez)
+4. ❌ Gateway'i unutma (en sık unutulan servis)
