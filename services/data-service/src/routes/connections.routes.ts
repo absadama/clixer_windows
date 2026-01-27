@@ -41,11 +41,15 @@ router.post('/', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), async (req
       throw new ValidationError('name ve type zorunlu');
     }
     
+    // Şifreyi encrypt et
+    const { encrypt } = require('@clixer/shared');
+    const encryptedPassword = password ? encrypt(password) : null;
+    
     const result = await db.queryOne(
       `INSERT INTO data_connections (tenant_id, name, type, host, port, database_name, username, password_encrypted, api_config, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'inactive')
        RETURNING id, name, type, host, port, database_name, status`,
-      [req.user!.tenantId, name, type, host, port, databaseName, username, password, apiConfig ? JSON.stringify(apiConfig) : null]
+      [req.user!.tenantId, name, type, host, port, databaseName, username, encryptedPassword, apiConfig ? JSON.stringify(apiConfig) : null]
     );
     
     logger.info('Connection created', { connectionId: result.id, user: req.user?.email });
@@ -65,6 +69,10 @@ router.put('/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), async (r
     const { id } = req.params;
     const { name, host, port, databaseName, username, password, apiConfig } = req.body;
     
+    // Şifre varsa encrypt et, yoksa null gönder (COALESCE mevcut değeri korur)
+    const { encrypt } = require('@clixer/shared');
+    const encryptedPassword = password && password.trim() ? encrypt(password) : null;
+    
     const result = await db.queryOne(
       `UPDATE data_connections SET
          name = COALESCE($1, name),
@@ -77,7 +85,7 @@ router.put('/:id', authenticate, authorize(ROLES.ADMIN, ROLES.MANAGER), async (r
          updated_at = NOW()
        WHERE id = $8 AND tenant_id = $9
        RETURNING id, name, type, host, port, database_name, status`,
-      [name, host, port, databaseName, username, password, apiConfig ? JSON.stringify(apiConfig) : null, id, req.user!.tenantId]
+      [name, host, port, databaseName, username, encryptedPassword, apiConfig ? JSON.stringify(apiConfig) : null, id, req.user!.tenantId]
     );
     
     if (!result) {

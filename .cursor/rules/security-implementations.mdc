@@ -116,9 +116,9 @@ router.put('/:code/permissions', authenticate, authorize(ROLES.SUPER_ADMIN), ...
 ```
 
 ### 7. Analytics Endpoints - Authorization
-ClickHouse raw query sadece SUPER_ADMIN:
+ClickHouse raw query ADMIN ve SUPER_ADMIN (metrik önizleme için gerekli):
 ```typescript
-app.post('/clickhouse/query', authenticate, authorize(ROLES.SUPER_ADMIN), ...)
+app.post('/clickhouse/query', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), ...)
 app.get('/clickhouse/tables', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), ...)
 ```
 
@@ -697,4 +697,156 @@ sudo fuser -k 4000/tcp 4001/tcp 4002/tcp 4003/tcp 4004/tcp 4005/tcp 2>/dev/null
 sudo pm2 start all
 sudo pm2 save
 sudo pm2 status
+```
+
+---
+
+# Production Server Güvenlik Kontrolü (26 Ocak 2026)
+
+## ⚠️ KRİTİK: Docker UFW'yi Bypass Eder!
+
+Docker container'lar varsayılan olarak `0.0.0.0` (tüm interface'ler) üzerinde port açar. UFW kuralları Docker'ı ETKİLEMEZ!
+
+### Tehlikeli Durum Tespiti
+
+```bash
+# Bu çıktıda 0.0.0.0:PORT görüyorsan → DIŞARIYA AÇIK!
+sudo ss -tlnp | grep -E "6379|5432|8123|9000"
+
+# Örnek TEHLİKELİ çıktı:
+# LISTEN  0.0.0.0:6379   docker-proxy  ← Redis dışarıya açık!
+# LISTEN  0.0.0.0:5432   docker-proxy  ← PostgreSQL dışarıya açık!
+# LISTEN  0.0.0.0:8123   docker-proxy  ← ClickHouse dışarıya açık!
+```
+
+### Çözüm: iptables DOCKER-USER Chain
+
+UFW yerine `iptables` ile Docker trafiğini filtrele:
+
+```bash
+# 1. Network interface adını bul (eth0, ens33, ens160 vb.)
+ip addr | grep -E "^[0-9]+:"
+
+# 2. Doğru interface ile kuralları ekle (örnek: ens33)
+sudo iptables -I DOCKER-USER -i ens33 -p tcp --dport 6379 -j DROP  # Redis
+sudo iptables -I DOCKER-USER -i ens33 -p tcp --dport 5432 -j DROP  # PostgreSQL
+sudo iptables -I DOCKER-USER -i ens33 -p tcp --dport 8123 -j DROP  # ClickHouse HTTP
+sudo iptables -I DOCKER-USER -i ens33 -p tcp --dport 9000 -j DROP  # ClickHouse Native
+
+# 3. Kuralları kontrol et
+sudo iptables -L DOCKER-USER -n -v
+
+# 4. Kalıcı kaydet (reboot sonrası da geçerli)
+sudo apt install iptables-persistent -y
+sudo netfilter-persistent save
+```
+
+### Doğrulama (Dışarıdan Test)
+
+Kendi bilgisayarından (sunucu dışından) test et:
+
+```powershell
+# PowerShell ile test
+Test-NetConnection -ComputerName SUNUCU_DOMAIN -Port 6379
+Test-NetConnection -ComputerName SUNUCU_DOMAIN -Port 5432
+Test-NetConnection -ComputerName SUNUCU_DOMAIN -Port 8123
+Test-NetConnection -ComputerName SUNUCU_DOMAIN -Port 9000
+
+# Hepsi "TcpTestSucceeded: False" olmalı!
+```
+
+```bash
+# Linux/Mac ile test
+nc -zv SUNUCU_IP 6379
+nc -zv SUNUCU_IP 5432
+# "Connection refused" veya timeout olmalı
+```
+
+## .env Dosyası İzinleri
+
+```bash
+# Sadece owner okuyabilmeli
+sudo chmod 600 /opt/clixer/.env
+sudo chown root:root /opt/clixer/.env  # veya clixer:clixer
+
+# Kontrol
+ls -la /opt/clixer/.env
+# -rw------- olmalı (600)
+```
+
+## Log Dosyalarında Şifre Kontrolü
+
+```bash
+# Şifre/secret log'a yazılmış mı kontrol et
+grep -ri "password\|secret\|key" /opt/clixer/logs/*.log | head -20
+# Boş çıkmalı!
+```
+
+## Production Güvenlik Checklist
+
+| Kontrol | Komut | Beklenen |
+|---------|-------|----------|
+| Redis dışarıya kapalı | `nc -zv DOMAIN 6379` | Connection refused |
+| PostgreSQL dışarıya kapalı | `nc -zv DOMAIN 5432` | Connection refused |
+| ClickHouse dışarıya kapalı | `nc -zv DOMAIN 8123` | Connection refused |
+| .env izinleri | `ls -la /opt/clixer/.env` | `-rw-------` |
+| SSL sertifikası geçerli | `openssl s_client -connect DOMAIN:443` | notAfter > bugün |
+| UFW aktif | `sudo ufw status` | Status: active |
+| iptables kuralları | `sudo iptables -L DOCKER-USER -n -v` | DROP kuralları var |
+
+## Uzun Vadeli Çözüm: docker-compose.yml
+
+Port'ları sadece localhost'a bağla:
+
+```yaml
+# docker/docker-compose.yml
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"  # Sadece localhost
+  
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+  
+  clickhouse:
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+```
+
+Bu değişiklik sonrası `docker-compose down && docker-compose up -d` gerekir.
+
+## Nginx Güvenlik Header'ları
+
+```nginx
+# /etc/nginx/sites-available/clixer
+server {
+    # ... mevcut config ...
+    
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';" always;
+}
+```
+
+## Rate Limiting (Gateway)
+
+Gateway'de rate limiting aktif olmalı:
+
+```typescript
+// gateway/src/index.ts
+import rateLimit from 'express-rate-limit';
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 dakika
+  max: 100, // IP başına max istek
+  message: 'Too many requests'
+});
+
+app.use('/api/auth', rateLimit({ windowMs: 60000, max: 5 })); // Login için daha sıkı
+app.use(limiter);
 ```

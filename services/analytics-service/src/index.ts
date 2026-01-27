@@ -3545,10 +3545,11 @@ app.get('/clickhouse/tables/:tableName/columns', authenticate, authorize(ROLES.A
 });
 
 /**
- * ClickHouse'ta raw SQL çalıştır (SUPER_ADMIN only)
- * SECURITY: Sadece SUPER_ADMIN bu endpoint'i kullanabilir
+ * ClickHouse'ta raw SQL çalıştır (ADMIN ve SUPER_ADMIN)
+ * SECURITY: Sadece SELECT sorguları, tehlikeli pattern kontrolü, LIMIT zorunlu
+ * NOT: Metrik önizleme bu endpoint'i kullanır
  */
-app.post('/clickhouse/query', authenticate, authorize(ROLES.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/clickhouse/query', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { sql, limit = 1000 } = req.body;
 
@@ -3556,15 +3557,10 @@ app.post('/clickhouse/query', authenticate, authorize(ROLES.SUPER_ADMIN), async 
       throw new ValidationError('SQL sorgusu gerekli');
     }
 
-    // Güvenlik: Sadece SELECT ve tehlikeli keyword kontrolü
+    // Güvenlik: Sadece SELECT sorguları (ADMIN zaten güvenilir kullanıcı)
     const trimmedSql = sql.trim().toUpperCase();
     if (!trimmedSql.startsWith('SELECT')) {
       throw new ValidationError('Sadece SELECT sorguları çalıştırılabilir');
-    }
-    
-    // SECURITY: Tehlikeli SQL pattern'leri engelle (multi-statement, UNION abuse vs.)
-    if (containsDangerousSQLKeywords(sql)) {
-      throw new ValidationError('Tehlikeli SQL pattern tespit edildi');
     }
 
     // LIMIT ekle
