@@ -464,19 +464,61 @@ export default function DashboardPage() {
       {/* Dynamic Widgets from Backend - Responsive Grid Layout */}
       {/* Mobil: auto-fit responsive, Tablet: 12 kolon, Desktop: 24 kolon */}
       {sortedWidgets.length > 0 && (
-        <div 
-          className="relative gap-3 sm:gap-4 overflow-hidden"
-          style={isMobile ? {
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)', // Mobilde 2 kolon sabit
-            gap: '12px',
-          } : {
-            display: 'grid',
-            gridTemplateColumns: isTablet ? 'repeat(12, 1fr)' : 'repeat(24, 1fr)',
-            gridAutoRows: '40px',
-            minHeight: '200px',
-          }}
-        >
+        <>
+          {/* MOBİL: Parameter filtreleri grid'den ayrı, üstte flex container */}
+          {isMobile && (() => {
+            const parameterWidgets = sortedWidgets.filter(w => {
+              const aggType = (w as any).aggregation_type || (w as any).aggregationType;
+              const wType = (w as any).type || (w as any).widgetType;
+              return aggType === 'PARAMETER' || wType === 'parameter_filter';
+            });
+            
+            if (parameterWidgets.length === 0) return null;
+            
+            return (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {parameterWidgets.map((widget) => {
+                  const widgetData = widget.data as any;
+                  const chartConfig = (widget as any).chartConfig || (widget as any).chart_config || {};
+                  return (
+                    <ParameterFilterWidget
+                      key={widget.id}
+                      widgetId={widget.id}
+                      metricId={widget.metricId || ''}
+                      title={widget.label || 'Filtre'}
+                      options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
+                      theme={theme}
+                      isDark={isDark}
+                      onSelectionChange={() => {
+                        if (currentDesign) {
+                          fetchDashboardData(currentDesign.id);
+                        }
+                      }}
+                      gridW={widget.w || 4}
+                      gridH={widget.h || 2}
+                      color={widget.color || '#6366F1'}
+                      icon={(widget as any).icon || 'Filter'}
+                      colorMode={chartConfig?.colorMode || 'none'}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })()}
+          
+          <div 
+            className="relative gap-3 sm:gap-4 overflow-hidden"
+            style={isMobile ? {
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)', // Mobilde 2 kolon sabit
+              gap: '12px',
+            } : {
+              display: 'grid',
+              gridTemplateColumns: isTablet ? 'repeat(12, 1fr)' : 'repeat(24, 1fr)',
+              gridAutoRows: '40px',
+              minHeight: '200px',
+            }}
+          >
         
           {/* Widget'ları ORİJİNAL SIRALAMA ile render et (gridY, gridX koordinatına göre sabit sıralama) */}
           {sortedWidgets.map((widget) => {
@@ -546,6 +588,7 @@ export default function DashboardPage() {
             // 4. Fallback: kpi_card
             const aggregationType = (widget as any).aggregation_type || (widget as any).aggregationType;
             const isParameterMetric = aggregationType === 'PARAMETER';
+            const isListType = aggregationType === 'LIST'; // LIST tipi için kompakt layout
             const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
             const widgetType = (widget as any).type || (widget as any).widgetType || (widget as any).visualization_type || (widget as any).visualizationType;
             const vizType = isParameterMetric ? 'parameter_filter' : (metricVizType || widgetType || 'kpi_card');
@@ -578,15 +621,20 @@ export default function DashboardPage() {
             // FilterBar tarzında kompakt görünüm
             // ============================================
             if (vizType === 'parameter_filter' || widgetType === 'parameter_filter') {
+              // MOBİLDE: Parameter filtreleri grid'den ayrı üstte render ediliyor, burada SKIP
+              if (isMobile) {
+                return null;
+              }
+              
               return (
                 <div
                   key={widget.id}
                   data-widget={widget.id}
                   className="relative flex items-start"
                   style={{ 
-                    gridColumn: isMobile ? undefined : `${gridX + 1} / span ${gridW}`,
-                    gridRow: isMobile ? undefined : `${rawY + 1} / span ${gridH}`,
-                    height: isMobile ? '44px' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
+                    gridColumn: `${gridX + 1} / span ${gridW}`,
+                    gridRow: `${rawY + 1} / span ${gridH}`,
+                    height: `${gridH * rowHeight + (gridH - 1) * gap}px`,
                     zIndex: 40, // Dropdown'un diğer widget'ların üstünde görünmesi için
                   }}
                 >
@@ -604,6 +652,9 @@ export default function DashboardPage() {
                     }}
                     gridW={rawW}
                     gridH={rawH}
+                    color={widget.color || '#6366F1'}
+                    icon={(widget as any).icon || 'Filter'}
+                    colorMode={chartConfig?.colorMode || 'none'}
                   />
                 </div>
               );
@@ -614,8 +665,8 @@ export default function DashboardPage() {
                 key={widget.id}
                 data-widget={widget.id}
                 className={clsx(
-                  // Mobilde daha kompakt kartlar (6 kart görünsün)
-                  isMobile ? 'rounded-xl p-3' : 'rounded-[20px] p-5',
+                  // Tüm widget'lar için kompakt padding
+                  isMobile ? 'rounded-xl p-3' : 'rounded-[20px] p-3',
                   'transition-all duration-300 group overflow-hidden flex flex-col',
                   // Renk moduna göre arka plan
                   isFullColorMode 
@@ -662,40 +713,31 @@ export default function DashboardPage() {
                   }),
                 }}
               >
-                {/* Header - İkon + Detay butonu (mobilde kompakt) */}
-                <div className={clsx('flex items-center justify-between', isMobile ? 'mb-2' : 'mb-4')}>
-                  <div 
-                    className={clsx(
-                      'rounded-xl flex items-center justify-center shadow-sm',
-                      isMobile ? 'w-8 h-8' : 'w-11 h-11'
-                    )}
-                    style={{ backgroundColor: bgColor }}
-                  >
-                    <IconComponent className={clsx(isMobile ? 'h-4 w-4' : 'h-5 w-5', 'text-white')} />
+                {/* Header - Tüm widget'lar için kompakt (küçük ikon + başlık yan yana) */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="w-6 h-6 rounded-lg flex items-center justify-center"
+                      style={{ backgroundColor: bgColor }}
+                    >
+                      <IconComponent className="h-3 w-3 text-white" />
+                    </div>
+                    <p className={clsx('text-sm font-medium', isFullColorMode ? 'text-white' : theme.contentText)} title={widget.label}>
+                      {widget.label}
+                    </p>
                   </div>
                   <button 
                     className={clsx(
-                      'rounded-full flex items-center justify-center transition-all',
-                      isMobile ? 'w-6 h-6' : 'w-8 h-8',
+                      'w-6 h-6 rounded-full flex items-center justify-center transition-all opacity-0 group-hover:opacity-100',
                       isDark 
                         ? 'bg-slate-700/50 hover:bg-slate-600 text-slate-400 hover:text-white' 
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700',
-                      'shadow-sm hover:shadow-md'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700'
                     )}
                     title="Detay"
                   >
-                    <ArrowUpRight className={clsx(isMobile ? 'h-3 w-3' : 'h-4 w-4')} />
-                    </button>
+                    <ArrowUpRight className="h-3 w-3" />
+                  </button>
                 </div>
-                
-                {/* Widget Label */}
-                <p className={clsx(
-                  'font-medium uppercase tracking-wide truncate',
-                  isMobile ? 'text-[10px] mb-1' : 'text-sm mb-2',
-                  isFullColorMode ? 'text-white/80' : theme.contentTextMuted
-                )} title={widget.label}>
-                  {widget.label}
-                </p>
                 
                 {/* ============================================ */}
                 {/* GÖRSELLEŞTİRME TİPİNE GÖRE RENDER */}
@@ -714,9 +756,9 @@ export default function DashboardPage() {
                   const progressFillColor = isFullColorMode ? 'rgba(255,255,255,0.9)' : bgColor;
                   
                   return (
-                  <div className="flex-1 flex flex-col justify-center">
+                  <div className="flex flex-col">
                       {/* Ana değer - Mobilde responsive font ve kısaltma */}
-                      <p className={clsx('text-xl sm:text-2xl font-bold mb-3', isFullColorMode ? 'text-white' : theme.contentText)}>
+                      <p className={clsx('text-xl sm:text-2xl font-bold mb-2', isFullColorMode ? 'text-white' : theme.contentText)}>
                         {formatCompactNumber(value, isMobile)}
                       </p>
                       
@@ -764,9 +806,9 @@ export default function DashboardPage() {
                   const gaugeFillColor = isFullColorMode ? 'rgba(255,255,255,0.9)' : bgColor;
                   
                   return (
-                    <div className="flex-1 flex flex-col justify-center">
+                    <div className="flex flex-col">
                       {/* Ana değer - Mobilde responsive font ve kısaltma */}
-                      <p className={clsx('text-xl sm:text-2xl font-bold mb-3', isFullColorMode ? 'text-white' : theme.contentText)}>
+                      <p className={clsx('text-xl sm:text-2xl font-bold mb-2', isFullColorMode ? 'text-white' : theme.contentText)}>
                         {formatCompactNumber(value, isMobile)}
                       </p>
                       
@@ -1282,7 +1324,7 @@ export default function DashboardPage() {
                     : (previousValue > 0 ? ((currentValue - previousValue) / previousValue) * 100 : 0);
                   
                   return (
-                    <div className="flex-1 flex flex-col justify-center min-w-0">
+                    <div className="flex flex-col min-w-0">
                       <div className="flex flex-wrap gap-x-4 gap-y-2">
                         <div className="min-w-0 flex-1">
                           <p className={clsx('text-xs font-medium mb-0.5', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>Güncel</p>
@@ -1429,10 +1471,10 @@ export default function DashboardPage() {
                 
                 {/* KPI CARD / BIG NUMBER / DEFAULT - Tablo verisi yoksa - AnalysisPage ile aynı */}
                 {(vizType === 'kpi_card' || vizType === 'big_number' || !['progress', 'progress_bar', 'gauge', 'sparkline', 'trend', 'trend_card', 'bar_chart', 'line_chart', 'area_chart', 'pie_chart', 'donut_chart', 'comparison', 'data_table', 'ranking_list', 'ranking', 'combo_chart', 'scatter_plot', 'treemap', 'funnel_chart', 'heatmap', 'map_chart', 'parameter_filter'].includes(vizType)) && chartData.length === 0 && (
-                  <div className="flex-1 flex flex-col justify-between min-w-0 overflow-hidden">
+                  <div className="flex-1 flex flex-col justify-center min-w-0 overflow-hidden">
                     {/* Büyük Değer - Mobilde responsive font + compact sayılar */}
                     <p className={clsx(
-                      'font-bold mb-2 truncate',
+                      'font-bold mb-6 truncate',
                       // Mobilde daha küçük font, değer uzunluğuna göre ayarla
                       isMobile ? 'text-lg' : 'text-xl sm:text-2xl',
                       isFullColorMode ? 'text-white' : theme.contentText
@@ -1518,7 +1560,7 @@ export default function DashboardPage() {
                               ? 'bg-slate-800/50 border-slate-700/50' 
                               : 'bg-teal-600/10 border-teal-200/50'
                           )} 
-                          style={{ maxHeight: isMobile ? '240px' : '400px' }}
+                          style={{ maxHeight: isMobile ? '240px' : 'calc(100% - 40px)' }}
                         >
                           <table className="w-full">
                             {/* Başlık - Sidebar rengiyle uyumlu */}
@@ -1673,6 +1715,7 @@ export default function DashboardPage() {
             )
           })}
         </div>
+        </>
       )}
 
       {/* Widget yoksa boş durum mesajı */}

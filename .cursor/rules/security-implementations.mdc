@@ -971,3 +971,79 @@ Adım adım açıklama...
   }
 ]
 ```
+
+---
+
+# PARAMETER Metrik Filtreleme (27 Ocak 2026)
+
+## Problem: Cache Key Collision
+
+PARAMETER tipindeki metrikler (combobox filtreleri) için cache key'de `paramHash` hesaplanırken **base64 substring(0,32)** kullanılıyordu. Bu yetersizdi çünkü:
+
+- `tenantId` JSON'da ilk sırada
+- Farklı `designParameters` değerleri aynı ilk 32 karaktere sahip oluyordu
+- Sonuç: Yanlış cache'den dönüş, filtre uygulanmıyor
+
+### Hatalı Kod
+```typescript
+const paramHash = Object.keys(otherParams).length > 0 
+  ? Buffer.from(JSON.stringify(otherParams)).toString('base64').substring(0, 32)
+  : 'default';
+```
+
+### Düzeltilmiş Kod
+```typescript
+// MD5 hash kullan - base64 substring yetersiz
+const paramHash = Object.keys(otherParams).length > 0 
+  ? crypto.createHash('md5').update(JSON.stringify(otherParams)).digest('hex').substring(0, 16)
+  : 'default';
+```
+
+## Problem: Dataset Mismatch
+
+PARAMETER filtresi TÜM metriklere uygulanıyordu. Farklı dataset kullanan metriklerde hata:
+```
+Unknown expression or table expression identifier 'pozisyonKadroAdiTr'
+```
+
+### Çözüm: Dataset Kontrolü
+```typescript
+// PARAMETER filtresi SADECE aynı dataset'i kullanan metriklere uygulanmalı
+if (paramMetric.dataset_id !== metric.dataset_id) {
+  logger.debug('Parameter filter skipped - different dataset');
+  continue;
+}
+```
+
+## Kritik Dosyalar
+
+| Dosya | Değişiklik |
+|-------|-----------|
+| `services/analytics-service/src/index.ts` | paramHash MD5, dataset kontrolü |
+| `frontend/src/components/ParameterFilterWidget.tsx` | Dropdown race condition fix |
+
+## ParameterFilterWidget - Dropdown Boşalma Sorunu
+
+Dashboard yenilenirken `options` prop'u geçici olarak boş geliyor ve dropdown içi beyaz kalıyor.
+
+### Çözüm
+```typescript
+// 1. Önceki geçerli options'ı ref ile sakla
+const prevOptionsRef = useRef<string[]>(options)
+useEffect(() => {
+  if (options.length > 0) {
+    prevOptionsRef.current = options
+  }
+}, [options])
+
+// 2. Stable options kullan
+const stableOptions = options.length > 0 ? options : prevOptionsRef.current
+
+// 3. Options değiştiğinde dropdown'u kapat
+useEffect(() => {
+  if (isOpen && prevOptionsRef2.current !== options) {
+    setIsOpen(false)
+  }
+  prevOptionsRef2.current = options
+}, [options, isOpen])
+```

@@ -23,6 +23,12 @@ export interface DesignWidget {
   label: string
   metricId?: string
   metricName?: string
+  color?: string
+  icon?: string
+  chartConfig?: {
+    colorMode?: 'none' | 'accent' | 'full'
+    [key: string]: any
+  }
 }
 
 export interface Design {

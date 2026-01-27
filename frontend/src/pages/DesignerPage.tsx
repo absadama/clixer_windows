@@ -21,6 +21,7 @@ import {
   BarChart3,
   Table,
   TrendingUp,
+  TrendingDown,
   PieChart,
   Activity,
   Target,
@@ -40,7 +41,78 @@ import {
   Database,
   Loader,
   Filter,
+  Hash,
+  DollarSign,
+  ShoppingCart,
+  Users,
+  Store,
+  Package,
+  Percent,
+  AlertCircle,
+  Calendar,
+  RefreshCw,
+  Building2,
+  Briefcase,
+  MapPin,
+  Tag,
+  Box,
+  List,
+  LineChart,
+  ArrowUp,
+  ArrowDown,
+  Minus,
+  Zap,
+  GitCompare,
+  Trophy,
+  Table2,
 } from 'lucide-react'
+
+// Renk paleti - Widget renk seçenekleri
+const colorPalette = [
+  '#6366F1', // Indigo (default)
+  '#3B82F6', // Blue
+  '#10B981', // Emerald
+  '#F59E0B', // Amber
+  '#EF4444', // Red
+  '#8B5CF6', // Violet
+  '#EC4899', // Pink
+  '#06B6D4', // Cyan
+  '#84CC16', // Lime
+  '#F97316', // Orange
+]
+
+// İkon haritası - Widget ikonları
+const designerIconMap: Record<string, React.ComponentType<any>> = {
+  Filter, BarChart3, LineChart, PieChart, TrendingUp, TrendingDown, Hash, Gauge,
+  Target, Table2, Trophy, Activity, GitCompare, Database, Zap,
+  ArrowUp, ArrowDown, Minus, Loader, DollarSign, ShoppingCart, Users,
+  Store, Package, Percent, AlertCircle, Calendar, RefreshCw, Building2,
+  Briefcase, MapPin, Tag, Layers, Settings, Box, Grid3X3, List
+}
+
+// İkon listesi (select için)
+const iconOptions = [
+  { value: 'Filter', label: 'Filtre' },
+  { value: 'Users', label: 'Kullanıcılar' },
+  { value: 'Building2', label: 'Bina' },
+  { value: 'Briefcase', label: 'İş' },
+  { value: 'MapPin', label: 'Konum' },
+  { value: 'Tag', label: 'Etiket' },
+  { value: 'Layers', label: 'Katmanlar' },
+  { value: 'Database', label: 'Veritabanı' },
+  { value: 'Calendar', label: 'Takvim' },
+  { value: 'Store', label: 'Mağaza' },
+  { value: 'Package', label: 'Paket' },
+  { value: 'DollarSign', label: 'Para' },
+  { value: 'ShoppingCart', label: 'Sepet' },
+  { value: 'Target', label: 'Hedef' },
+  { value: 'TrendingUp', label: 'Trend Yukarı' },
+  { value: 'TrendingDown', label: 'Trend Aşağı' },
+  { value: 'BarChart3', label: 'Bar Grafik' },
+  { value: 'PieChart', label: 'Pasta Grafik' },
+  { value: 'Activity', label: 'Aktivite' },
+  { value: 'Percent', label: 'Yüzde' },
+]
 
 // Lazy load MetricsPage
 const MetricsPage = lazy(() => import('./MetricsPage'));
@@ -99,6 +171,12 @@ interface DesignWidget extends GridLayout {
   label: string
   metricId?: string
   metricName?: string
+  color?: string
+  icon?: string
+  chartConfig?: {
+    colorMode?: 'none' | 'accent' | 'full'
+    [key: string]: any
+  }
 }
 
 // Tüm pozisyonlar
@@ -250,7 +328,10 @@ export default function DesignerPage() {
               type: w.type || 'card',
               label: w.label || 'Widget',
               metricId: w.metricId,
-              metricName: w.metricName
+              metricName: w.metricName,
+              color: w.color,
+              icon: w.icon,
+              chartConfig: w.chartConfig
             }))
             
             return {
@@ -324,7 +405,10 @@ export default function DesignerPage() {
             type: w.type,
             label: w.label,
             metricId: w.metricId,
-            metricName: w.metricName
+            metricName: w.metricName,
+            color: w.color,
+            icon: w.icon,
+            chartConfig: w.chartConfig
           }))
         },
         settings: {
@@ -439,7 +523,10 @@ export default function DesignerPage() {
       type: w.type || 'card',
       label: w.label || 'Widget',
       metricId: w.metricId,
-      metricName: w.metricName
+      metricName: w.metricName,
+      color: w.color,
+      icon: w.icon,
+      chartConfig: w.chartConfig
     }))
     
     setWidgets(designWidgets)
@@ -1105,6 +1192,91 @@ export default function DesignerPage() {
                           </div>
                           <div className={clsx('px-3 py-2 rounded-lg text-sm text-center', isDark ? 'bg-slate-800' : 'bg-slate-100')}>
                             <span className={clsx(theme.contentTextMuted)}>H:</span> {selectedWidgetInfo.h}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Stil Seçenekleri - Tüm widget tipleri için */}
+                      <div className={clsx('p-3 rounded-xl mt-3', isDark ? 'bg-indigo-900/20 border border-indigo-500/30' : 'bg-indigo-50 border border-indigo-200')}>
+                        <h4 className={clsx('text-sm font-bold mb-3 flex items-center gap-2', theme.contentText)}>
+                          <Palette size={14} /> Görünüm
+                        </h4>
+                        
+                        {/* Renk Seçimi */}
+                        <div className="mb-3">
+                          <label className={clsx('block text-xs mb-1.5', theme.contentTextMuted)}>Renk</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {colorPalette.map((c) => (
+                              <button
+                                key={c}
+                                onClick={() => {
+                                  setWidgets(prev => prev.map(w => 
+                                    w.i === selectedWidgetInfo.i ? { ...w, color: c } : w
+                                  ))
+                                }}
+                                className={clsx(
+                                  'w-6 h-6 rounded-lg transition-all',
+                                  selectedWidgetInfo.color === c 
+                                    ? 'ring-2 ring-offset-2 ring-indigo-500' 
+                                    : 'hover:scale-110'
+                                )}
+                                style={{ backgroundColor: c }}
+                                title={c}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                        
+                        {/* İkon Seçimi */}
+                        <div className="mb-3">
+                          <label className={clsx('block text-xs mb-1.5', theme.contentTextMuted)}>İkon</label>
+                          <select
+                            value={selectedWidgetInfo.icon || 'Filter'}
+                            onChange={(e) => {
+                              setWidgets(prev => prev.map(w => 
+                                w.i === selectedWidgetInfo.i ? { ...w, icon: e.target.value } : w
+                              ))
+                            }}
+                            className={clsx(
+                              'w-full px-3 py-2 rounded-lg text-sm border',
+                              theme.inputBg,
+                              theme.inputText
+                            )}
+                          >
+                            {iconOptions.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        
+                        {/* Kart Renk Modu */}
+                        <div>
+                          <label className={clsx('block text-xs mb-1.5', theme.contentTextMuted)}>Kart Stili</label>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {[
+                              { value: 'none', label: 'Sade' },
+                              { value: 'accent', label: 'Üst Bar' },
+                              { value: 'full', label: 'Tam Renk' },
+                            ].map(mode => (
+                              <button
+                                key={mode.value}
+                                onClick={() => {
+                                  setWidgets(prev => prev.map(w => 
+                                    w.i === selectedWidgetInfo.i 
+                                      ? { ...w, chartConfig: { ...w.chartConfig, colorMode: mode.value as 'none' | 'accent' | 'full' } } 
+                                      : w
+                                  ))
+                                }}
+                                className={clsx(
+                                  'px-2 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                                  (selectedWidgetInfo.chartConfig?.colorMode || 'none') === mode.value
+                                    ? 'bg-indigo-500 text-white border-indigo-500'
+                                    : clsx(theme.buttonSecondary, 'border-transparent')
+                                )}
+                              >
+                                {mode.label}
+                              </button>
+                            ))}
                           </div>
                         </div>
                       </div>

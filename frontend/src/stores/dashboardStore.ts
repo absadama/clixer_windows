@@ -193,6 +193,9 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
           chartConfig: w.chartConfig || {},
           // Include metric data directly in widget
           data: w.data,
+          // Aggregation tipi (LIST, SUM, COUNT, AVG, PARAMETER vb.)
+          aggregation_type: w.aggregation_type || w.aggregationType,
+          aggregationType: w.aggregation_type || w.aggregationType,
           // Metrik görselleştirme tipi (pie_chart, bar_chart, line_chart vb.) - AnalysisPage ile aynı
           metric_visualization_type: w.metric_visualization_type || w.metricVisualizationType,
           metricVisualizationType: w.metric_visualization_type || w.metricVisualizationType,

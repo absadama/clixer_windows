@@ -1312,10 +1312,22 @@ async function executeMetric(
   delete otherParams.storeIds;
   delete otherParams.regionIds;
   delete otherParams.groupIds;
+  // MD5 hash kullan - base64 substring yetersiz çünkü tenantId ilk sırada ve 
+  // farklı designParameters değerleri aynı ilk 32 karaktere sahip olabilir
   const paramHash = Object.keys(otherParams).length > 0 
-    ? Buffer.from(JSON.stringify(otherParams)).toString('base64').substring(0, 32)
+    ? crypto.createHash('md5').update(JSON.stringify(otherParams)).digest('hex').substring(0, 16)
     : 'default';
   const cacheKey = `metric:${metricId}:${rlsHash}:${dateHash}:${storeHash}:${regionHash}:${groupHash}:${paramHash}`;
+
+  // DEBUG: Cache key ve paramHash kontrolü
+  logger.info('METRIC CACHE DEBUG', {
+    metricId,
+    paramHash,
+    otherParamsKeys: Object.keys(otherParams),
+    hasDesignParameters: !!otherParams.designParameters,
+    designParametersValue: otherParams.designParameters,
+    cacheKey: cacheKey.substring(0, 100)
+  });
 
     // Cache'ten dene
   const cachedResult = await cache.get<MetricResult>(cacheKey);
@@ -1448,6 +1460,70 @@ async function executeMetric(
             }
           }
           logger.debug('SQL Mode: Extra filters applied', { sqlFilters });
+        }
+      }
+    }
+    
+    // ============================================
+    // SQL Mode: PARAMETER FİLTRELEME (Dinamik Kategori Filtreleri)
+    // ============================================
+    const designParametersSql = parameters.designParameters as Record<string, string> | undefined;
+    if (designParametersSql && Object.keys(designParametersSql).length > 0) {
+      const paramFilters: string[] = [];
+      
+      for (const [paramMetricId, selectedValue] of Object.entries(designParametersSql)) {
+        // ALL değeri veya boş değer seçildiyse filtre uygulama
+        if (!selectedValue || selectedValue === 'ALL' || selectedValue === '') {
+          continue;
+        }
+        
+        // Parametre metriğinin bilgilerini al (db_column)
+        const paramMetric = await db.queryOne<{ db_column: string; dataset_id: string }>(
+          'SELECT db_column, dataset_id FROM metrics WHERE id = $1',
+          [paramMetricId]
+        );
+        
+        if (paramMetric?.db_column) {
+          // PARAMETER filtresi SADECE aynı dataset'i kullanan metriklere uygulanmalı!
+          if (paramMetric.dataset_id !== metric.dataset_id) {
+            logger.debug('SQL Mode: Parameter filter skipped - different dataset', { 
+              paramMetricId, 
+              paramDataset: paramMetric.dataset_id,
+              metricDataset: metric.dataset_id
+            });
+            continue;
+          }
+          
+          const safeColumn = sanitizeColumnName(paramMetric.db_column);
+          const values = selectedValue.split(',').map(v => v.trim()).filter(v => v);
+          
+          if (values.length === 1) {
+            const safeValue = escapeValue(values[0]);
+            paramFilters.push(`${safeColumn} = ${safeValue}`);
+          } else {
+            const safeValues = values.map(v => escapeValue(v)).join(',');
+            paramFilters.push(`${safeColumn} IN (${safeValues})`);
+          }
+          
+          logger.debug('SQL Mode: Parameter filter applied', { 
+            paramMetricId, 
+            column: paramMetric.db_column, 
+            values 
+          });
+        }
+      }
+      
+      if (paramFilters.length > 0) {
+        const paramCondition = paramFilters.join(' AND ');
+        if (sql.toLowerCase().includes('where')) {
+          sql = sql.replace(/where/i, `WHERE ${paramCondition} AND `);
+        } else {
+          const insertPos = sql.search(/\b(GROUP BY|ORDER BY|LIMIT)\b/i);
+          if (insertPos > 0) {
+            sql = sql.substring(0, insertPos) + ` WHERE ${paramCondition} ` + sql.substring(insertPos);
+          } else {
+            sql += ` WHERE ${paramCondition}`;
+          }
         }
       }
     }
@@ -1591,8 +1667,14 @@ async function executeMetric(
       }
     }
     
+    // PARAMETER tipi için tarih/bölge/mağaza/grup filtreleri UYGULANMAZ
+    // Çünkü parametre kendisi bir filtre kriteridir, tüm benzersiz değerler gösterilmeli
+    const skipFiltersForParameter = aggType === 'PARAMETER';
+    
     // "Tüm Zamanlar" seçiliyse tarih filtresi UYGULAMA
-    if (allTime) {
+    if (skipFiltersForParameter) {
+      logger.debug('PARAMETER type - skipping date/region/store/group filters, showing all distinct values');
+    } else if (allTime) {
       logger.debug('All time selected - no date filter applied');
     } else if (startDate && endDate && dateColumn) {
       // YYYY-MM-DD formatı kontrolü
@@ -1612,7 +1694,7 @@ async function executeMetric(
     // regionIds: "1,7,3" formatında gelir (regions.code değerleri)
     // ClickHouse'da MainRegionID Int32 olduğu için direkt kullanılır
     const regionIds = parameters.regionIds as string;
-    if (regionIds && metric.dataset_id) {
+    if (regionIds && metric.dataset_id && !skipFiltersForParameter) {
       // Dataset'ten region_column'u al
       const datasetResult = await db.query('SELECT region_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.region_column) {
@@ -1628,7 +1710,7 @@ async function executeMetric(
     
     // Mağaza filtresi (FilterBar'dan gelen storeIds - UUID formatında)
     const storeIds = parameters.storeIds as string;
-    if (storeIds && metric.dataset_id) {
+    if (storeIds && metric.dataset_id && !skipFiltersForParameter) {
       // Dataset'ten store_column'u al
       const datasetResult = await db.query('SELECT store_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.store_column) {
@@ -1666,7 +1748,7 @@ async function executeMetric(
     // groupIds: "FR,MERKEZ,TDUN" formatında gelir (BranchType değerleri)
     // ClickHouse'da BranchType String olduğu için tırnaklı kullanılır
     const groupIds = parameters.groupIds as string;
-    if (groupIds && metric.dataset_id) {
+    if (groupIds && metric.dataset_id && !skipFiltersForParameter) {
       // Dataset'ten group_column'u al (BranchType için)
       const datasetResult = await db.query('SELECT group_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.group_column) {
@@ -1683,7 +1765,7 @@ async function executeMetric(
     
     // Eski storeType parametresi için geriye uyumluluk (tek seçim)
     const storeType = parameters.storeType as string;
-    if (storeType && storeType !== 'ALL' && !groupIds && metric.dataset_id) {
+    if (storeType && storeType !== 'ALL' && !groupIds && metric.dataset_id && !skipFiltersForParameter) {
       // Dataset'ten group_column'u al (sahiplik grubu)
       const datasetResult = await db.query('SELECT group_column FROM datasets WHERE id = $1', [metric.dataset_id]);
       if (datasetResult.rows[0]?.group_column) {
@@ -1714,6 +1796,17 @@ async function executeMetric(
         );
         
         if (paramMetric?.db_column) {
+          // PARAMETER filtresi SADECE aynı dataset'i kullanan metriklere uygulanmalı!
+          // Farklı dataset'lerde bu kolon olmayabilir ve SQL hatası verir
+          if (paramMetric.dataset_id !== metric.dataset_id) {
+            logger.debug('Parameter filter skipped - different dataset', { 
+              paramMetricId, 
+              paramDataset: paramMetric.dataset_id,
+              metricDataset: metric.dataset_id
+            });
+            continue;
+          }
+          
           const safeColumn = sanitizeColumnName(paramMetric.db_column);
           
           // Multi-select kontrolü: virgülle ayrılmış değerler mi?
@@ -1721,11 +1814,13 @@ async function executeMetric(
           
           if (values.length === 1) {
             // Tek değer - = kullan
+            // escapeValue zaten tırnak ekliyor, tekrar ekleme!
             const safeValue = escapeValue(values[0]);
-            whereConditions.push(`${safeColumn} = '${safeValue}'`);
+            whereConditions.push(`${safeColumn} = ${safeValue}`);
           } else {
             // Çoklu değer - IN clause kullan
-            const safeValues = values.map(v => `'${escapeValue(v)}'`).join(',');
+            // escapeValue zaten tırnak ekliyor, tekrar ekleme!
+            const safeValues = values.map(v => escapeValue(v)).join(',');
             whereConditions.push(`${safeColumn} IN (${safeValues})`);
           }
           
@@ -3274,7 +3369,9 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
       storeIds: parameters.storeIds ? `${parameters.storeIds.split(',').length} adet` : '(empty)',
       startDate: parameters.startDate,
       endDate: parameters.endDate,
-      bodyKeys: Object.keys(req.body || {})
+      bodyKeys: Object.keys(req.body || {}),
+      // DEBUG: designParameters içeriğini göster
+      designParameters: parameters.designParameters ? JSON.stringify(parameters.designParameters) : '(empty)'
     });
     
     // Cross-Filter parse
@@ -3296,7 +3393,6 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
     const cacheKey = `dashboard:full:${designId}:${req.user!.tenantId}:${userFilterLevel}:${userFilterValue}:${JSON.stringify(parameters)}`;
 
     // DEBUG: Cache key kontrolü
-    // Cache check
     const cachedData = await cache.get(cacheKey);
     if (cachedData) {
       return res.json({ success: true, data: cachedData, cached: true });

@@ -428,6 +428,7 @@ export default function AnalysisPage() {
             label: w.label,
             type: w.type,
             metric_visualization_type: w.metric_visualization_type, // Backend'den gelen gerçek grafik tipi
+            aggregation_type: w.aggregation_type || w.aggregationType, // LIST, SUM, COUNT, etc.
             metricId: w.metricId,
             metricName: w.metricName,
             x: w.gridPosition?.x ?? w.x ?? 0,
@@ -520,20 +521,66 @@ export default function AnalysisPage() {
         {/* Mobil: 2 kolon flex/grid, Tablet: 12 kolon, Desktop: 24 kolon */}
         {/* Tek widget varsa mobilde full-width ve tam yükseklik */}
         {!loadingDesign && designWidgets.length > 0 && (
-          <div 
-            className="relative gap-2 sm:gap-3 lg:gap-4 overflow-hidden"
-            style={isMobile ? {
-              display: 'grid',
-              // Tek widget varsa tek sütun, yoksa 2 sütun
-              gridTemplateColumns: designWidgets.length === 1 ? '1fr' : 'repeat(2, 1fr)',
-              gap: '8px',
-            } : {
-              display: 'grid',
-              gridTemplateColumns: isTablet ? 'repeat(12, 1fr)' : 'repeat(24, 1fr)',
-              gridAutoRows: '40px',
-              minHeight: '200px',
-            }}
-          >
+          <>
+            {/* MOBİL: Parameter filtreleri grid'den ayrı, üstte flex container */}
+            {isMobile && (() => {
+              const parameterWidgets = designWidgets.filter(w => {
+                const aggType = (w as any).aggregation_type || (w as any).aggregationType;
+                const wType = (w as any).type || (w as any).widgetType;
+                return aggType === 'PARAMETER' || wType === 'parameter_filter';
+              });
+              
+              if (parameterWidgets.length === 0) return null;
+              
+              return (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {parameterWidgets.map((widget) => {
+                    const widgetData = widget.data as any;
+                    const chartConfig = (widget as any).chartConfig || (widget as any).chart_config || {};
+                    return (
+                      <ParameterFilterWidget
+                        key={widget.id}
+                        widgetId={widget.id}
+                        metricId={widget.metricId || ''}
+                        title={widget.label || 'Filtre'}
+                        options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
+                        theme={theme}
+                        isDark={isDark}
+                        onSelectionChange={() => {
+                          if (selectedDesign?.id) {
+                            loadDesignDetail(selectedDesign.id);
+                          }
+                        }}
+                        gridW={widget.w || 4}
+                        gridH={widget.h || 2}
+                        color={widget.color || '#6366F1'}
+                        icon={(widget as any).icon || 'Filter'}
+                        colorMode={chartConfig?.colorMode || 'none'}
+                      />
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            
+            <div 
+              className="relative gap-2 sm:gap-3 lg:gap-4 overflow-hidden"
+              style={isMobile ? {
+                display: 'grid',
+                // Tek widget varsa tek sütun, yoksa 2 sütun (parameter'ları saymadan)
+                gridTemplateColumns: designWidgets.filter(w => {
+                  const aggType = (w as any).aggregation_type || (w as any).aggregationType;
+                  const wType = (w as any).type || (w as any).widgetType;
+                  return aggType !== 'PARAMETER' && wType !== 'parameter_filter';
+                }).length === 1 ? '1fr' : 'repeat(2, 1fr)',
+                gap: '8px',
+              } : {
+                display: 'grid',
+                gridTemplateColumns: isTablet ? 'repeat(12, 1fr)' : 'repeat(24, 1fr)',
+                gridAutoRows: '40px',
+                minHeight: '200px',
+              }}
+            >
             {designWidgets.map((widget) => {
               // Grid pozisyonları - 24 kolonlu grid (1-indexed)
               const rawX = widget.x || 0
@@ -612,17 +659,24 @@ export default function AnalysisPage() {
               // ============================================
               const aggregationType = (widget as any).aggregation_type || (widget as any).aggregationType;
               const isParameterMetric = aggregationType === 'PARAMETER';
+              const isListType = aggregationType === 'LIST'; // LIST tipi için kompakt layout
               const paramWidgetType = (widget as any).type || (widget as any).widgetType;
               
+              
               if (isParameterMetric || paramWidgetType === 'parameter_filter') {
+                // MOBİLDE: Parameter filtreleri grid'den ayrı üstte render ediliyor, burada SKIP
+                if (isMobile) {
+                  return null;
+                }
+                
                 return (
                   <div
                     key={widget.id}
                     className="relative flex items-start"
                     style={{ 
-                      gridColumn: isMobile ? undefined : `${gridX + 1} / span ${gridW}`,
-                      gridRow: isMobile ? undefined : `${rawY + 1} / span ${gridH}`,
-                      height: isMobile ? '44px' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
+                      gridColumn: `${gridX + 1} / span ${gridW}`,
+                      gridRow: `${rawY + 1} / span ${gridH}`,
+                      height: `${gridH * rowHeight + (gridH - 1) * gap}px`,
                       zIndex: 40, // Dropdown'un diğer widget'ların üstünde görünmesi için
                     }}
                   >
@@ -640,6 +694,9 @@ export default function AnalysisPage() {
                       }}
                       gridW={rawW}
                       gridH={rawH}
+                      color={widget.color || '#6366F1'}
+                      icon={(widget as any).icon || 'Filter'}
+                      colorMode={chartConfig?.colorMode || 'none'}
                     />
                   </div>
                 );
@@ -649,7 +706,9 @@ export default function AnalysisPage() {
                 <div
                   key={widget.id}
                   className={clsx(
-                    'rounded-[20px] p-5 transition-all duration-300 group overflow-hidden flex flex-col',
+                    'rounded-[20px] transition-all duration-300 group overflow-hidden flex flex-col',
+                    // Tüm widget'lar için kompakt padding
+                    'p-3',
                     // Renk moduna göre arka plan
                     isFullColorMode 
                       ? '' // Full renk modu - style'da uygulanacak
@@ -692,39 +751,37 @@ export default function AnalysisPage() {
                     }),
                   }}
                 >
-                  {/* Header - Demo kartları gibi */}
-                  <div className="flex items-center justify-between mb-4">
-                    {(() => {
-                      // Widget'ın ikonunu al (metrik veya widget'tan)
-                      const widgetIcon = widget.icon || (widget as any).metricIcon || 'BarChart3';
-                      const IconComponent = iconMap[widgetIcon] || BarChart3;
-                      return (
-                        <div 
-                          className="w-11 h-11 rounded-xl flex items-center justify-center shadow-sm"
-                      style={{ backgroundColor: widgetColor }}
-                    >
-                          <IconComponent className="h-5 w-5 text-white" />
+                  {/* Header - Tüm widget'lar için kompakt (küçük ikon + başlık yan yana) */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {(() => {
+                        const widgetIcon = widget.icon || (widget as any).metricIcon || 'BarChart3';
+                        const IconComponent = iconMap[widgetIcon] || BarChart3;
+                        return (
+                          <div 
+                            className="w-6 h-6 rounded-lg flex items-center justify-center"
+                            style={{ backgroundColor: widgetColor }}
+                          >
+                            <IconComponent className="h-3 w-3 text-white" />
+                          </div>
+                        );
+                      })()}
+                      <p className={clsx('text-sm font-medium', isFullColorMode ? 'text-white' : theme.contentText)} title={widget.label}>
+                        {widget.label}
+                      </p>
                     </div>
-                      );
-                    })()}
                     <button 
                       className={clsx(
-                        'w-8 h-8 rounded-full flex items-center justify-center transition-all',
+                        'w-6 h-6 rounded-full flex items-center justify-center transition-all opacity-0 group-hover:opacity-100',
                         isDark 
                           ? 'bg-slate-700/50 hover:bg-slate-600 text-slate-400 hover:text-white' 
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700',
-                        'shadow-sm hover:shadow-md'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700'
                       )}
                       title="Detay"
                     >
-                      <ArrowUpRight className="h-4 w-4" />
+                      <ArrowUpRight className="h-3 w-3" />
                     </button>
                   </div>
-                  
-                  {/* Widget Label - Demo gibi küçük ve muted */}
-                  <p className={clsx('text-sm mb-1', isFullColorMode ? 'text-white/80' : theme.contentTextMuted)} title={widget.label}>
-                    {widget.label}
-                  </p>
                   
                   {/* ============================================ */}
                   {/* GÖRSELLEŞTİRME TİPİNE GÖRE CHART RENDER */}
@@ -1207,9 +1264,9 @@ export default function AnalysisPage() {
                       const percent = targetObj?.progress ?? Math.min(100, Math.max(0, (value / target) * 100));
                       
                       return (
-                        <div className="flex-1 flex flex-col justify-center">
+                        <div className="flex flex-col">
                           {/* Ana değer - Diğer kartlarla tutarlı */}
-                          <p className={clsx('text-2xl font-bold mb-3', theme.contentText)}>
+                          <p className={clsx('text-2xl font-bold mb-2', theme.contentText)}>
                             {value.toLocaleString('tr-TR')}
                           </p>
                           
@@ -1261,9 +1318,9 @@ export default function AnalysisPage() {
                       const emptyColor = isDark ? '#475569' : '#cbd5e1';
                       
                       return (
-                        <div className="flex-1 flex flex-col justify-center">
+                        <div className="flex flex-col">
                           {/* Ana değer - Diğer kartlarla tutarlı */}
-                          <p className={clsx('text-2xl font-bold mb-3', isFullColorMode ? 'text-white' : theme.contentText)}>
+                          <p className={clsx('text-2xl font-bold mb-2', isFullColorMode ? 'text-white' : theme.contentText)}>
                             {value.toLocaleString('tr-TR')}
                           </p>
                           
@@ -1448,7 +1505,7 @@ export default function AnalysisPage() {
                       };
                       
                       return (
-                        <div className="flex-1 flex flex-col justify-center min-w-0">
+                        <div className="flex flex-col min-w-0">
                           <div className="flex flex-wrap gap-x-4 gap-y-2">
                             <div className="min-w-0 flex-1">
                               <p className={clsx('text-xs font-medium mb-0.5', isFullColorMode ? 'text-white/90' : theme.contentTextMuted)}>Güncel</p>
@@ -1677,7 +1734,7 @@ export default function AnalysisPage() {
                                 ? 'bg-slate-800/50 border-slate-700/50' 
                                 : 'bg-teal-600/10 border-teal-200/50'
                             )} 
-                            style={{ maxHeight: isMobile ? '240px' : '400px' }}
+                            style={{ maxHeight: isMobile ? '240px' : 'calc(100% - 40px)' }}
                           >
                             <table className="w-full">
                               {/* Başlık - Sidebar rengiyle uyumlu */}
@@ -1853,9 +1910,9 @@ export default function AnalysisPage() {
                     }
                     
                     return (
-                    <div className="flex-1 flex flex-col justify-between min-w-0 overflow-hidden">
+                    <div className="flex-1 flex flex-col justify-center min-w-0 overflow-hidden">
                       {/* Büyük Değer */}
-                      <p className={clsx('text-2xl font-bold mb-2', isFullColorMode ? 'text-white' : theme.contentText)} 
+                      <p className={clsx('text-2xl font-bold mb-6', isFullColorMode ? 'text-white' : theme.contentText)} 
                          title={widget.data?.formatted || widget.data?.value?.toString()}>
                         {widget.data?.formatted || 
                          (typeof widget.data?.value === 'number' 
@@ -1898,6 +1955,7 @@ export default function AnalysisPage() {
               )
             })}
           </div>
+          </>
         )}
 
         {/* Widget yoksa */}
