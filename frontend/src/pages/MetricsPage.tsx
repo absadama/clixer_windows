@@ -1297,7 +1297,15 @@ const MetricsPage: React.FC<MetricsPageProps> = ({ embedded = false }) => {
                       {aggregationTypes.map(agg => (
                         <button
                           key={agg.value}
-                          onClick={() => setFormData({ ...formData, aggregationType: agg.value })}
+                          onClick={() => {
+                            // PARAMETER tipi seçildiğinde görselleştirme otomatik ayarlanır
+                            const updates: any = { aggregationType: agg.value }
+                            if (agg.value === 'PARAMETER') {
+                              updates.visualizationType = 'kpi_card' // Varsayılan tip, widget'ta parameter_filter olacak
+                              updates.comparisonEnabled = false // Karşılaştırma devre dışı
+                            }
+                            setFormData({ ...formData, ...updates })
+                          }}
                           className={`p-2 rounded-lg text-center transition-colors ${
                             formData.aggregationType === agg.value
                               ? 'bg-blue-600 text-white'

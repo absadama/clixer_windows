@@ -540,7 +540,8 @@ const AGGREGATION_TYPES = [
   { value: 'MAX', label: 'Maksimum', description: 'En büyük değer', icon: 'ArrowUp' },
   { value: 'FIRST', label: 'İlk Değer', description: 'İlk kayıt', icon: 'SkipBack' },
   { value: 'LAST', label: 'Son Değer', description: 'Son kayıt', icon: 'SkipForward' },
-  { value: 'LIST', label: 'Liste', description: 'Tüm değerler (grid)', icon: 'List' }
+  { value: 'LIST', label: 'Liste', description: 'Tüm değerler (grid)', icon: 'List' },
+  { value: 'PARAMETER', label: 'Parametre', description: 'Filtre için benzersiz değerler', icon: 'Filter' }
 ];
 
 const VISUALIZATION_TYPES = [
@@ -1494,6 +1495,10 @@ async function executeMetric(
         // LIST için tüm verileri çek
         aggFunc = column;
         break;
+      case 'PARAMETER':
+        // PARAMETER için DISTINCT değerler
+        aggFunc = `DISTINCT ${column}`;
+        break;
       default:
         aggFunc = `sum(${column})`;
     }
@@ -1542,6 +1547,9 @@ async function executeMetric(
       } else {
         sql = `SELECT ${column} FROM ${tableName}`;
       }
+    } else if (aggType === 'PARAMETER') {
+      // PARAMETER tipi için benzersiz değerleri al (filtre combobox için)
+      sql = `SELECT DISTINCT toString(${column}) as value FROM ${tableName}`;
     } else {
       sql = `SELECT ${aggFunc} as value FROM ${tableName}`;
     }
@@ -1685,6 +1693,40 @@ async function executeMetric(
       }
     }
     
+    // ============================================
+    // PARAMETER FİLTRELEME (Dinamik Kategori Filtreleri)
+    // ============================================
+    // parameters.designParameters: { metricId1: "değer1", metricId2: "değer2" }
+    // Her parametre metriğinin db_column'u WHERE koşuluna eklenir
+    const designParameters = parameters.designParameters as Record<string, string> | undefined;
+    if (designParameters && Object.keys(designParameters).length > 0) {
+      for (const [paramMetricId, selectedValue] of Object.entries(designParameters)) {
+        // ALL değeri veya boş değer seçildiyse filtre uygulama
+        if (!selectedValue || selectedValue === 'ALL' || selectedValue === '') {
+          continue;
+        }
+        
+        // Parametre metriğinin bilgilerini al (db_column)
+        const paramMetric = await db.queryOne<{ db_column: string; dataset_id: string }>(
+          'SELECT db_column, dataset_id FROM metrics WHERE id = $1',
+          [paramMetricId]
+        );
+        
+        if (paramMetric?.db_column) {
+          // Değeri escape et ve WHERE koşuluna ekle
+          const safeColumn = sanitizeColumnName(paramMetric.db_column);
+          const safeValue = escapeValue(selectedValue);
+          whereConditions.push(`${safeColumn} = '${safeValue}'`);
+          
+          logger.debug('Parameter filter applied', { 
+            paramMetricId, 
+            column: paramMetric.db_column, 
+            value: selectedValue 
+          });
+        }
+      }
+    }
+    
     if (metric.filter_sql) {
       let filterSql = metric.filter_sql;
       // Parametreleri yerleştir
@@ -1705,7 +1747,10 @@ async function executeMetric(
     }
 
     // ORDER BY
-    if (metric.order_by_column) {
+    if (aggType === 'PARAMETER') {
+      // PARAMETER için alfabetik sıralama
+      sql += ` ORDER BY value ASC`;
+    } else if (metric.order_by_column) {
       sql += ` ORDER BY ${metric.order_by_column} ${metric.order_direction || 'DESC'}`;
     } else if (metric.group_by_column) {
       // Çoklu kolon modunda ilk değer kolonuna göre sırala, aksi halde 'value' kullan
@@ -1716,7 +1761,10 @@ async function executeMetric(
     // LIMIT (grafik ve listeler için) - chart_config.limit varsa kullan
     // limit: 0 = "Limitsiz" seçilmiş demek (0 falsy olduğu için || 100 hatalıydı!)
     // limit > 0 = Kullanıcı belirli bir limit seçmiş (5, 10, 20, 50, 100)
-    if (aggType === 'LIST' || metric.group_by_column) {
+    if (aggType === 'PARAMETER') {
+      // PARAMETER için max 1000 değer (filtre dropdown için yeterli)
+      sql += ` LIMIT 1000`;
+    } else if (aggType === 'LIST' || metric.group_by_column) {
       const configLimit = chartConfigParsed?.limit > 0 ? chartConfigParsed.limit : 10000;
       sql += ` LIMIT ${configLimit}`;
     }
@@ -1787,8 +1835,19 @@ async function executeMetric(
 
   if (queryResult.length > 0) {
     const aggType = metric.aggregation_type || 'SUM';
+    
+    // PARAMETER tipi için özel format - filtre combobox değerleri
+    if (aggType === 'PARAMETER') {
+      // Benzersiz değerleri düz dizi olarak döndür
+      const parameterValues = queryResult.map((row: any) => row.value).filter((v: any) => v != null && v !== '');
+      value = parameterValues;
+      metadata.type = 'parameter';
+      metadata.column = metric.db_column;
+      metadata.count = parameterValues.length;
+      metadata.data = parameterValues.map((v: string) => ({ value: v, label: v }));
+    }
     // SQL modu veya LIST tipi veya GROUP BY varsa tüm satırları döndür
-    if (isSqlMode || aggType === 'LIST' || metric.group_by_column) {
+    else if (isSqlMode || aggType === 'LIST' || metric.group_by_column) {
       // Tüm satırları döndür (tablo formatı için)
       value = queryResult;
       metadata.rowCount = queryResult.length;

@@ -186,7 +186,8 @@ export const AGGREGATION_TYPES = [
   { value: 'min', label: 'Minimum (MIN)' },
   { value: 'max', label: 'Maksimum (MAX)' },
   { value: 'uniq', label: 'Benzersiz (UNIQ)' },
-  { value: 'uniqExact', label: 'Benzersiz Kesin (UNIQEXACT)' }
+  { value: 'uniqExact', label: 'Benzersiz Kesin (UNIQEXACT)' },
+  { value: 'parameter', label: 'Parametre (PARAMETER)' }
 ];
 
 export const VISUALIZATION_TYPES = [

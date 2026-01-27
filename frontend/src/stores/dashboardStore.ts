@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import api from '../services/api'
 import { useFilterStore } from './filterStore'
+import { useParameterStore } from './parameterStore'
 
 interface Widget {
   id: string
@@ -162,6 +163,13 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       
       if (selectedStoreIds.length > 0 && !allStoresSelected) {
         requestBody.storeIds = selectedStoreIds.join(',')
+      }
+      
+      // Parametre filtreleri (dinamik kategori filtreleri)
+      // useParameterStore'dan seçili değerleri al
+      const designParameters = useParameterStore.getState().getParametersForRequest()
+      if (Object.keys(designParameters).length > 0) {
+        requestBody.designParameters = designParameters
       }
       
       // POST kullan (URL limit aşımını önlemek için)

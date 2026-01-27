@@ -1,9 +1,11 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useDashboardStore } from '../stores/dashboardStore'
 import { useAuthStore } from '../stores/authStore'
 import { useFilterStore } from '../stores/filterStore'
+import { useParameterStore } from '../stores/parameterStore'
 import { useTheme } from '../components/Layout'
 import FilterBar from '../components/FilterBar'
+import { ParameterFilterWidget } from '../components/ParameterFilterWidget'
 import { MapErrorBoundary } from '../components/MapErrorBoundary'
 import { 
   LayoutDashboard, 
@@ -657,6 +659,27 @@ export default function DashboardPage() {
                 {/* ============================================ */}
                 {/* GÖRSELLEŞTİRME TİPİNE GÖRE RENDER */}
                 {/* ============================================ */}
+                
+                {/* PARAMETER FILTER (Dinamik Kategori Filtresi) */}
+                {(vizType === 'parameter_filter' || widgetType === 'parameter_filter') && (
+                  <div className="flex-1 -mx-3 -mb-3">
+                    <ParameterFilterWidget
+                      widgetId={widget.id}
+                      metricId={widget.metricId || ''}
+                      title={widget.label || 'Filtre'}
+                      options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
+                      theme={theme}
+                      onSelectionChange={() => {
+                        // Dashboard'u yenile
+                        if (currentDesign) {
+                          fetchDashboardData(currentDesign.id)
+                        }
+                      }}
+                      gridW={rawW}
+                      gridH={rawH}
+                    />
+                  </div>
+                )}
                 
                 {/* PROGRESS BAR (İlerleme Çubuğu) - AnalysisPage ile aynı */}
                 {(vizType === 'progress' || vizType === 'progress_bar') && (() => {
@@ -1385,7 +1408,7 @@ export default function DashboardPage() {
                 })()}
                 
                 {/* KPI CARD / BIG NUMBER / DEFAULT - Tablo verisi yoksa - AnalysisPage ile aynı */}
-                {(vizType === 'kpi_card' || vizType === 'big_number' || !['progress', 'progress_bar', 'gauge', 'sparkline', 'trend', 'trend_card', 'bar_chart', 'line_chart', 'area_chart', 'pie_chart', 'donut_chart', 'comparison', 'data_table', 'ranking_list', 'ranking', 'combo_chart', 'scatter_plot', 'treemap', 'funnel_chart', 'heatmap', 'map_chart'].includes(vizType)) && chartData.length === 0 && (
+                {(vizType === 'kpi_card' || vizType === 'big_number' || !['progress', 'progress_bar', 'gauge', 'sparkline', 'trend', 'trend_card', 'bar_chart', 'line_chart', 'area_chart', 'pie_chart', 'donut_chart', 'comparison', 'data_table', 'ranking_list', 'ranking', 'combo_chart', 'scatter_plot', 'treemap', 'funnel_chart', 'heatmap', 'map_chart', 'parameter_filter'].includes(vizType)) && chartData.length === 0 && (
                   <div className="flex-1 flex flex-col justify-between min-w-0 overflow-hidden">
                     {/* Büyük Değer - Mobilde responsive font + compact sayılar */}
                     <p className={clsx(

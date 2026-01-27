@@ -39,6 +39,7 @@ import {
   Layers,
   Database,
   Loader,
+  Filter,
 } from 'lucide-react'
 
 // Lazy load MetricsPage
@@ -87,6 +88,7 @@ const WIDGET_TYPES = [
   { id: 'pulse_widget', name: 'Pulse Widget', icon: Activity, defaultW: 16, defaultH: 6, minW: 10, minH: 4, description: 'Canlı aktivite' },
   { id: 'gamification_widget', name: 'Gamification', icon: Target, defaultW: 8, defaultH: 6, minW: 6, minH: 4, description: 'Başarı & rozetler' },
   { id: 'product_flow_widget', name: 'Ürün Akışı', icon: Database, defaultW: 8, defaultH: 6, minW: 6, minH: 4, description: 'Ürün hareketleri' },
+  { id: 'parameter_filter', name: 'Parametre Filtresi', icon: Filter, defaultW: 4, defaultH: 2, minW: 3, minH: 2, description: 'Dinamik kategori filtresi' },
 ]
 
 // Demo tasarımlar KALDIRILDI - Artık sadece API'den gelen gerçek tasarımlar kullanılıyor

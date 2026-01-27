@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTheme } from '../components/Layout'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 import { useAuthStore } from '../stores/authStore'
 import { useFilterStore } from '../stores/filterStore'
+import { useParameterStore } from '../stores/parameterStore'
 import FilterBar from '../components/FilterBar'
+import { ParameterFilterWidget } from '../components/ParameterFilterWidget'
 import { 
   PieChart as PieChartIcon, 
   ArrowRight, 
@@ -391,6 +393,12 @@ export default function AnalysisPage() {
       // Cross-Filter parametreleri
       if (crossFilters.length > 0) {
         requestBody.crossFilters = JSON.stringify(crossFilters)
+      }
+      
+      // Parametre filtreleri (dinamik kategori filtreleri)
+      const designParameters = useParameterStore.getState().getParametersForRequest()
+      if (Object.keys(designParameters).length > 0) {
+        requestBody.designParameters = designParameters
       }
       
       // POST kullan (URL limit aşımını önlemek için)
@@ -1146,6 +1154,29 @@ export default function AnalysisPage() {
                               </React.Fragment>
                             ))}
                           </div>
+                        </div>
+                      );
+                    }
+                    
+                    // PARAMETER FILTER (Dinamik Kategori Filtresi)
+                    if (vizType === 'parameter_filter' || widgetType === 'parameter_filter') {
+                      return (
+                        <div className="flex-1 -mx-4 -mb-4">
+                          <ParameterFilterWidget
+                            widgetId={widget.id}
+                            metricId={widget.metricId || ''}
+                            title={widget.label || 'Filtre'}
+                            options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
+                            theme={theme}
+                            onSelectionChange={() => {
+                              // Analysis sayfasını yenile
+                              if (selectedDesign?.id) {
+                                loadDesignDetail(selectedDesign.id);
+                              }
+                            }}
+                            gridW={widget.w || 4}
+                            gridH={widget.h || 2}
+                          />
                         </div>
                       );
                     }
