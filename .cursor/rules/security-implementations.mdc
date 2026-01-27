@@ -850,3 +850,122 @@ const limiter = rateLimit({
 app.use('/api/auth', rateLimit({ windowMs: 60000, max: 5 })); // Login için daha sıkı
 app.use(limiter);
 ```
+
+---
+
+# Clixer Wiki / Eğitim Merkezi (27 Ocak 2026)
+
+## Genel Bilgi
+
+Clixer Wiki, kullanıcılara uygulamanın nasıl kullanılacağını anlatan bağımsız bir dokümantasyon sitesidir.
+
+- **Konum:** `/wiki` klasörü (ana repo içinde)
+- **Teknoloji:** React 19 + Vite 6 + TypeScript + TailwindCSS + FlexSearch
+- **Port:** Development: 3001, Production: `docs.{domain}` subdomain
+- **Dil Desteği:** Türkçe ve İngilizce
+
+## Sidebar Entegrasyonu
+
+"Eğitim Merkezi" linki sidebar'da sadece **ADMIN rolüne** sahip kullanıcılara görünür.
+
+```typescript
+// frontend/src/components/Layout.tsx - menuItemsBase
+{ id: 'education', key: 'education', href: 'education', icon: GraduationCap, badge: null, isExternal: true, adminOnly: true }
+```
+
+Dinamik URL mantığı:
+- Localhost: `http://localhost:3001`
+- Production: `https://docs.{hostname}` (örn: `docs.dinamo.tavukdunyasi.com`)
+
+## Production Deploy
+
+### 1. Wiki Build
+```bash
+cd /opt/clixer/wiki
+npm install
+npm run build
+```
+
+### 2. Nginx Konfigürasyonu
+```nginx
+server {
+    listen 80;
+    server_name docs.dinamo.tavukdunyasi.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name docs.dinamo.tavukdunyasi.com;
+
+    ssl_certificate /etc/letsencrypt/live/docs.dinamo.tavukdunyasi.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/docs.dinamo.tavukdunyasi.com/privkey.pem;
+
+    root /opt/clixer/wiki/dist;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}
+```
+
+### 3. SSL Sertifikası
+```bash
+sudo certbot --nginx -d docs.dinamo.tavukdunyasi.com
+```
+
+### 4. DNS Kaydı
+```
+docs.dinamo    A    <sunucu-ip>
+```
+
+## İçerik Yapısı
+
+| Kategori | Makale Sayısı | Açıklama |
+|----------|---------------|----------|
+| Başlangıç | 5 | Clixer nedir, ilk giriş, temel kavramlar |
+| Tasarım Stüdyosu | 8 | Widget ekleme, grafik türleri, kaydetme |
+| Metrikler | 14 | SQL modu, kolon seçimi, hesaplama tipleri |
+| Veri Yönetimi | 9 | Bağlantı, dataset, ETL |
+| Yönetim Paneli | 9 | Kullanıcı, RLS, pozisyon yetkileri |
+| İleri Düzey | 8 | 2FA, cache, LDAP, performans |
+
+## Kritik Dosyalar
+
+| Dosya | Sorumluluk |
+|-------|------------|
+| `wiki/src/content/tr/` | Türkçe makaleler |
+| `wiki/src/content/en/` | İngilizce makaleler |
+| `wiki/src/components/Layout.tsx` | Ana layout, dinamik Clixer linki |
+| `wiki/src/utils/searchIndex.ts` | FlexSearch arama |
+| `wiki/nginx.conf` | Production Nginx şablonu |
+
+## Yeni Makale Ekleme
+
+```typescript
+// wiki/src/content/tr/{kategori}/index.ts
+export const articlesTr: Article[] = [
+  {
+    id: 'unique-id',
+    slug: 'makale-url',
+    title: 'Makale Başlığı',
+    excerpt: 'Kısa açıklama',
+    content: `
+## Markdown içerik
+
+Adım adım açıklama...
+    `,
+    category: 'kategori-slug',
+    categoryLabel: 'Kategori Adı',
+    readingTime: '5 dk',
+    lastUpdated: '2026-01-27',
+    tags: ['tag1', 'tag2']
+  }
+]
+```

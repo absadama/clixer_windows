@@ -102,6 +102,7 @@ export function RolesTab({ theme, isDark, positions, getPositionLabel }: RolesTa
     data: 'Veri Yönetimi',
     datagrid: 'DataGrid Demo',
     admin: 'Yönetim Paneli'
+    // education: Eğitim Merkezi - Sadece ADMIN rolü görebilir, pozisyon izni gerekmez
   }
 
   return (

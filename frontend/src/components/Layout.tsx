@@ -30,6 +30,8 @@ import {
   Moon,
   Table2,
   SlidersHorizontal,
+  GraduationCap,
+  ExternalLink,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { UserRole } from '../types'
@@ -51,20 +53,22 @@ const defaultMenuLabels: Record<string, string> = {
   data: 'Veri Baglantilari',
   datagrid: 'DataGrid Demo',
   admin: 'Yonetim Paneli',
-  profile: 'Profilim'
+  profile: 'Profilim',
+  education: 'Egitim Merkezi'
 }
 
 // Menü öğesi tanımı (name dinamik olacak)
 const menuItemsBase = [
-  { id: 'dashboard', key: 'dashboard', href: '/dashboard', icon: LayoutDashboard, badge: null },
-  { id: 'finance', key: 'finance', href: '/finance', icon: Wallet, badge: 'YENİ' },
-  { id: 'operation', key: 'operations', href: '/operations', icon: ShieldAlert, badge: 'YENİ' },
-  { id: 'analysis', key: 'analysis', href: '/analysis', icon: PieChart, badge: null },
-  { id: 'stores', key: 'stores', href: '/stores', icon: Store, badge: null },
-  { id: 'settings', key: 'designer', href: '/designer', icon: Palette, badge: null },
-  { id: 'data', key: 'data', href: '/data', icon: Database, badge: null },
-  { id: 'datagrid', key: 'datagrid', href: '/datagrid-demo', icon: Table2, badge: 'YENİ' },
-  { id: 'admin', key: 'admin', href: '/admin', icon: Shield, badge: null },
+  { id: 'dashboard', key: 'dashboard', href: '/dashboard', icon: LayoutDashboard, badge: null, isExternal: false, adminOnly: false },
+  { id: 'finance', key: 'finance', href: '/finance', icon: Wallet, badge: 'YENİ', isExternal: false, adminOnly: false },
+  { id: 'operation', key: 'operations', href: '/operations', icon: ShieldAlert, badge: 'YENİ', isExternal: false, adminOnly: false },
+  { id: 'analysis', key: 'analysis', href: '/analysis', icon: PieChart, badge: null, isExternal: false, adminOnly: false },
+  { id: 'stores', key: 'stores', href: '/stores', icon: Store, badge: null, isExternal: false, adminOnly: false },
+  { id: 'settings', key: 'designer', href: '/designer', icon: Palette, badge: null, isExternal: false, adminOnly: false },
+  { id: 'data', key: 'data', href: '/data', icon: Database, badge: null, isExternal: false, adminOnly: false },
+  { id: 'datagrid', key: 'datagrid', href: '/datagrid-demo', icon: Table2, badge: 'YENİ', isExternal: false, adminOnly: false },
+  { id: 'admin', key: 'admin', href: '/admin', icon: Shield, badge: null, isExternal: false, adminOnly: true },
+  { id: 'education', key: 'education', href: 'education', icon: GraduationCap, badge: null, isExternal: true, adminOnly: true },
 ]
 
 // CLIXER TEMA PALETİ
@@ -462,8 +466,8 @@ export default function Layout({ children }: LayoutProps) {
     const userRole = user?.role || UserRole.VIEWER
     
     return allMenuItems.filter(item => {
-      // Admin menüsü sadece ADMIN rolüne açık
-      if (item.id === 'admin' && userRole !== UserRole.ADMIN) return false
+      // adminOnly menüler sadece ADMIN rolüne açık (admin paneli, eğitim merkezi vb.)
+      if (item.adminOnly && userRole !== UserRole.ADMIN) return false
       
       // Menu permission kontrolü - veritabanından gelen izinlere bak
       // Menü key mapping (sidebar id -> database menu_key)
@@ -475,7 +479,8 @@ export default function Layout({ children }: LayoutProps) {
         'stores': 'stores',
         'settings': 'data', // Tasarım Stüdyosu -> data izni
         'data': 'data',
-        'admin': 'admin'
+        'admin': 'admin',
+        'education': 'education'
       }
       
       const menuKey = menuKeyMap[item.id] || item.id
@@ -774,8 +779,49 @@ function SidebarContent({
       {/* Navigation */}
       <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto">
         {menuItems.map((item) => {
-          const isActive = location.pathname === item.href || 
-            (item.href !== '/dashboard' && location.pathname.startsWith(item.href))
+          const isActive = !item.isExternal && (location.pathname === item.href || 
+            (item.href !== '/dashboard' && location.pathname.startsWith(item.href)))
+          
+          // External link (Eğitim Merkezi gibi)
+          if (item.isExternal) {
+            const getExternalUrl = () => {
+              const hostname = window.location.hostname
+              if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                return 'http://localhost:3001'
+              }
+              return `https://docs.${hostname}`
+            }
+            
+            return (
+              <a
+                key={item.id}
+                href={getExternalUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={clsx(
+                  'flex items-center w-full py-3 text-sm font-bold rounded-xl transition-all duration-200 group relative',
+                  theme.sidebarTextMuted,
+                  theme.sidebarHover,
+                  isCollapsed ? 'justify-center px-0' : 'px-4'
+                )}
+                title={isCollapsed ? item.name : undefined}
+              >
+                <item.icon 
+                  size={20} 
+                  className={clsx(
+                    'transition-transform duration-300 shrink-0 group-hover:scale-110',
+                    !isCollapsed && 'mr-3'
+                  )} 
+                />
+                {!isCollapsed && (
+                  <>
+                    <span className={clsx('group-hover:' + theme.sidebarText)}>{item.name}</span>
+                    <ExternalLink size={14} className="ml-auto opacity-50" />
+                  </>
+                )}
+              </a>
+            )
+          }
           
           return (
             <button
@@ -845,6 +891,7 @@ function SidebarContent({
             </>
           )}
         </button>
+
       </nav>
 
       {/* Collapse Button (Desktop Only) */}

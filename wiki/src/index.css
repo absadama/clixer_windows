@@ -1,0 +1,160 @@
+/* Google Fonts - Inter */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+:root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-dark-bg text-gray-100 min-h-screen;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-dark-bg;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-500;
+}
+
+/* Selection */
+::selection {
+  @apply bg-primary-500/30;
+}
+
+/* Focus styles */
+*:focus-visible {
+  @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-dark-bg;
+}
+
+/* Smooth scroll */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Article content styles */
+.article-content {
+  @apply text-gray-300 leading-relaxed;
+}
+
+.article-content h1 {
+  @apply text-3xl font-bold text-white mt-8 mb-4;
+}
+
+.article-content h2 {
+  @apply text-2xl font-semibold text-white mt-8 mb-4 pb-2 border-b border-dark-border;
+}
+
+.article-content h3 {
+  @apply text-xl font-semibold text-white mt-6 mb-3;
+}
+
+.article-content h4 {
+  @apply text-lg font-medium text-white mt-4 mb-2;
+}
+
+.article-content p {
+  @apply mb-4;
+}
+
+.article-content ul {
+  @apply list-disc list-inside mb-4 space-y-2;
+}
+
+.article-content ol {
+  @apply list-decimal list-inside mb-4 space-y-2;
+}
+
+.article-content li {
+  @apply text-gray-300;
+}
+
+.article-content a {
+  @apply text-primary-400 hover:text-primary-300 underline;
+}
+
+.article-content blockquote {
+  @apply border-l-4 border-primary-500 pl-4 py-2 my-4 bg-dark-card rounded-r-lg italic text-gray-400;
+}
+
+.article-content pre {
+  @apply bg-dark-card rounded-xl p-4 my-4 overflow-x-auto;
+}
+
+.article-content code {
+  @apply text-pink-400 bg-dark-card px-2 py-1 rounded text-sm;
+}
+
+.article-content pre code {
+  @apply bg-transparent p-0;
+}
+
+.article-content img {
+  @apply rounded-xl my-6 shadow-lg cursor-pointer hover:opacity-90 transition-opacity;
+}
+
+.article-content table {
+  @apply w-full my-4 border-collapse;
+}
+
+.article-content th {
+  @apply bg-dark-card text-left p-3 font-semibold text-white border-b border-dark-border;
+}
+
+.article-content td {
+  @apply p-3 border-b border-dark-border;
+}
+
+.article-content hr {
+  @apply my-8 border-dark-border;
+}
+
+/* Tip/Warning/Info boxes */
+.tip-box {
+  @apply bg-green-500/10 border border-green-500/30 rounded-xl p-4 my-4;
+}
+
+.warning-box {
+  @apply bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 my-4;
+}
+
+.info-box {
+  @apply bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 my-4;
+}
+
+.danger-box {
+  @apply bg-red-500/10 border border-red-500/30 rounded-xl p-4 my-4;
+}
+
+/* Image caption */
+.image-caption {
+  @apply text-center text-sm text-gray-500 mt-2 italic;
+}
+
+/* Animated gradient background for hero */
+.gradient-bg {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+}
+
+/* Card hover effect */
+.card-hover {
+  @apply transition-all duration-200 hover:scale-[1.02] hover:shadow-xl;
+}
