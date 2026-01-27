@@ -1,0 +1,113 @@
+# Tasarım Stüdyosu ve Widget Sistemi Koruma Kuralları
+
+## KRİTİK: Mevcut Tasarımları Bozmayın!
+
+Clixer'daki **tasarım stüdyosu**, **widget sistemi** ve **görselleştirme mekanizması** kritik ve karmaşık bir yapıdır. Bu dosyalarda değişiklik yaparken **mevcut çalışan işlevselliği korumak** en yüksek önceliktir.
+
+---
+
+## Widget Tipi (vizType) Belirleme Kuralı
+
+### ASLA DEĞİŞTİRMEYİN: Öncelik Sırası
+
+Frontend'de widget görselleştirme tipi belirlenirken şu öncelik sırası **KESİNLİKLE** korunmalıdır:
+
+```typescript
+// DOĞRU - HER ZAMAN BU ŞEKİLDE KALMALI
+const vizType = metricVizType || widgetType || 'kpi_card';
+
+// Veya PARAMETER kontrolü ile:
+const vizType = isParameterMetric 
+  ? 'parameter_filter' 
+  : (metricVizType || widgetType || 'kpi_card');
+```
+
+### NEDEN?
+
+| Değişken | Kaynak | Açıklama |
+|----------|--------|----------|
+| `metricVizType` | Metrik oluşturulurken seçilen görselleştirme tipi | `pie_chart`, `line_chart`, `bar_chart`, `comparison`, `gauge`, `sparkline` vb. |
+| `widgetType` | Tasarım stüdyosunda widget eklenirken seçilen tip | Genellikle genel tipler: `card`, `chart`, `grid` |
+
+**metricVizType ÖNCELİKLİ OLMALIDIR** çünkü kullanıcı metrik oluştururken görselleştirme tipini bilinçli olarak seçer (pie_chart, line_chart vb.). Widget tipi genellikle daha genel bir kategorilendirmedir.
+
+### HATALI ÖRNEK (YAPMAYIN!)
+
+```typescript
+// YANLIŞ! - Bu mevcut grafikleri tabloya çevirir!
+const vizType = widgetType || metricVizType || 'kpi_card';
+```
+
+Bu hata **27 Ocak 2026**'da yapıldı ve tüm pie_chart, line_chart, comparison widget'ları tabloya dönüştü.
+
+---
+
+## Korunan Dosyalar
+
+Aşağıdaki dosyalarda değişiklik yaparken **ekstra dikkatli** olun:
+
+| Dosya | Kritik Bölüm |
+|-------|--------------|
+| `frontend/src/pages/DashboardPage.tsx` | `vizType` belirleme, widget render mantığı |
+| `frontend/src/pages/AnalysisPage.tsx` | `vizType` belirleme, widget render mantığı |
+| `frontend/src/pages/DesignerPage.tsx` | `WIDGET_TYPES`, layout yönetimi |
+| `services/analytics-service/src/index.ts` | `handleDashboardFull`, `executeMetric`, widget tipi dönüşümü |
+
+---
+
+## Yeni Özellik Eklerken Kurallar
+
+### 1. Mevcut Widget Tiplerini Bozmayın
+
+Yeni bir widget tipi eklerken (örn: `parameter_filter`):
+- Mevcut `vizType` belirleme mantığına **EKLEME** yapın
+- **DEĞİŞTİRME** yapmayın
+
+```typescript
+// DOĞRU - Yeni tip için özel kontrol, mevcut mantık korunur
+const vizType = isParameterMetric 
+  ? 'parameter_filter' 
+  : (metricVizType || widgetType || 'kpi_card');
+```
+
+### 2. Test Edin
+
+Değişiklik sonrası şunları kontrol edin:
+- [ ] KPI kartları çalışıyor mu?
+- [ ] Pie/Donut chart'lar görünüyor mu?
+- [ ] Line/Bar/Area chart'lar çalışıyor mu?
+- [ ] Comparison widget'ları çalışıyor mu?
+- [ ] Tablo/Grid widget'ları çalışıyor mu?
+- [ ] Gauge/Sparkline/Progress widget'ları çalışıyor mu?
+
+### 3. Skip/Exclude Listeleri
+
+Yeni widget tipi eklerken, ilgili skip listelerine eklemeyi unutmayın:
+
+```typescript
+// DashboardPage.tsx
+const FULL_WIDTH_TYPES = [..., 'yeni_tip'];
+
+// AnalysisPage.tsx
+const skipTableTypes = [..., 'yeni_tip'];
+const specialTypes = [..., 'yeni_tip'];
+```
+
+---
+
+## Acil Durum Geri Alma
+
+Eğer tasarımlar bozulursa:
+
+```bash
+# Son çalışan commit'e dön
+git log --oneline -10
+git checkout <commit_hash> -- frontend/src/pages/DashboardPage.tsx
+git checkout <commit_hash> -- frontend/src/pages/AnalysisPage.tsx
+```
+
+---
+
+## Özet
+
+> **ALTIN KURAL**: Görselleştirme tipi (vizType) belirlenirken `metricVizType` HER ZAMAN `widgetType`'tan önce gelmelidir. Bu sırayı değiştirmek mevcut tüm grafik ve karşılaştırma widget'larını bozar.
