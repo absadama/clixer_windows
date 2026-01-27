@@ -1,15 +1,16 @@
 /**
  * ParameterFilterWidget
- * Parametre tipindeki metrikleri combobox olarak render eder
+ * Parametre tipindeki metrikleri FilterBar tarzı multi-select dropdown olarak render eder
  * 
- * Kullanım:
- * - Dashboard/Analysis sayfalarında parameter_filter widget tipi için kullanılır
- * - Backend'den gelen DISTINCT değerler combobox'ta gösterilir
- * - Seçim yapıldığında parameterStore güncellenir ve dashboard yenilenir
+ * Özellikler:
+ * - Multi-select (checkbox'larla)
+ * - Arama özelliği
+ * - Tümünü Seç / Temizle butonları
+ * - Uygula butonu ile dashboard yenileme
  */
 
-import React, { useMemo } from 'react'
-import { Filter, ChevronDown, X } from 'lucide-react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
+import { Filter, ChevronDown, Search, X, CheckSquare, Square, Check } from 'lucide-react'
 import clsx from 'clsx'
 import { useParameterStore } from '../stores/parameterStore'
 
@@ -30,12 +31,15 @@ interface ParameterFilterWidgetProps {
     inputBg: string
     inputText: string
     buttonPrimary: string
+    buttonSecondary?: string
   }
   /** Seçim değiştiğinde çağrılacak callback */
   onSelectionChange?: () => void
   /** Widget boyutları (grid) */
   gridW?: number
   gridH?: number
+  /** Dark mode */
+  isDark?: boolean
 }
 
 export const ParameterFilterWidget: React.FC<ParameterFilterWidgetProps> = ({
@@ -46,127 +50,277 @@ export const ParameterFilterWidget: React.FC<ParameterFilterWidgetProps> = ({
   theme,
   onSelectionChange,
   gridW = 4,
-  gridH = 2
+  gridH = 2,
+  isDark = false
 }) => {
   const { selectedValues, setParameterValue } = useParameterStore()
+  const [isOpen, setIsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [localSelected, setLocalSelected] = useState<string[]>([])
+  const dropdownRef = useRef<HTMLDivElement>(null)
   
-  // Mevcut seçili değer
-  const selectedValue = selectedValues[metricId] || 'ALL'
+  // Mevcut seçili değerleri parse et (virgülle ayrılmış string veya array)
+  const currentValue = selectedValues[metricId] || 'ALL'
   
-  // Seçenekleri hazırla (ALL ekle)
-  const selectOptions = useMemo(() => {
-    const opts = [{ value: 'ALL', label: 'Tümü' }]
-    options.forEach(opt => {
-      if (opt && opt !== '') {
-        opts.push({ value: opt, label: opt })
+  // Sayfa yüklendiğinde mevcut seçimleri local state'e aktar
+  useEffect(() => {
+    if (currentValue === 'ALL' || currentValue === '') {
+      setLocalSelected([])
+    } else {
+      // Virgülle ayrılmış string'i array'e çevir
+      const values = currentValue.split(',').filter(v => v.trim())
+      setLocalSelected(values)
+    }
+  }, [currentValue])
+  
+  // Dışarı tıklandığında dropdown'u kapat
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isOpen])
+  
+  // Filtrelenmiş opsiyonlar
+  const filteredOptions = useMemo(() => {
+    if (!searchQuery) return options
+    const query = searchQuery.toLowerCase()
+    return options.filter(opt => opt.toLowerCase().includes(query))
+  }, [options, searchQuery])
+  
+  // Seçim text'i
+  const selectionText = useMemo(() => {
+    if (localSelected.length === 0) return 'Tümü'
+    if (localSelected.length === 1) return localSelected[0]
+    if (localSelected.length === options.length) return 'Tümü'
+    return `${localSelected.length} seçili`
+  }, [localSelected, options.length])
+  
+  // Checkbox toggle
+  const toggleOption = (value: string) => {
+    setLocalSelected(prev => {
+      if (prev.includes(value)) {
+        return prev.filter(v => v !== value)
+      } else {
+        return [...prev, value]
       }
     })
-    return opts
-  }, [options])
+  }
   
-  // Seçim değiştiğinde
-  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newValue = e.target.value
-    setParameterValue(metricId, newValue)
+  // Tümünü Seç
+  const selectAll = () => {
+    setLocalSelected([...options])
+  }
+  
+  // Temizle
+  const clearAll = () => {
+    setLocalSelected([])
+  }
+  
+  // Uygula - Store'u güncelle ve dashboard'u yenile
+  const applyFilter = () => {
+    // Tümü seçili veya hiçbiri seçili değilse ALL olarak işaretle
+    if (localSelected.length === 0 || localSelected.length === options.length) {
+      setParameterValue(metricId, 'ALL')
+    } else {
+      // Virgülle ayrılmış string olarak kaydet
+      setParameterValue(metricId, localSelected.join(','))
+    }
     
-    // Parent'a bildir (dashboard yenilemesi için)
+    setIsOpen(false)
+    
+    // Dashboard'u yenile
     if (onSelectionChange) {
       onSelectionChange()
     }
   }
   
-  // Filtreyi temizle
-  const handleClear = () => {
-    setParameterValue(metricId, 'ALL')
-    if (onSelectionChange) {
-      onSelectionChange()
-    }
-  }
-  
-  // Kompakt mod (küçük widget için)
-  const isCompact = gridH <= 2
+  // Aktif filtre var mı?
+  const hasActiveFilter = localSelected.length > 0 && localSelected.length < options.length
   
   return (
     <div 
-      className={clsx(
-        'h-full flex flex-col rounded-xl overflow-hidden',
-        theme.cardBg
-      )}
+      ref={dropdownRef}
+      className="relative h-full"
     >
-      {/* Header */}
-      <div className={clsx(
-        'flex items-center gap-2 px-3',
-        isCompact ? 'py-1.5' : 'py-2',
-        'border-b border-gray-200 dark:border-gray-700'
-      )}>
-        <Filter size={isCompact ? 14 : 16} className="text-indigo-500 flex-shrink-0" />
-        <span className={clsx(
-          'font-medium truncate',
-          isCompact ? 'text-xs' : 'text-sm',
-          theme.contentText
-        )}>
-          {title}
-        </span>
-        
-        {/* Aktif filtre göstergesi */}
-        {selectedValue !== 'ALL' && (
-          <button
-            onClick={handleClear}
-            className="ml-auto p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-            title="Filtreyi temizle"
-          >
-            <X size={12} className={theme.contentTextMuted} />
-          </button>
+      {/* Trigger Button - FilterBar tarzı */}
+      <button
+        onClick={() => { setIsOpen(!isOpen); setSearchQuery('') }}
+        className={clsx(
+          'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all w-full justify-between',
+          hasActiveFilter
+            ? 'bg-indigo-500/10 text-indigo-600 border border-indigo-500/30'
+            : isDark 
+              ? 'bg-[#21262d] text-gray-300 hover:bg-[#2a2f3a] border border-[#2a2f3a]'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200'
         )}
-      </div>
-      
-      {/* Select */}
-      <div className={clsx(
-        'flex-1 flex items-center px-3',
-        isCompact ? 'py-1' : 'py-2'
-      )}>
-        <div className="relative w-full">
-          <select
-            value={selectedValue}
-            onChange={handleChange}
-            className={clsx(
-              'w-full appearance-none rounded-lg border transition-all cursor-pointer',
-              isCompact ? 'px-2 py-1 pr-6 text-xs' : 'px-3 py-2 pr-8 text-sm',
-              theme.inputBg,
-              theme.inputText,
-              'border-gray-300 dark:border-gray-600',
-              'hover:border-indigo-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-800',
-              selectedValue !== 'ALL' && 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30'
-            )}
-          >
-            {selectOptions.map(opt => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          
-          {/* Dropdown arrow */}
-          <ChevronDown 
-            size={isCompact ? 12 : 16} 
-            className={clsx(
-              'absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none',
-              theme.contentTextMuted
-            )} 
-          />
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <Filter size={16} className={hasActiveFilter ? 'text-indigo-500' : ''} />
+          <span className="truncate">{title}</span>
         </div>
-      </div>
-      
-      {/* Seçili değer badge (büyük widget için) */}
-      {!isCompact && selectedValue !== 'ALL' && (
-        <div className="px-3 pb-2">
+        <div className="flex items-center gap-2">
           <span className={clsx(
-            'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs',
-            'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
+            'text-xs px-2 py-0.5 rounded-full',
+            hasActiveFilter
+              ? 'bg-indigo-500/20 text-indigo-600'
+              : isDark ? 'bg-[#2a2f3a] text-gray-400' : 'bg-gray-200 text-gray-500'
           )}>
-            <Filter size={10} />
-            {selectedValue}
+            {selectionText}
           </span>
+          <ChevronDown size={14} className={clsx(
+            'transition-transform',
+            isOpen && 'rotate-180'
+          )} />
+        </div>
+      </button>
+
+      {/* Dropdown Panel */}
+      {isOpen && (
+        <div 
+          onClick={(e) => e.stopPropagation()}
+          className={clsx(
+            'absolute top-full left-0 mt-2 w-72 rounded-xl shadow-2xl z-50 border overflow-hidden',
+            isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
+          )}
+        >
+          {/* Header - Search */}
+          <div className={clsx(
+            'p-3 border-b',
+            isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+          )}>
+            <div className={clsx(
+              'flex items-center gap-2 px-3 py-2 rounded-lg',
+              isDark ? 'bg-[#21262d]' : 'bg-white border border-gray-200'
+            )}>
+              <Search size={16} className={isDark ? 'text-gray-400' : 'text-gray-500'} />
+              <input
+                type="text"
+                placeholder="Ara..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={clsx(
+                  'flex-1 bg-transparent text-sm outline-none',
+                  isDark ? 'text-gray-200 placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'
+                )}
+                autoFocus
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-300">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            
+            {/* Hızlı seçim butonları */}
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={selectAll}
+                className={clsx(
+                  'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+                  isDark 
+                    ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' 
+                    : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                )}
+              >
+                <CheckSquare size={12} />
+                Tümünü Seç
+              </button>
+              <button
+                onClick={clearAll}
+                className={clsx(
+                  'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+                  isDark 
+                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' 
+                    : 'bg-red-50 text-red-600 hover:bg-red-100'
+                )}
+              >
+                <Square size={12} />
+                Temizle
+              </button>
+            </div>
+          </div>
+
+          {/* Options List */}
+          <div className="max-h-64 overflow-y-auto">
+            {filteredOptions.length === 0 ? (
+              <div className={clsx(
+                'p-4 text-center text-sm',
+                isDark ? 'text-gray-500' : 'text-gray-400'
+              )}>
+                Sonuç bulunamadı
+              </div>
+            ) : (
+              filteredOptions.map((option, index) => {
+                const isSelected = localSelected.includes(option)
+                return (
+                  <label
+                    key={`${option}-${index}`}
+                    className={clsx(
+                      'flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors',
+                      isDark 
+                        ? 'hover:bg-[#21262d]' 
+                        : 'hover:bg-gray-50',
+                      isSelected && (isDark ? 'bg-indigo-500/10' : 'bg-indigo-50')
+                    )}
+                  >
+                    <div className={clsx(
+                      'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
+                      isSelected
+                        ? 'bg-indigo-500 border-indigo-500'
+                        : isDark 
+                          ? 'border-gray-600 bg-transparent' 
+                          : 'border-gray-300 bg-white'
+                    )}>
+                      {isSelected && <Check size={12} className="text-white" />}
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleOption(option)}
+                      className="sr-only"
+                    />
+                    <span className={clsx(
+                      'text-sm',
+                      isDark ? 'text-gray-200' : 'text-gray-700'
+                    )}>
+                      {option}
+                    </span>
+                  </label>
+                )
+              })
+            )}
+          </div>
+
+          {/* Footer - Apply Button */}
+          <div className={clsx(
+            'p-3 border-t',
+            isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+          )}>
+            <div className="flex items-center justify-between">
+              <span className={clsx(
+                'text-xs',
+                isDark ? 'text-gray-500' : 'text-gray-400'
+              )}>
+                {localSelected.length} / {options.length} seçili
+              </span>
+              <button
+                onClick={applyFilter}
+                className={clsx(
+                  'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                  'bg-indigo-500 text-white hover:bg-indigo-600'
+                )}
+              >
+                Uygula
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

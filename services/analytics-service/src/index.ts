@@ -1696,8 +1696,9 @@ async function executeMetric(
     // ============================================
     // PARAMETER FİLTRELEME (Dinamik Kategori Filtreleri)
     // ============================================
-    // parameters.designParameters: { metricId1: "değer1", metricId2: "değer2" }
-    // Her parametre metriğinin db_column'u WHERE koşuluna eklenir
+    // parameters.designParameters: { metricId1: "değer1,değer2", metricId2: "değer3" }
+    // Multi-select: virgülle ayrılmış değerler IN clause olarak eklenir
+    // Tek değer: = ile eklenir
     const designParameters = parameters.designParameters as Record<string, string> | undefined;
     if (designParameters && Object.keys(designParameters).length > 0) {
       for (const [paramMetricId, selectedValue] of Object.entries(designParameters)) {
@@ -1713,15 +1714,26 @@ async function executeMetric(
         );
         
         if (paramMetric?.db_column) {
-          // Değeri escape et ve WHERE koşuluna ekle
           const safeColumn = sanitizeColumnName(paramMetric.db_column);
-          const safeValue = escapeValue(selectedValue);
-          whereConditions.push(`${safeColumn} = '${safeValue}'`);
+          
+          // Multi-select kontrolü: virgülle ayrılmış değerler mi?
+          const values = selectedValue.split(',').map(v => v.trim()).filter(v => v);
+          
+          if (values.length === 1) {
+            // Tek değer - = kullan
+            const safeValue = escapeValue(values[0]);
+            whereConditions.push(`${safeColumn} = '${safeValue}'`);
+          } else {
+            // Çoklu değer - IN clause kullan
+            const safeValues = values.map(v => `'${escapeValue(v)}'`).join(',');
+            whereConditions.push(`${safeColumn} IN (${safeValues})`);
+          }
           
           logger.debug('Parameter filter applied', { 
             paramMetricId, 
             column: paramMetric.db_column, 
-            value: selectedValue 
+            values,
+            isMultiSelect: values.length > 1
           });
         }
       }

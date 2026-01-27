@@ -667,13 +667,14 @@ export default function DashboardPage() {
                 
                 {/* PARAMETER FILTER (Dinamik Kategori Filtresi) */}
                 {(vizType === 'parameter_filter' || widgetType === 'parameter_filter') && (
-                  <div className="flex-1 -mx-3 -mb-3">
+                  <div className="flex-1 flex items-start pt-2">
                     <ParameterFilterWidget
                       widgetId={widget.id}
                       metricId={widget.metricId || ''}
                       title={widget.label || 'Filtre'}
                       options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
                       theme={theme}
+                      isDark={isDark}
                       onSelectionChange={() => {
                         // Dashboard'u yenile
                         if (currentDesign) {

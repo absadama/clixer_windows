@@ -99,6 +99,7 @@ export const useParameterStore = create<ParameterState>((set, get) => ({
   /**
    * API isteği için parametre objesini döndür
    * Sadece 'ALL' olmayan değerleri dahil eder
+   * Multi-select: virgülle ayrılmış değerler desteklenir
    */
   getParametersForRequest: () => {
     const { selectedValues } = get()
@@ -107,6 +108,7 @@ export const useParameterStore = create<ParameterState>((set, get) => ({
     for (const [metricId, value] of Object.entries(selectedValues)) {
       // ALL veya boş değilse dahil et
       if (value && value !== 'ALL' && value !== '') {
+        // Multi-select: virgülle ayrılmış değerler
         params[metricId] = value
       }
     }

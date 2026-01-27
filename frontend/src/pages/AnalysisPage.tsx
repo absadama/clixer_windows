@@ -1162,13 +1162,14 @@ export default function AnalysisPage() {
                     // PARAMETER FILTER (Dinamik Kategori Filtresi)
                     if (vizType === 'parameter_filter' || widgetType === 'parameter_filter') {
                       return (
-                        <div className="flex-1 -mx-4 -mb-4">
+                        <div className="flex-1 flex items-start pt-2">
                           <ParameterFilterWidget
                             widgetId={widget.id}
                             metricId={widget.metricId || ''}
                             title={widget.label || 'Filtre'}
                             options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
                             theme={theme}
+                            isDark={isDark}
                             onSelectionChange={() => {
                               // Analysis sayfasını yenile
                               if (selectedDesign?.id) {
