@@ -539,11 +539,16 @@ export default function DashboardPage() {
             const widgetIcon = (widget as any).icon || (widget as any).metricIcon || 'BarChart3'
             const IconComponent = iconMap[widgetIcon] || BarChart3
             
-            // Görselleştirme tipi (backend'de: type, widgetType veya metric_visualization_type)
-            // Metrik oluştururken seçilen görselleştirme tipi HER ZAMAN kullanılmalı
-            const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
+            // Görselleştirme tipi belirleme
+            // 1. PARAMETER tipi metrikler için otomatik parameter_filter
+            // 2. Backend'den gelen widget tipi (type/widgetType)
+            // 3. Metrik görselleştirme tipi
+            // 4. Fallback: kpi_card
+            const aggregationType = (widget as any).aggregation_type || (widget as any).aggregationType;
+            const isParameterMetric = aggregationType === 'PARAMETER';
             const widgetType = (widget as any).type || (widget as any).widgetType || (widget as any).visualization_type || (widget as any).visualizationType;
-            const vizType = metricVizType || widgetType || 'kpi_card';
+            const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
+            const vizType = isParameterMetric ? 'parameter_filter' : (widgetType || metricVizType || 'kpi_card');
             
             // Grafik ve ranking tipleri - mobilde TEK SÜTUN (full-width) olacaklar
             const FULL_WIDTH_TYPES = [

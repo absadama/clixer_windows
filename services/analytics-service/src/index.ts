@@ -3366,13 +3366,20 @@ async function handleDashboardFull(req: Request, res: Response, next: NextFuncti
 
     await Promise.allSettled(
       widgets.map(async (widget: any) => {
+        // PARAMETER tipi metrikler için otomatik widget tipi belirleme
+        const isParameterMetric = widget.aggregation_type === 'PARAMETER';
+        const resolvedWidgetType = isParameterMetric 
+          ? 'parameter_filter' 
+          : (widget.widget_type || widget.metric_visualization_type || 'kpi_card');
+        
         const widgetResult: any = {
           id: widget.id,
           title: widget.title || widget.metric_label || widget.metric_name || 'Widget',
           label: widget.title || widget.metric_label || widget.metric_name || 'Widget',
           subtitle: widget.subtitle,
-          type: widget.widget_type || widget.metric_visualization_type || 'kpi_card',
-          widgetType: widget.widget_type || widget.metric_visualization_type || 'kpi_card',
+          type: resolvedWidgetType,
+          widgetType: resolvedWidgetType,
+          aggregation_type: widget.aggregation_type, // Frontend'de kontrol için
           metric_visualization_type: widget.metric_visualization_type, // Metrik görselleştirme tipi (pie_chart, bar_chart vb.)
           gridPosition: {
             x: widget.grid_x,

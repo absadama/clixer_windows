@@ -692,12 +692,13 @@ export default function AnalysisPage() {
                   {/* ============================================ */}
                   {(() => {
                     // Metrik görselleştirme tipi HER ZAMAN öncelikli!
+                    const aggregationType = (widget as any).aggregation_type || (widget as any).aggregationType;
+                    const isParameterMetric = aggregationType === 'PARAMETER';
                     const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
                     const widgetType = (widget as any).type || (widget as any).widgetType;
                     
-                    // Öncelik sırası: metricVizType > widgetType > varsayılan
-                    // Metrik oluştururken seçilen görselleştirme tipi (progress, sparkline, gauge) HER ZAMAN kullanılmalı
-                    let vizType = metricVizType || widgetType || 'kpi_card';
+                    // Öncelik sırası: PARAMETER kontrolü > widgetType > metricVizType > varsayılan
+                    let vizType = isParameterMetric ? 'parameter_filter' : (widgetType || metricVizType || 'kpi_card');
                     // Veri widget.data.data veya widget.data.value içinde olabilir
                     const chartData = widget.data?.data || (Array.isArray(widget.data?.value) ? widget.data.value : []) || (widget.data as any)?.chartData || [];
                     const CHART_COLORS = ['#14B8A6', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#6366F1'];
@@ -1609,16 +1610,19 @@ export default function AnalysisPage() {
                   
                   {/* LIST tipi widget - Tema Uyumlu Tablo */}
                   {(() => {
-                    // Metrik görselleştirme tipi HER ZAMAN öncelikli!
+                    // PARAMETER kontrolü - parameter_filter olarak render edilmeli
+                    const aggregationType = (widget as any).aggregation_type || (widget as any).aggregationType;
+                    const isParameterMetric = aggregationType === 'PARAMETER';
                     const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
                     const widgetType = (widget as any).type || (widget as any).widgetType;
-                    const vizType = metricVizType || widgetType || 'kpi_card';
+                    const vizType = isParameterMetric ? 'parameter_filter' : (widgetType || metricVizType || 'kpi_card');
                     
                     // Chart ve özel görselleştirme tipleri için tablo gösterme
                     const skipTableTypes = [
                       'pie_chart', 'donut_chart', 'bar_chart', 'line_chart', 'area_chart',
                       'progress', 'progress_bar', 'gauge', 'sparkline', 'trend', 'trend_card', 'comparison',
-                      'ranking_list', 'ranking', 'combo_chart', 'scatter_plot', 'treemap', 'funnel_chart', 'heatmap', 'map_chart'
+                      'ranking_list', 'ranking', 'combo_chart', 'scatter_plot', 'treemap', 'funnel_chart', 'heatmap', 'map_chart',
+                      'parameter_filter' // Parametre widget'ları kendi combobox render'ına sahip
                     ];
                     if (skipTableTypes.includes(vizType)) {
                       return null;
@@ -1811,15 +1815,18 @@ export default function AnalysisPage() {
                   
                   {/* KPI tipi widget - Sadece özel tipler değilse göster */}
                   {(() => {
+                    const aggregationType = (widget as any).aggregation_type || (widget as any).aggregationType;
+                    const isParameterMetric = aggregationType === 'PARAMETER';
                     const metricVizType = (widget as any).metric_visualization_type || (widget as any).metricVisualizationType;
                     const widgetType = (widget as any).type || (widget as any).widgetType;
-                    const vizType = metricVizType || widgetType || 'kpi_card';
+                    const vizType = isParameterMetric ? 'parameter_filter' : (widgetType || metricVizType || 'kpi_card');
                     
                     // Özel tipler için KPI gösterme
                     const specialTypes = [
                       'pie_chart', 'donut_chart', 'bar_chart', 'line_chart', 'area_chart',
                       'progress', 'progress_bar', 'gauge', 'sparkline', 'trend', 'trend_card', 'comparison',
-                      'data_grid', 'ranking_list', 'LIST', 'combo_chart', 'scatter_plot', 'treemap', 'funnel_chart', 'heatmap', 'map_chart'
+                      'data_grid', 'ranking_list', 'LIST', 'combo_chart', 'scatter_plot', 'treemap', 'funnel_chart', 'heatmap', 'map_chart',
+                      'parameter_filter' // Parametre widget'ları kendi combobox render'ına sahip
                     ];
                     
                     // Tablo verisi varsa da gösterme
