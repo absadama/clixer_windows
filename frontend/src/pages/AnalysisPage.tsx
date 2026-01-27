@@ -618,11 +618,12 @@ export default function AnalysisPage() {
                 return (
                   <div
                     key={widget.id}
-                    className="flex items-center"
+                    className="relative flex items-start"
                     style={{ 
                       gridColumn: isMobile ? undefined : `${gridX + 1} / span ${gridW}`,
                       gridRow: isMobile ? undefined : `${rawY + 1} / span ${gridH}`,
-                      minHeight: isMobile ? '44px' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
+                      height: isMobile ? '44px' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
+                      zIndex: 40, // Dropdown'un diğer widget'ların üstünde görünmesi için
                     }}
                   >
                     <ParameterFilterWidget
