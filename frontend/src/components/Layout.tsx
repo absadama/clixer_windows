@@ -469,7 +469,7 @@ export default function Layout({ children }: LayoutProps) {
     
     return allMenuItems.filter(item => {
       // adminOnly menüler sadece ADMIN rolüne açık (admin paneli, eğitim merkezi vb.)
-      if (item.adminOnly && userRole !== UserRole.ADMIN) return false
+      if (item.adminOnly && userRole?.toUpperCase() !== UserRole.ADMIN) return false
       
       // Menu permission kontrolü - veritabanından gelen izinlere bak
       // Menü key mapping (sidebar id -> database menu_key)
