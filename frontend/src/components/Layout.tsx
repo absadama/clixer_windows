@@ -236,7 +236,9 @@ interface MenuItem {
   icon: React.ComponentType<any>
   href: string
   key: string
-  badge?: string
+  badge?: string | null
+  isExternal?: boolean
+  adminOnly?: boolean
 }
 
 const ThemeContext = createContext<ThemeContextType | null>(null)
