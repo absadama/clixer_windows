@@ -887,28 +887,42 @@ npm install
 npm run build
 ```
 
-### 2. Nginx Konfigürasyonu (Mevcut config'e ekle)
-Mevcut Clixer Nginx config dosyasına (`/etc/nginx/sites-available/clixer`) şu location bloklarını ekle:
+### 2. Nginx Konfigürasyonu (HTTPS config'e ekle)
+
+**ÖNEMLİ:** Wiki location blokları **HTTPS (443) config dosyasına** eklenmeli!
+Genellikle `/etc/nginx/sites-available/default` dosyasındaki `server { listen 443 ... }` bloğuna.
+
+`location /api` satırından **ÖNCE** şu blokları ekle:
 
 ```nginx
-    # Wiki / Egitim Merkezi - /edu path'i
-    location /edu {
-        alias /opt/clixer/wiki/dist;
-        index index.html;
-        try_files $uri $uri/ /edu/index.html;
-    }
-
-    location /edu/ {
+    # Wiki / Egitim Merkezi
+    location ^~ /edu/ {
         alias /opt/clixer/wiki/dist/;
         index index.html;
         try_files $uri $uri/ /edu/index.html;
     }
+
+    location ^~ /edu {
+        return 301 /edu/;
+    }
 ```
+
+**Dikkat:**
+- `^~` modifier'ı kullan (öncelik için)
+- `/edu/` (slash ile) ve `/edu` (slash'sız) iki ayrı location gerekli
+- Slash'sız olan `/edu/`'ya redirect yapmalı
+- Bu bloklar `location /` bloğunun **dışında** ve **önünde** olmalı
 
 ### 3. Nginx Reload
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
+```
+
+### 4. Test
+```bash
+curl -I https://DOMAIN/edu/
+# 200 OK dönmeli
 ```
 
 **Not:** Ayrı subdomain veya SSL gerekmez, mevcut domain ve SSL kullanılır.
