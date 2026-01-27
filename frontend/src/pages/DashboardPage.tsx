@@ -573,6 +573,41 @@ export default function DashboardPage() {
               return String(rawValue);
             })();
             
+            // ============================================
+            // PARAMETER FILTER - Özel render (kart yok, sadece dropdown)
+            // FilterBar tarzında kompakt görünüm
+            // ============================================
+            if (vizType === 'parameter_filter' || widgetType === 'parameter_filter') {
+              return (
+                <div
+                  key={widget.id}
+                  data-widget={widget.id}
+                  className="flex items-center"
+                  style={{ 
+                    gridColumn: isMobile ? undefined : `${gridX + 1} / span ${gridW}`,
+                    gridRow: isMobile ? undefined : `${rawY + 1} / span ${gridH}`,
+                    minHeight: isMobile ? '44px' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
+                  }}
+                >
+                  <ParameterFilterWidget
+                    widgetId={widget.id}
+                    metricId={widget.metricId || ''}
+                    title={widget.label || 'Filtre'}
+                    options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
+                    theme={theme}
+                    isDark={isDark}
+                    onSelectionChange={() => {
+                      if (currentDesign) {
+                        fetchDashboardData(currentDesign.id)
+                      }
+                    }}
+                    gridW={rawW}
+                    gridH={rawH}
+                  />
+                </div>
+              );
+            }
+            
             return (
               <div
                 key={widget.id}
@@ -664,28 +699,6 @@ export default function DashboardPage() {
                 {/* ============================================ */}
                 {/* GÖRSELLEŞTİRME TİPİNE GÖRE RENDER */}
                 {/* ============================================ */}
-                
-                {/* PARAMETER FILTER (Dinamik Kategori Filtresi) */}
-                {(vizType === 'parameter_filter' || widgetType === 'parameter_filter') && (
-                  <div className="flex-1 flex items-start pt-2">
-                    <ParameterFilterWidget
-                      widgetId={widget.id}
-                      metricId={widget.metricId || ''}
-                      title={widget.label || 'Filtre'}
-                      options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
-                      theme={theme}
-                      isDark={isDark}
-                      onSelectionChange={() => {
-                        // Dashboard'u yenile
-                        if (currentDesign) {
-                          fetchDashboardData(currentDesign.id)
-                        }
-                      }}
-                      gridW={rawW}
-                      gridH={rawH}
-                    />
-                  </div>
-                )}
                 
                 {/* PROGRESS BAR (İlerleme Çubuğu) - AnalysisPage ile aynı */}
                 {(vizType === 'progress' || vizType === 'progress_bar') && (() => {

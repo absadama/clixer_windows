@@ -606,6 +606,44 @@ export default function AnalysisPage() {
                 return 'Son 30 gün'
               })()
               
+              // ============================================
+              // PARAMETER FILTER - Özel render (kart yok, sadece dropdown)
+              // FilterBar tarzında kompakt görünüm
+              // ============================================
+              const aggregationType = (widget as any).aggregation_type || (widget as any).aggregationType;
+              const isParameterMetric = aggregationType === 'PARAMETER';
+              const paramWidgetType = (widget as any).type || (widget as any).widgetType;
+              
+              if (isParameterMetric || paramWidgetType === 'parameter_filter') {
+                return (
+                  <div
+                    key={widget.id}
+                    className="flex items-center"
+                    style={{ 
+                      gridColumn: isMobile ? undefined : `${gridX + 1} / span ${gridW}`,
+                      gridRow: isMobile ? undefined : `${rawY + 1} / span ${gridH}`,
+                      minHeight: isMobile ? '44px' : `${gridH * rowHeight + (gridH - 1) * gap}px`,
+                    }}
+                  >
+                    <ParameterFilterWidget
+                      widgetId={widget.id}
+                      metricId={widget.metricId || ''}
+                      title={widget.label || 'Filtre'}
+                      options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
+                      theme={theme}
+                      isDark={isDark}
+                      onSelectionChange={() => {
+                        if (selectedDesign?.id) {
+                          loadDesignDetail(selectedDesign.id);
+                        }
+                      }}
+                      gridW={rawW}
+                      gridH={rawH}
+                    />
+                  </div>
+                );
+              }
+              
               return (
                 <div
                   key={widget.id}
@@ -1155,30 +1193,6 @@ export default function AnalysisPage() {
                               </React.Fragment>
                             ))}
                           </div>
-                        </div>
-                      );
-                    }
-                    
-                    // PARAMETER FILTER (Dinamik Kategori Filtresi)
-                    if (vizType === 'parameter_filter' || widgetType === 'parameter_filter') {
-                      return (
-                        <div className="flex-1 flex items-start pt-2">
-                          <ParameterFilterWidget
-                            widgetId={widget.id}
-                            metricId={widget.metricId || ''}
-                            title={widget.label || 'Filtre'}
-                            options={Array.isArray(widgetData?.value) ? widgetData.value : (widgetData?.metadata?.data || [])}
-                            theme={theme}
-                            isDark={isDark}
-                            onSelectionChange={() => {
-                              // Analysis sayfasını yenile
-                              if (selectedDesign?.id) {
-                                loadDesignDetail(selectedDesign.id);
-                              }
-                            }}
-                            gridW={widget.w || 4}
-                            gridH={widget.h || 2}
-                          />
                         </div>
                       );
                     }
