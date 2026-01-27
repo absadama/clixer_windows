@@ -801,6 +801,12 @@ function SidebarContent({
                 href={getExternalUrl()}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  // Manuel olarak yeni sekmede aç
+                  window.open(getExternalUrl(), '_blank', 'noopener,noreferrer')
+                  e.preventDefault()
+                }}
                 className={clsx(
                   'flex items-center w-full py-3 text-sm font-bold rounded-xl transition-all duration-200 group relative',
                   theme.sidebarTextMuted,
