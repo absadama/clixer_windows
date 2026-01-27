@@ -7,9 +7,11 @@
  * - Arama özelliği
  * - Tümünü Seç / Temizle butonları
  * - Uygula butonu ile dashboard yenileme
+ * - React Portal ile body'ye render (overflow sorunlarını önler)
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Filter, ChevronDown, Search, X, CheckSquare, Square, Check } from 'lucide-react'
 import clsx from 'clsx'
 import { useParameterStore } from '../stores/parameterStore'
@@ -57,6 +59,8 @@ export const ParameterFilterWidget: React.FC<ParameterFilterWidgetProps> = ({
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [localSelected, setLocalSelected] = useState<string[]>([])
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 })
+  const buttonRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
   // Mevcut seçili değerleri parse et (virgülle ayrılmış string veya array)
@@ -73,10 +77,27 @@ export const ParameterFilterWidget: React.FC<ParameterFilterWidgetProps> = ({
     }
   }, [currentValue])
   
+  // Dropdown pozisyonunu hesapla
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setDropdownPosition({
+        top: rect.bottom + 8, // 8px gap
+        left: rect.left
+      })
+    }
+  }, [isOpen])
+  
   // Dışarı tıklandığında dropdown'u kapat
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as Node
+      if (
+        dropdownRef.current && 
+        !dropdownRef.current.contains(target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(target)
+      ) {
         setIsOpen(false)
       }
     }
@@ -85,6 +106,24 @@ export const ParameterFilterWidget: React.FC<ParameterFilterWidgetProps> = ({
       document.addEventListener('mousedown', handleClickOutside)
     }
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isOpen])
+  
+  // Scroll veya resize'da dropdown'u kapat
+  useEffect(() => {
+    const handleScrollOrResize = () => {
+      if (isOpen) {
+        setIsOpen(false)
+      }
+    }
+    
+    if (isOpen) {
+      window.addEventListener('scroll', handleScrollOrResize, true)
+      window.addEventListener('resize', handleScrollOrResize)
+    }
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrResize, true)
+      window.removeEventListener('resize', handleScrollOrResize)
+    }
   }, [isOpen])
   
   // Filtrelenmiş opsiyonlar
@@ -144,16 +183,164 @@ export const ParameterFilterWidget: React.FC<ParameterFilterWidgetProps> = ({
   // Aktif filtre var mı?
   const hasActiveFilter = localSelected.length > 0 && localSelected.length < options.length
   
-  return (
+  // Dropdown portal içeriği
+  const dropdownContent = isOpen ? createPortal(
     <div 
       ref={dropdownRef}
-      className="relative h-full"
+      onClick={(e) => e.stopPropagation()}
+      className={clsx(
+        'fixed w-72 rounded-xl shadow-2xl border overflow-hidden',
+        isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
+      )}
+      style={{
+        top: dropdownPosition.top,
+        left: dropdownPosition.left,
+        zIndex: 9999
+      }}
     >
+      {/* Header - Search */}
+      <div className={clsx(
+        'p-3 border-b',
+        isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+      )}>
+        <div className={clsx(
+          'flex items-center gap-2 px-3 py-2 rounded-lg',
+          isDark ? 'bg-[#21262d]' : 'bg-white border border-gray-200'
+        )}>
+          <Search size={16} className={isDark ? 'text-gray-400' : 'text-gray-500'} />
+          <input
+            type="text"
+            placeholder="Ara..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={clsx(
+              'flex-1 bg-transparent text-sm outline-none',
+              isDark ? 'text-gray-200 placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'
+            )}
+            autoFocus
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-300">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        
+        {/* Hızlı seçim butonları */}
+        <div className="flex gap-2 mt-2">
+          <button
+            onClick={selectAll}
+            className={clsx(
+              'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+              isDark 
+                ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' 
+                : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+            )}
+          >
+            <CheckSquare size={12} />
+            Tümünü Seç
+          </button>
+          <button
+            onClick={clearAll}
+            className={clsx(
+              'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
+              isDark 
+                ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' 
+                : 'bg-red-50 text-red-600 hover:bg-red-100'
+            )}
+          >
+            <Square size={12} />
+            Temizle
+          </button>
+        </div>
+      </div>
+
+      {/* Options List */}
+      <div className="max-h-64 overflow-y-auto">
+        {filteredOptions.length === 0 ? (
+          <div className={clsx(
+            'p-4 text-center text-sm',
+            isDark ? 'text-gray-500' : 'text-gray-400'
+          )}>
+            Sonuç bulunamadı
+          </div>
+        ) : (
+          filteredOptions.map((option, index) => {
+            const isSelected = localSelected.includes(option)
+            return (
+              <label
+                key={`${option}-${index}`}
+                className={clsx(
+                  'flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors',
+                  isDark 
+                    ? 'hover:bg-[#21262d]' 
+                    : 'hover:bg-gray-50',
+                  isSelected && (isDark ? 'bg-indigo-500/10' : 'bg-indigo-50')
+                )}
+              >
+                <div className={clsx(
+                  'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
+                  isSelected
+                    ? 'bg-indigo-500 border-indigo-500'
+                    : isDark 
+                      ? 'border-gray-600 bg-transparent' 
+                      : 'border-gray-300 bg-white'
+                )}>
+                  {isSelected && <Check size={12} className="text-white" />}
+                </div>
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => toggleOption(option)}
+                  className="sr-only"
+                />
+                <span className={clsx(
+                  'text-sm',
+                  isDark ? 'text-gray-200' : 'text-gray-700'
+                )}>
+                  {option}
+                </span>
+              </label>
+            )
+          })
+        )}
+      </div>
+
+      {/* Footer - Apply Button */}
+      <div className={clsx(
+        'p-3 border-t',
+        isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
+      )}>
+        <div className="flex items-center justify-between">
+          <span className={clsx(
+            'text-xs',
+            isDark ? 'text-gray-500' : 'text-gray-400'
+          )}>
+            {localSelected.length} / {options.length} seçili
+          </span>
+          <button
+            onClick={applyFilter}
+            className={clsx(
+              'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+              'bg-indigo-500 text-white hover:bg-indigo-600'
+            )}
+          >
+            Uygula
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  ) : null
+
+  return (
+    <div className="inline-block">
       {/* Trigger Button - FilterBar tarzı */}
       <button
+        ref={buttonRef}
         onClick={() => { setIsOpen(!isOpen); setSearchQuery('') }}
         className={clsx(
-          'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all w-full justify-between',
+          'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all',
           hasActiveFilter
             ? 'bg-indigo-500/10 text-indigo-600 border border-indigo-500/30'
             : isDark 
@@ -161,168 +348,24 @@ export const ParameterFilterWidget: React.FC<ParameterFilterWidgetProps> = ({
               : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200'
         )}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <Filter size={16} className={hasActiveFilter ? 'text-indigo-500' : ''} />
-          <span className="truncate">{title}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={clsx(
-            'text-xs px-2 py-0.5 rounded-full',
-            hasActiveFilter
-              ? 'bg-indigo-500/20 text-indigo-600'
-              : isDark ? 'bg-[#2a2f3a] text-gray-400' : 'bg-gray-200 text-gray-500'
-          )}>
-            {selectionText}
-          </span>
-          <ChevronDown size={14} className={clsx(
-            'transition-transform',
-            isOpen && 'rotate-180'
-          )} />
-        </div>
+        <Filter size={16} className={hasActiveFilter ? 'text-indigo-500' : ''} />
+        <span className="truncate max-w-[120px]">{title}</span>
+        <span className={clsx(
+          'text-xs px-2 py-0.5 rounded-full',
+          hasActiveFilter
+            ? 'bg-indigo-500/20 text-indigo-600'
+            : isDark ? 'bg-[#2a2f3a] text-gray-400' : 'bg-gray-200 text-gray-500'
+        )}>
+          {selectionText}
+        </span>
+        <ChevronDown size={14} className={clsx(
+          'transition-transform',
+          isOpen && 'rotate-180'
+        )} />
       </button>
 
-      {/* Dropdown Panel */}
-      {isOpen && (
-        <div 
-          onClick={(e) => e.stopPropagation()}
-          className={clsx(
-            'absolute top-full left-0 mt-2 w-72 rounded-xl shadow-2xl z-50 border overflow-hidden',
-            isDark ? 'bg-[#1a1d24] border-[#2a2f3a]' : 'bg-white border-gray-200'
-          )}
-        >
-          {/* Header - Search */}
-          <div className={clsx(
-            'p-3 border-b',
-            isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
-          )}>
-            <div className={clsx(
-              'flex items-center gap-2 px-3 py-2 rounded-lg',
-              isDark ? 'bg-[#21262d]' : 'bg-white border border-gray-200'
-            )}>
-              <Search size={16} className={isDark ? 'text-gray-400' : 'text-gray-500'} />
-              <input
-                type="text"
-                placeholder="Ara..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={clsx(
-                  'flex-1 bg-transparent text-sm outline-none',
-                  isDark ? 'text-gray-200 placeholder-gray-500' : 'text-gray-800 placeholder-gray-400'
-                )}
-                autoFocus
-              />
-              {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-300">
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            
-            {/* Hızlı seçim butonları */}
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={selectAll}
-                className={clsx(
-                  'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
-                  isDark 
-                    ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' 
-                    : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
-                )}
-              >
-                <CheckSquare size={12} />
-                Tümünü Seç
-              </button>
-              <button
-                onClick={clearAll}
-                className={clsx(
-                  'flex items-center gap-1.5 flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors',
-                  isDark 
-                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' 
-                    : 'bg-red-50 text-red-600 hover:bg-red-100'
-                )}
-              >
-                <Square size={12} />
-                Temizle
-              </button>
-            </div>
-          </div>
-
-          {/* Options List */}
-          <div className="max-h-64 overflow-y-auto">
-            {filteredOptions.length === 0 ? (
-              <div className={clsx(
-                'p-4 text-center text-sm',
-                isDark ? 'text-gray-500' : 'text-gray-400'
-              )}>
-                Sonuç bulunamadı
-              </div>
-            ) : (
-              filteredOptions.map((option, index) => {
-                const isSelected = localSelected.includes(option)
-                return (
-                  <label
-                    key={`${option}-${index}`}
-                    className={clsx(
-                      'flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors',
-                      isDark 
-                        ? 'hover:bg-[#21262d]' 
-                        : 'hover:bg-gray-50',
-                      isSelected && (isDark ? 'bg-indigo-500/10' : 'bg-indigo-50')
-                    )}
-                  >
-                    <div className={clsx(
-                      'w-5 h-5 rounded border-2 flex items-center justify-center transition-all',
-                      isSelected
-                        ? 'bg-indigo-500 border-indigo-500'
-                        : isDark 
-                          ? 'border-gray-600 bg-transparent' 
-                          : 'border-gray-300 bg-white'
-                    )}>
-                      {isSelected && <Check size={12} className="text-white" />}
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleOption(option)}
-                      className="sr-only"
-                    />
-                    <span className={clsx(
-                      'text-sm',
-                      isDark ? 'text-gray-200' : 'text-gray-700'
-                    )}>
-                      {option}
-                    </span>
-                  </label>
-                )
-              })
-            )}
-          </div>
-
-          {/* Footer - Apply Button */}
-          <div className={clsx(
-            'p-3 border-t',
-            isDark ? 'border-[#2a2f3a] bg-[#14171c]' : 'border-gray-100 bg-gray-50'
-          )}>
-            <div className="flex items-center justify-between">
-              <span className={clsx(
-                'text-xs',
-                isDark ? 'text-gray-500' : 'text-gray-400'
-              )}>
-                {localSelected.length} / {options.length} seçili
-              </span>
-              <button
-                onClick={applyFilter}
-                className={clsx(
-                  'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                  'bg-indigo-500 text-white hover:bg-indigo-600'
-                )}
-              >
-                Uygula
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Dropdown - Portal ile body'ye render edilir */}
+      {dropdownContent}
     </div>
   )
 }
