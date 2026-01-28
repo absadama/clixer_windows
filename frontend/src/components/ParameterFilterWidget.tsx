@@ -151,7 +151,8 @@ export const ParameterFilterWidget: React.FC<ParameterFilterWidgetProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isOpen])
   
-  // Sadece resize'da dropdown'u kapat (scroll'da kapatma - dropdown içi scroll için)
+  // Resize ve scroll'da dropdown'u kapat
+  // NOT: Dropdown içi scroll'u engellememek için sadece window scroll'u dinle
   useEffect(() => {
     const handleResize = () => {
       if (isOpen) {
@@ -159,11 +160,27 @@ export const ParameterFilterWidget: React.FC<ParameterFilterWidgetProps> = ({
       }
     }
     
+    // Sayfa scroll edildiğinde dropdown'u kapat
+    // Dropdown içi scroll event'i buraya ulaşmaz (stopPropagation yok ama farklı element)
+    const handleScroll = (e: Event) => {
+      // Dropdown içindeki scroll'u ignore et
+      if (dropdownRef.current?.contains(e.target as Node)) {
+        return
+      }
+      // Sayfa scroll ediliyorsa kapat
+      if (isOpen) {
+        setIsOpen(false)
+      }
+    }
+    
     if (isOpen) {
       window.addEventListener('resize', handleResize)
+      // Capture phase'de dinle ki tüm scroll eventlerini yakalayalım
+      window.addEventListener('scroll', handleScroll, true)
     }
     return () => {
       window.removeEventListener('resize', handleResize)
+      window.removeEventListener('scroll', handleScroll, true)
     }
   }, [isOpen])
   
