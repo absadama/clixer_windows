@@ -1238,6 +1238,483 @@ ORDER BY "Ciro" DESC
 `
   },
   {
+    id: 'metrics-gorsel-ornekleri',
+    slug: 'gorsel-ornekleri',
+    title: 'Görselleştirme Örnekleri (SQL)',
+    excerpt: 'Her görselleştirme tipi için örnek SQL sorguları ve kullanım rehberi.',
+    category: 'metrics',
+    categoryLabel: 'Metrikler',
+    tags: ['sql', 'örnek', 'grafik', 'harita', 'pie', 'ranking', 'trend'],
+    images: [],
+    relatedArticles: ['metrics-sql-modu', 'metrics-gorsellestime-tipleri', 'metrics-siralama-listesi'],
+    lastUpdated: '2026-01-28',
+    readingTime: 15,
+    order: 14,
+    content: `
+# Görselleştirme Örnekleri (SQL)
+
+Her görselleştirme tipi için örnek SQL sorguları ve ayarları.
+
+> 💡 Aşağıdaki örneklerde \`satis_gunluk\` (satış verisi) ve \`magaza_master\` (mağaza bilgileri) örnek tablo isimleri kullanılmıştır. Kendi tablolarınızla değiştirin.
+
+---
+
+## 1. Sıralama Listesi (Ranking List)
+
+Sıralama listesi, en iyi/en kötü performansı gösteren öğeleri listeler.
+
+![Sıralama Listesi Örneği - Top 10 Mağaza](/edu/images/examples/ranking-list-example.png)
+
+### Temel SQL
+
+\`\`\`sql
+SELECT 
+  magaza_adi as label,
+  SUM(ciro) as value
+FROM satis_gunluk
+WHERE tarih >= today() - 30
+GROUP BY magaza_adi
+ORDER BY value DESC
+LIMIT 10
+\`\`\`
+
+**Sonuç kolonları:**
+- \`label\` → Gösterilecek isim
+- \`value\` → Sıralama değeri
+
+### Trend Hesaplamalı Sıralama Listesi
+
+Önceki dönemle karşılaştırma yüzdesi göstermek için:
+
+\`\`\`sql
+SELECT 
+  magaza_adi as label,
+  SUM(ciro) as value,
+  -- Geçen haftaya göre trend (%)
+  round(
+    (SUM(CASE WHEN tarih >= today() - 7 THEN ciro ELSE 0 END) -
+     SUM(CASE WHEN tarih >= today() - 14 AND tarih < today() - 7 THEN ciro ELSE 0 END)) /
+    nullIf(SUM(CASE WHEN tarih >= today() - 14 AND tarih < today() - 7 THEN ciro ELSE 0 END), 0) * 100
+  , 1) as trend
+FROM satis_gunluk
+WHERE tarih >= today() - 14
+GROUP BY magaza_adi
+ORDER BY value DESC
+LIMIT 10
+\`\`\`
+
+**Sonuç kolonları:**
+- \`label\` → Mağaza adı
+- \`value\` → Toplam değer
+- \`trend\` → Değişim yüzdesi (▲ +5.2% veya ▼ -3.1%)
+
+### Alt Bilgili Sıralama Listesi
+
+İkinci satırda ek bilgi göstermek için:
+
+\`\`\`sql
+SELECT 
+  magaza_adi as label,
+  SUM(ciro) as value,
+  concat(toString(SUM(adet)), ' adet') as subtitle,
+  round(
+    (SUM(CASE WHEN tarih >= today() - 7 THEN ciro ELSE 0 END) -
+     SUM(CASE WHEN tarih >= today() - 14 AND tarih < today() - 7 THEN ciro ELSE 0 END)) /
+    nullIf(SUM(CASE WHEN tarih >= today() - 14 AND tarih < today() - 7 THEN ciro ELSE 0 END), 0) * 100
+  , 1) as trend
+FROM satis_gunluk
+WHERE tarih >= today() - 14
+GROUP BY magaza_adi
+ORDER BY value DESC
+LIMIT 10
+\`\`\`
+
+**Sonuç kolonları:**
+- \`label\` → Ana başlık
+- \`value\` → Değer
+- \`subtitle\` → Alt bilgi (opsiyonel)
+- \`trend\` → Yüzde değişim (opsiyonel)
+
+### Görselleştirme Ayarları
+
+| Ayar | Değer |
+|------|-------|
+| Visualization Type | ranking_list |
+| Trend Otomatik Hesaplansın | Kapalı (SQL'de hesapladık) |
+| Format | Sayı + ₺ ön ek |
+
+---
+
+## 2. Harita (Map Chart)
+
+Harita görselleştirmesi için şehir isimleri veya koordinatlar gerekir.
+
+![Harita Örneği - Şehir Bazlı Ciro Dağılımı](/edu/images/examples/map-chart-example.png)
+
+### Şehir Bazlı Toplam (Otomatik Koordinat)
+
+\`\`\`sql
+SELECT 
+  m.sehir as name,
+  SUM(s.ciro) as value
+FROM satis_gunluk s
+INNER JOIN magaza_master m ON s.magaza_id = m.id
+WHERE s.tarih >= today() - 30
+GROUP BY m.sehir
+ORDER BY value DESC
+\`\`\`
+
+**Sonuç kolonları:**
+- \`name\` → Şehir adı (İstanbul, Ankara, İzmir vb.)
+- \`value\` → Daire büyüklüğü
+
+> 💡 \`name\` kolonu şehir ismi içerdiğinde sistem **otomatik koordinat** atar.
+
+### Manuel Koordinatlı Harita
+
+Mağaza bazında gerçek koordinatlarla:
+
+\`\`\`sql
+SELECT 
+  m.magaza_adi as name,
+  m.latitude as lat,
+  m.longitude as lng,
+  SUM(s.ciro) as value
+FROM satis_gunluk s
+INNER JOIN magaza_master m ON s.magaza_id = m.id
+WHERE s.tarih >= today() - 30
+  AND m.latitude IS NOT NULL
+GROUP BY m.magaza_adi, m.latitude, m.longitude
+ORDER BY value DESC
+\`\`\`
+
+**Sonuç kolonları:**
+- \`name\` → Tooltip'te görünecek isim
+- \`lat\` → Enlem
+- \`lng\` → Boylam
+- \`value\` → Daire büyüklüğü
+
+### Bölge Bazlı Harita
+
+\`\`\`sql
+SELECT 
+  m.bolge as name,
+  SUM(s.ciro) as value,
+  COUNT(DISTINCT s.magaza_id) as magaza_sayisi
+FROM satis_gunluk s
+INNER JOIN magaza_master m ON s.magaza_id = m.id
+WHERE s.tarih >= today() - 30
+GROUP BY m.bolge
+ORDER BY value DESC
+\`\`\`
+
+### Görselleştirme Ayarları
+
+| Ayar | Değer |
+|------|-------|
+| Visualization Type | map_chart |
+| Show Circles | Açık |
+| Show Markers | Kapalı |
+
+### Tanınan Şehir İsimleri
+
+Otomatik koordinat için \`name\` kolonu şunları içerebilir:
+- İl adları: İstanbul, Ankara, İzmir, Bursa...
+- Plaka kodları: 34, 06, 35, 16...
+- ASCII versiyonlar: Istanbul, Izmir, Diyarbakir...
+
+---
+
+## 3. Pasta Grafik (Pie Chart)
+
+Kategori bazlı dağılım göstermek için.
+
+![Pasta Grafik Örneği - Kategori Dağılımı](/edu/images/examples/pie-chart-example.png)
+
+### Temel Pasta Grafik
+
+\`\`\`sql
+SELECT 
+  kategori as label,
+  SUM(ciro) as value
+FROM satis_gunluk
+WHERE tarih >= today() - 30
+GROUP BY kategori
+ORDER BY value DESC
+\`\`\`
+
+**Sonuç kolonları:**
+- \`label\` → Dilim etiketi
+- \`value\` → Dilim büyüklüğü
+
+### Yüzdeli Pasta Grafik
+
+\`\`\`sql
+SELECT 
+  kategori as label,
+  SUM(ciro) as value,
+  round(SUM(ciro) * 100.0 / (SELECT SUM(ciro) FROM satis_gunluk WHERE tarih >= today() - 30), 1) as yuzde
+FROM satis_gunluk
+WHERE tarih >= today() - 30
+GROUP BY kategori
+ORDER BY value DESC
+\`\`\`
+
+### Üst N + Diğer Pasta Grafik
+
+Çok fazla kategori varsa "Diğer" olarak birleştir:
+
+\`\`\`sql
+WITH ranked AS (
+  SELECT 
+    kategori,
+    SUM(ciro) as ciro,
+    ROW_NUMBER() OVER (ORDER BY SUM(ciro) DESC) as sira
+  FROM satis_gunluk
+  WHERE tarih >= today() - 30
+  GROUP BY kategori
+)
+SELECT 
+  CASE WHEN sira <= 5 THEN kategori ELSE 'Diğer' END as label,
+  SUM(ciro) as value
+FROM ranked
+GROUP BY CASE WHEN sira <= 5 THEN kategori ELSE 'Diğer' END
+ORDER BY value DESC
+\`\`\`
+
+### Görselleştirme Ayarları
+
+| Ayar | Değer |
+|------|-------|
+| Visualization Type | pie_chart veya donut_chart |
+| Show Legend | Açık |
+| Show Labels | Açık (% gösterir) |
+
+---
+
+## 4. Çizgi Grafik (Line Chart)
+
+Zaman bazlı trend göstermek için.
+
+![Çizgi Grafik Örneği - Ciro Trendi](/edu/images/examples/line-chart-example.png)
+
+### Günlük Trend
+
+\`\`\`sql
+SELECT 
+  tarih as label,
+  SUM(ciro) as value
+FROM satis_gunluk
+WHERE tarih >= today() - 30
+GROUP BY tarih
+ORDER BY tarih ASC
+\`\`\`
+
+**Sonuç kolonları:**
+- \`label\` → X ekseni (tarih)
+- \`value\` → Y ekseni (değer)
+
+### Haftalık Trend
+
+\`\`\`sql
+SELECT 
+  toStartOfWeek(tarih) as label,
+  SUM(ciro) as value
+FROM satis_gunluk
+WHERE tarih >= today() - 90
+GROUP BY toStartOfWeek(tarih)
+ORDER BY label ASC
+\`\`\`
+
+### Aylık Trend
+
+\`\`\`sql
+SELECT 
+  toStartOfMonth(tarih) as label,
+  SUM(ciro) as value
+FROM satis_gunluk
+WHERE tarih >= today() - 365
+GROUP BY toStartOfMonth(tarih)
+ORDER BY label ASC
+\`\`\`
+
+### Çoklu Seri (Karşılaştırmalı)
+
+Bu yıl vs geçen yıl:
+
+\`\`\`sql
+SELECT 
+  toDayOfMonth(tarih) as gun,
+  SUM(CASE WHEN toYear(tarih) = 2026 THEN ciro ELSE 0 END) as bu_yil,
+  SUM(CASE WHEN toYear(tarih) = 2025 THEN ciro ELSE 0 END) as gecen_yil
+FROM satis_gunluk
+WHERE toMonth(tarih) = toMonth(today())
+  AND toYear(tarih) IN (2025, 2026)
+GROUP BY toDayOfMonth(tarih)
+ORDER BY gun ASC
+\`\`\`
+
+### Görselleştirme Ayarları
+
+| Ayar | Değer |
+|------|-------|
+| Visualization Type | line_chart veya area_chart |
+| Show Grid | Açık |
+| Smooth Line | Opsiyonel |
+
+---
+
+## 5. Çubuk Grafik (Bar Chart)
+
+Kategori karşılaştırması için.
+
+### Yatay Çubuk (Kategori Bazlı)
+
+\`\`\`sql
+SELECT 
+  kategori as label,
+  SUM(ciro) as value
+FROM satis_gunluk
+WHERE tarih >= today() - 30
+GROUP BY kategori
+ORDER BY value DESC
+LIMIT 10
+\`\`\`
+
+### Dikey Çubuk (Tarih Bazlı)
+
+\`\`\`sql
+SELECT 
+  tarih as label,
+  SUM(ciro) as value
+FROM satis_gunluk
+WHERE tarih >= today() - 7
+GROUP BY tarih
+ORDER BY tarih ASC
+\`\`\`
+
+### Yığılmış Çubuk (Stacked)
+
+\`\`\`sql
+SELECT 
+  tarih as label,
+  SUM(CASE WHEN kanal = 'Online' THEN ciro ELSE 0 END) as online,
+  SUM(CASE WHEN kanal = 'Mağaza' THEN ciro ELSE 0 END) as magaza
+FROM satis_gunluk
+WHERE tarih >= today() - 7
+GROUP BY tarih
+ORDER BY tarih ASC
+\`\`\`
+
+### Görselleştirme Ayarları
+
+| Ayar | Değer |
+|------|-------|
+| Visualization Type | bar_chart |
+| Orientation | Horizontal veya Vertical |
+| Show Values | Opsiyonel |
+
+---
+
+## 6. KPI Kartı
+
+Tek değer göstermek için.
+
+### Basit KPI
+
+\`\`\`sql
+SELECT SUM(ciro) as value
+FROM satis_gunluk
+WHERE tarih >= today() - 30
+\`\`\`
+
+### Karşılaştırmalı KPI
+
+\`\`\`sql
+SELECT 
+  SUM(CASE WHEN tarih >= today() - 30 THEN ciro ELSE 0 END) as value,
+  SUM(CASE WHEN tarih >= today() - 60 AND tarih < today() - 30 THEN ciro ELSE 0 END) as prev_value
+FROM satis_gunluk
+WHERE tarih >= today() - 60
+\`\`\`
+
+### Hedefli KPI
+
+\`\`\`sql
+SELECT 
+  SUM(ciro) as value,
+  1000000 as target
+FROM satis_gunluk
+WHERE tarih >= today() - 30
+\`\`\`
+
+### Görselleştirme Ayarları
+
+| Ayar | Değer |
+|------|-------|
+| Visualization Type | kpi_card |
+| Comparison Enabled | Açık/Kapalı |
+| Format | Sayı/Para |
+
+---
+
+## 7. Veri Tablosu (Data Grid)
+
+Detaylı tablo görünümü.
+
+### Özet Tablo
+
+\`\`\`sql
+SELECT 
+  m.bolge as "Bölge",
+  m.sehir as "Şehir",
+  m.magaza_adi as "Mağaza",
+  SUM(s.ciro) as "Ciro",
+  SUM(s.adet) as "Adet",
+  round(AVG(s.ciro), 2) as "Ort. Sepet"
+FROM satis_gunluk s
+INNER JOIN magaza_master m ON s.magaza_id = m.id
+WHERE s.tarih >= today() - 30
+GROUP BY m.bolge, m.sehir, m.magaza_adi
+ORDER BY "Ciro" DESC
+\`\`\`
+
+### Görselleştirme Ayarları
+
+| Ayar | Değer |
+|------|-------|
+| Visualization Type | data_grid |
+| Pagination | Açık |
+| Row Count | 10-50 |
+
+---
+
+## Özet Tablo
+
+| Görselleştirme | Visualization Type | Gerekli Kolonlar |
+|----------------|--------------------|------------------|
+| Sıralama Listesi | ranking_list | label, value, [subtitle], [trend] |
+| Harita | map_chart | name, value, [lat], [lng] |
+| Pasta | pie_chart / donut_chart | label, value |
+| Çizgi | line_chart / area_chart | label (tarih), value |
+| Çubuk | bar_chart | label, value |
+| KPI | kpi_card | value, [prev_value], [target] |
+| Tablo | data_grid | İstediğiniz kolonlar |
+
+---
+
+## İpuçları
+
+> 💡 SQL sorgularını önce ClickHouse arayüzünde test edin.
+
+> 💡 \`nullIf(x, 0)\` kullanarak sıfıra bölme hatasını önleyin.
+
+> 💡 \`today()\` dinamik tarih için, sabit tarihler için \`'2026-01-01'\` formatı kullanın.
+
+> ⚠️ Çok büyük veri setlerinde LIMIT kullanmayı unutmayın.
+`
+  },
+  {
     id: 'metrics-onizleme-ve-test',
     slug: 'onizleme-ve-test',
     title: 'Önizleme ve Test',
@@ -1249,7 +1726,7 @@ ORDER BY "Ciro" DESC
     relatedArticles: ['metrics-sql-modu', 'advanced-sorun-giderme'],
     lastUpdated: '2026-01-27',
     readingTime: 4,
-    order: 14,
+    order: 15,
     content: `
 # Önizleme ve Test
 

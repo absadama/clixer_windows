@@ -998,6 +998,421 @@ Each SELECT column becomes a table column:
 `
   },
   {
+    id: 'metrics-gorsel-ornekleri',
+    slug: 'gorsel-ornekleri',
+    title: 'Visualization Examples (SQL)',
+    excerpt: 'Sample SQL queries and usage guide for each visualization type.',
+    category: 'metrics',
+    categoryLabel: 'Metrics',
+    tags: ['sql', 'example', 'chart', 'map', 'pie', 'ranking', 'trend'],
+    images: [],
+    relatedArticles: ['metrics-sql-modu', 'metrics-gorsellestime-tipleri', 'metrics-siralama-listesi'],
+    lastUpdated: '2026-01-28',
+    readingTime: 15,
+    order: 14,
+    content: `
+# Visualization Examples (SQL)
+
+Sample SQL queries and settings for each visualization type.
+
+> 💡 The examples below use \`daily_sales\` (sales data) and \`store_master\` (store info) as sample table names. Replace with your own tables.
+
+---
+
+## 1. Ranking List
+
+Ranking list displays the best/worst performing items.
+
+![Ranking List Example - Top 10 Stores](/edu/images/examples/ranking-list-example.png)
+
+### Basic SQL
+
+\`\`\`sql
+SELECT 
+  store_name as label,
+  SUM(revenue) as value
+FROM daily_sales
+WHERE report_date >= today() - 30
+GROUP BY store_name
+ORDER BY value DESC
+LIMIT 10
+\`\`\`
+
+**Result columns:**
+- \`label\` → Display name
+- \`value\` → Ranking value
+
+### Ranking List with Trend
+
+To show comparison percentage with previous period:
+
+\`\`\`sql
+SELECT 
+  store_name as label,
+  SUM(revenue) as value,
+  -- Week over Week trend (%)
+  round(
+    (SUM(CASE WHEN report_date >= today() - 7 THEN revenue ELSE 0 END) -
+     SUM(CASE WHEN report_date >= today() - 14 AND report_date < today() - 7 THEN revenue ELSE 0 END)) /
+    nullIf(SUM(CASE WHEN report_date >= today() - 14 AND report_date < today() - 7 THEN revenue ELSE 0 END), 0) * 100
+  , 1) as trend
+FROM daily_sales
+WHERE report_date >= today() - 14
+GROUP BY store_name
+ORDER BY value DESC
+LIMIT 10
+\`\`\`
+
+**Result columns:**
+- \`label\` → Store name
+- \`value\` → Total value
+- \`trend\` → Percentage change (▲ +5.2% or ▼ -3.1%)
+
+### Ranking List with Subtitle
+
+To show additional info on second line:
+
+\`\`\`sql
+SELECT 
+  store_name as label,
+  SUM(revenue) as value,
+  concat(toString(SUM(quantity)), ' items') as subtitle,
+  round(
+    (SUM(CASE WHEN report_date >= today() - 7 THEN revenue ELSE 0 END) -
+     SUM(CASE WHEN report_date >= today() - 14 AND report_date < today() - 7 THEN revenue ELSE 0 END)) /
+    nullIf(SUM(CASE WHEN report_date >= today() - 14 AND report_date < today() - 7 THEN revenue ELSE 0 END), 0) * 100
+  , 1) as trend
+FROM daily_sales
+WHERE report_date >= today() - 14
+GROUP BY store_name
+ORDER BY value DESC
+LIMIT 10
+\`\`\`
+
+### Visualization Settings
+
+| Setting | Value |
+|---------|-------|
+| Visualization Type | ranking_list |
+| Auto Calculate Trend | Off (calculated in SQL) |
+| Format | Number + $ prefix |
+
+---
+
+## 2. Map Chart
+
+Map visualization requires city names or coordinates.
+
+![Map Example - Revenue Distribution by City](/edu/images/examples/map-chart-example.png)
+
+### City-Based Totals (Auto Coordinates)
+
+\`\`\`sql
+SELECT 
+  m.city as name,
+  SUM(s.revenue) as value
+FROM daily_sales s
+INNER JOIN store_master m ON s.store_id = m.id
+WHERE s.report_date >= today() - 30
+GROUP BY m.city
+ORDER BY value DESC
+\`\`\`
+
+**Result columns:**
+- \`name\` → City name
+- \`value\` → Circle size
+
+> 💡 When \`name\` column contains city names, the system **auto-assigns coordinates**.
+
+### Map with Manual Coordinates
+
+Store-level with actual coordinates:
+
+\`\`\`sql
+SELECT 
+  m.store_name as name,
+  m.latitude as lat,
+  m.longitude as lng,
+  SUM(s.revenue) as value
+FROM daily_sales s
+INNER JOIN store_master m ON s.store_id = m.id
+WHERE s.report_date >= today() - 30
+  AND m.latitude IS NOT NULL
+GROUP BY m.store_name, m.latitude, m.longitude
+ORDER BY value DESC
+\`\`\`
+
+**Result columns:**
+- \`name\` → Tooltip display name
+- \`lat\` → Latitude
+- \`lng\` → Longitude
+- \`value\` → Circle size
+
+### Visualization Settings
+
+| Setting | Value |
+|---------|-------|
+| Visualization Type | map_chart |
+| Show Circles | On |
+| Show Markers | Off |
+
+---
+
+## 3. Pie Chart
+
+For showing category-based distribution.
+
+![Pie Chart Example - Category Distribution](/edu/images/examples/pie-chart-example.png)
+
+### Basic Pie Chart
+
+\`\`\`sql
+SELECT 
+  category as label,
+  SUM(revenue) as value
+FROM daily_sales
+WHERE report_date >= today() - 30
+GROUP BY category
+ORDER BY value DESC
+\`\`\`
+
+**Result columns:**
+- \`label\` → Slice label
+- \`value\` → Slice size
+
+### Top N + Others Pie Chart
+
+Group many categories into "Others":
+
+\`\`\`sql
+WITH ranked AS (
+  SELECT 
+    category,
+    SUM(revenue) as revenue,
+    ROW_NUMBER() OVER (ORDER BY SUM(revenue) DESC) as rank
+  FROM daily_sales
+  WHERE report_date >= today() - 30
+  GROUP BY category
+)
+SELECT 
+  CASE WHEN rank <= 5 THEN category ELSE 'Others' END as label,
+  SUM(revenue) as value
+FROM ranked
+GROUP BY CASE WHEN rank <= 5 THEN category ELSE 'Others' END
+ORDER BY value DESC
+\`\`\`
+
+### Visualization Settings
+
+| Setting | Value |
+|---------|-------|
+| Visualization Type | pie_chart or donut_chart |
+| Show Legend | On |
+| Show Labels | On (shows %) |
+
+---
+
+## 4. Line Chart
+
+For showing time-based trends.
+
+![Line Chart Example - Revenue Trend](/edu/images/examples/line-chart-example.png)
+
+### Daily Trend
+
+\`\`\`sql
+SELECT 
+  report_date as label,
+  SUM(revenue) as value
+FROM daily_sales
+WHERE report_date >= today() - 30
+GROUP BY report_date
+ORDER BY report_date ASC
+\`\`\`
+
+**Result columns:**
+- \`label\` → X axis (date)
+- \`value\` → Y axis (value)
+
+### Weekly Trend
+
+\`\`\`sql
+SELECT 
+  toStartOfWeek(report_date) as label,
+  SUM(revenue) as value
+FROM daily_sales
+WHERE report_date >= today() - 90
+GROUP BY toStartOfWeek(report_date)
+ORDER BY label ASC
+\`\`\`
+
+### Monthly Trend
+
+\`\`\`sql
+SELECT 
+  toStartOfMonth(report_date) as label,
+  SUM(revenue) as value
+FROM daily_sales
+WHERE report_date >= today() - 365
+GROUP BY toStartOfMonth(report_date)
+ORDER BY label ASC
+\`\`\`
+
+### Multi-Series (Comparison)
+
+This year vs last year:
+
+\`\`\`sql
+SELECT 
+  toDayOfMonth(report_date) as day,
+  SUM(CASE WHEN toYear(report_date) = 2026 THEN revenue ELSE 0 END) as this_year,
+  SUM(CASE WHEN toYear(report_date) = 2025 THEN revenue ELSE 0 END) as last_year
+FROM daily_sales
+WHERE toMonth(report_date) = toMonth(today())
+  AND toYear(report_date) IN (2025, 2026)
+GROUP BY toDayOfMonth(report_date)
+ORDER BY day ASC
+\`\`\`
+
+### Visualization Settings
+
+| Setting | Value |
+|---------|-------|
+| Visualization Type | line_chart or area_chart |
+| Show Grid | On |
+| Smooth Line | Optional |
+
+---
+
+## 5. Bar Chart
+
+For category comparison.
+
+### Horizontal Bar (Category Based)
+
+\`\`\`sql
+SELECT 
+  category as label,
+  SUM(revenue) as value
+FROM daily_sales
+WHERE report_date >= today() - 30
+GROUP BY category
+ORDER BY value DESC
+LIMIT 10
+\`\`\`
+
+### Stacked Bar
+
+\`\`\`sql
+SELECT 
+  report_date as label,
+  SUM(CASE WHEN channel = 'Online' THEN revenue ELSE 0 END) as online,
+  SUM(CASE WHEN channel = 'Store' THEN revenue ELSE 0 END) as store
+FROM daily_sales
+WHERE report_date >= today() - 7
+GROUP BY report_date
+ORDER BY report_date ASC
+\`\`\`
+
+### Visualization Settings
+
+| Setting | Value |
+|---------|-------|
+| Visualization Type | bar_chart |
+| Orientation | Horizontal or Vertical |
+| Show Values | Optional |
+
+---
+
+## 6. KPI Card
+
+For showing a single value.
+
+### Basic KPI
+
+\`\`\`sql
+SELECT SUM(revenue) as value
+FROM daily_sales
+WHERE report_date >= today() - 30
+\`\`\`
+
+### KPI with Comparison
+
+\`\`\`sql
+SELECT 
+  SUM(CASE WHEN report_date >= today() - 30 THEN revenue ELSE 0 END) as value,
+  SUM(CASE WHEN report_date >= today() - 60 AND report_date < today() - 30 THEN revenue ELSE 0 END) as prev_value
+FROM daily_sales
+WHERE report_date >= today() - 60
+\`\`\`
+
+### Visualization Settings
+
+| Setting | Value |
+|---------|-------|
+| Visualization Type | kpi_card |
+| Comparison Enabled | On/Off |
+| Format | Number/Currency |
+
+---
+
+## 7. Data Grid
+
+Detailed table view.
+
+### Summary Table
+
+\`\`\`sql
+SELECT 
+  m.region as "Region",
+  m.city as "City",
+  m.store_name as "Store",
+  SUM(s.revenue) as "Revenue",
+  SUM(s.quantity) as "Quantity",
+  round(AVG(s.revenue), 2) as "Avg Basket"
+FROM daily_sales s
+INNER JOIN store_master m ON s.store_id = m.id
+WHERE s.report_date >= today() - 30
+GROUP BY m.region, m.city, m.store_name
+ORDER BY "Revenue" DESC
+\`\`\`
+
+### Visualization Settings
+
+| Setting | Value |
+|---------|-------|
+| Visualization Type | data_grid |
+| Pagination | On |
+| Row Count | 10-50 |
+
+---
+
+## Summary Table
+
+| Visualization | Visualization Type | Required Columns |
+|---------------|--------------------|------------------|
+| Ranking List | ranking_list | label, value, [subtitle], [trend] |
+| Map | map_chart | name, value, [lat], [lng] |
+| Pie | pie_chart / donut_chart | label, value |
+| Line | line_chart / area_chart | label (date), value |
+| Bar | bar_chart | label, value |
+| KPI | kpi_card | value, [prev_value], [target] |
+| Table | data_grid | Any columns you need |
+
+---
+
+## Tips
+
+> 💡 Test SQL queries in ClickHouse interface first.
+
+> 💡 Use \`nullIf(x, 0)\` to prevent division by zero errors.
+
+> 💡 Use \`today()\` for dynamic dates, \`'2026-01-01'\` format for fixed dates.
+
+> ⚠️ Don't forget to use LIMIT for large datasets.
+`
+  },
+  {
     id: 'metrics-onizleme-ve-test',
     slug: 'onizleme-ve-test',
     title: 'Preview and Test',

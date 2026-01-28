@@ -1218,3 +1218,297 @@ sudo pm2 restart etl-worker
 3. ❌ Frontend'i build etmeden deploy et (UI değişiklikleri gelmez)
 4. ❌ Gateway'i unutma (en sık unutulan servis)
 5. ❌ ETL Worker'ı deploy script'ten çıkarma (arka plan işleri durur)
+
+---
+
+# Clixer Wiki / Eğitim Merkezi (28 Ocak 2026)
+
+## Genel Bilgi
+
+Clixer Wiki, kullanıcılara uygulamanın nasıl kullanılacağını anlatan bağımsız bir dokümantasyon sitesidir.
+
+| Özellik | Değer |
+|---------|-------|
+| Konum | `/wiki` klasörü (ana repo içinde) |
+| Teknoloji | React 19 + Vite 6 + TypeScript + TailwindCSS |
+| URL (Lokal) | `http://localhost:3001/edu/` |
+| URL (Prod) | `{domain}/edu/` (örn: `dinamo.tavukdunyasi.com/edu/`) |
+| Base Path | `/edu/` (vite.config.ts ve BrowserRouter'da) |
+| Dil Desteği | Türkçe ve İngilizce (state ile, URL'de değil) |
+
+## Sidebar Entegrasyonu
+
+"Eğitim Merkezi" linki sidebar'da sadece **ADMIN rolüne** sahip kullanıcılara görünür.
+
+```typescript
+// frontend/src/components/Layout.tsx - menuItemsBase
+{ id: 'education', key: 'education', href: 'education', icon: GraduationCap, badge: null, isExternal: true, adminOnly: true }
+```
+
+**ÖNEMLİ:** External link URL'leri `/edu/` ile bitmeli (trailing slash):
+```typescript
+// DOĞRU
+return 'http://localhost:3001/edu/'
+return `${window.location.origin}/edu/`
+
+// YANLIŞ - 404 verir
+return 'http://localhost:3001/edu'
+```
+
+## Lokal Geliştirme
+
+```bash
+cd wiki
+npm install
+npm run dev
+# veya
+npx vite --port 3001
+```
+
+URL: `http://127.0.0.1:3001/edu/`
+
+## Dosya Yapısı
+
+```
+wiki/
+├── public/
+│   └── images/
+│       └── examples/           # Makale görselleri
+│           ├── map-chart-example.png
+│           ├── pie-chart-example.png
+│           └── ...
+├── src/
+│   ├── content/
+│   │   ├── tr/                 # Türkçe makaleler
+│   │   │   ├── getting-started/
+│   │   │   ├── designer/
+│   │   │   ├── metrics/
+│   │   │   ├── data/
+│   │   │   ├── admin/
+│   │   │   └── advanced/
+│   │   └── en/                 # İngilizce makaleler
+│   │       └── (aynı yapı)
+│   ├── components/
+│   ├── pages/
+│   ├── hooks/
+│   │   └── useLanguage.ts      # Dil state yönetimi
+│   └── types/
+│       └── article.ts          # Article interface
+└── vite.config.ts
+```
+
+## Yeni Makale Ekleme
+
+### 1. İçerik Dosyası
+
+```typescript
+// wiki/src/content/tr/{kategori}/index.ts
+export const articlesTr: Article[] = [
+  {
+    id: 'kategori-slug-unique-id',    // Benzersiz ID
+    slug: 'makale-url-slug',          // URL'de görünecek
+    title: 'Makale Başlığı',
+    excerpt: 'Kısa açıklama (liste kartlarında görünür)',
+    category: 'kategori-slug',        // getting-started, metrics, vb.
+    categoryLabel: 'Kategori Adı',
+    tags: ['tag1', 'tag2'],
+    images: [],                       // Şu an kullanılmıyor
+    relatedArticles: ['diger-makale-id'],
+    lastUpdated: '2026-01-28',
+    readingTime: 5,                   // Dakika
+    order: 1,                         // Sıralama
+    content: `
+# Markdown İçerik
+
+Markdown formatında içerik yazılır...
+    `
+  }
+]
+```
+
+### 2. URL Yapısı
+
+```
+/edu/{kategori}/{slug}
+
+Örnekler:
+/edu/metrics/gorsel-ornekleri
+/edu/getting-started/hizli-baslangic
+/edu/admin/kullanici-yonetimi
+```
+
+### 3. Kategoriler
+
+| Kategori ID | Türkçe | İngilizce |
+|-------------|--------|-----------|
+| getting-started | Başlangıç | Getting Started |
+| designer | Tasarım Stüdyosu | Design Studio |
+| metrics | Metrikler | Metrics |
+| data | Veri Yönetimi | Data Management |
+| admin | Yönetim Paneli | Admin Panel |
+| advanced | İleri Düzey | Advanced |
+
+## Makaleye Görsel Ekleme
+
+### 1. Görseli Public Klasörüne Kopyala
+
+```powershell
+# Windows
+Copy-Item "kaynak-gorsel.png" "wiki/public/images/examples/gorsel-adi.png"
+
+# Linux/Mac
+cp kaynak-gorsel.png wiki/public/images/examples/gorsel-adi.png
+```
+
+### 2. Markdown'da Kullan
+
+```markdown
+![Alt Text - Görsel Açıklaması](/edu/images/examples/gorsel-adi.png)
+```
+
+**ÖNEMLİ:** Yol `/edu/` ile başlamalı (base path)!
+
+### 3. Görsel Özellikleri
+
+- Tıklanınca büyütülmüş hali açılır (ImageViewer)
+- Otomatik responsive
+- Dark tema ile uyumlu
+
+## Markdown Özellikleri
+
+### Kod Blokları
+````markdown
+```sql
+SELECT * FROM table
+```
+````
+Otomatik syntax highlighting + kopyalama butonu.
+
+### İpucu Blokları
+```markdown
+> 💡 Bu bir ipucu
+
+> ⚠️ Bu bir uyarı
+```
+
+### Tablolar
+```markdown
+| Kolon 1 | Kolon 2 |
+|---------|---------|
+| Değer 1 | Değer 2 |
+```
+
+## Production Deploy
+
+### 1. Wiki Build
+```bash
+cd /opt/clixer/wiki
+npm install
+npm run build
+```
+
+### 2. Nginx Konfigürasyonu
+
+**HTTPS (443) config dosyasına** ekle, `location /api` satırından **ÖNCE**:
+
+```nginx
+# Wiki / Egitim Merkezi
+location ^~ /edu/ {
+    alias /opt/clixer/wiki/dist/;
+    index index.html;
+    try_files $uri $uri/ /edu/index.html;
+}
+
+location ^~ /edu {
+    return 301 /edu/;
+}
+```
+
+### 3. Nginx Reload
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+## Dil Sistemi
+
+Dil URL'de değil, React state'te tutulur:
+
+```typescript
+// useLanguage hook
+const { language, setLanguage, t } = useLanguage()
+
+// Dil değiştirme
+setLanguage('tr') // veya 'en'
+
+// Çeviri helper
+t('Türkçe metin', 'English text')
+```
+
+Dil seçimi sağ üstteki TR/EN butonuyla yapılır.
+
+## Arama Sistemi
+
+FlexSearch ile client-side full-text arama:
+
+```typescript
+// wiki/src/utils/searchIndex.ts
+searchArticles(query: string, language: Language): Article[]
+```
+
+- Başlık, içerik ve tag'lerde arar
+- Minimum 2 karakter gerekir
+- Fuzzy matching destekler
+
+## Kritik Dosyalar
+
+| Dosya | Sorumluluk |
+|-------|------------|
+| `wiki/src/content/tr/*/index.ts` | Türkçe makaleler |
+| `wiki/src/content/en/*/index.ts` | İngilizce makaleler |
+| `wiki/src/pages/ArticlePage.tsx` | Makale render, görsel viewer |
+| `wiki/src/hooks/useLanguage.ts` | Dil state yönetimi |
+| `wiki/vite.config.ts` | Base path, port ayarları |
+| `wiki/src/main.tsx` | BrowserRouter basename |
+| `frontend/src/components/Layout.tsx` | Sidebar link (external URL) |
+
+## Sık Yapılan Hatalar
+
+| Hata | Neden | Çözüm |
+|------|-------|-------|
+| 404 at `/edu` | Trailing slash eksik | URL'i `/edu/` olarak kullan |
+| Görsel görünmüyor | Yol yanlış | `/edu/images/...` kullan |
+| Route not matched | Dil URL'de | URL'de dil yok, state ile yönetilir |
+| Makale görünmüyor | Export eksik | `index.ts`'de article array'e ekle |
+
+## Örnek Görsel Kullanımı
+
+```typescript
+// wiki/src/content/tr/metrics/index.ts
+content: `
+## Harita (Map Chart)
+
+Şehir bazlı dağılım göstermek için.
+
+![Harita Örneği - Şehir Bazlı Ciro](/edu/images/examples/map-chart-example.png)
+
+### SQL Sorgusu
+
+\\\`\\\`\\\`sql
+SELECT city as name, SUM(revenue) as value
+FROM sales
+GROUP BY city
+\\\`\\\`\\\`
+`
+```
+
+## Mevcut Görsel Örnekleri
+
+| Dosya | Kullanım |
+|-------|----------|
+| `ranking-list-example.png` | Sıralama listesi örneği |
+| `map-chart-example.png` | Harita örneği |
+| `pie-chart-example.png` | Pasta grafik örneği |
+| `line-chart-example.png` | Çizgi grafik örneği |
+
+Konum: `wiki/public/images/examples/`
