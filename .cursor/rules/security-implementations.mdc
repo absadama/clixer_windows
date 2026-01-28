@@ -682,7 +682,7 @@ cd /opt/clixer
 sudo git pull
 
 # Servisleri rebuild et
-for svc in core-service analytics-service data-service auth-service notification-service; do
+for svc in core-service analytics-service data-service auth-service notification-service etl-worker; do
   cd /opt/clixer/services/$svc
   sudo npm run build
 done
@@ -1103,7 +1103,7 @@ echo "=== Shared ==="
 cd /opt/clixer/shared && npm install && npm run build && npm link
 
 echo "=== Services ==="
-for svc in auth-service core-service analytics-service data-service notification-service; do
+for svc in auth-service core-service analytics-service data-service notification-service etl-worker; do
   echo "Building $svc..."
   cd /opt/clixer/services/$svc
   npm link @clixer/shared
@@ -1159,6 +1159,8 @@ sudo pm2 restart gateway
 | TypeScript TS2769 hataları | @types/express versiyon uyumsuzluğu | Ignore et, JS oluşur |
 | Frontend eski görünüyor | Build yapılmadı | `npm run build` frontend'de |
 | "IP not whitelisted" log | IP whitelist modül hatası | Gateway'de geçici fix uygula |
+| ETL Worker "Cannot find module 'dotenv'" | npm install yapılmamış | `cd /opt/clixer/services/etl-worker && npm install` |
+| UI restart butonu çalışmıyor | PM2 process isim uyumsuzluğu | service-manager.ts PM2_PROCESS_NAMES mapping'i kontrol et |
 
 ## Link Kontrolü
 
@@ -1171,9 +1173,48 @@ ls -la /opt/clixer/services/analytics-service/node_modules/@clixer/shared
 # Beklenen: lrwxrwxrwx ... -> ../../../../shared
 ```
 
+## ETL Worker Özel Durumu
+
+ETL Worker **deploy script'te mutlaka olmalı!** Eksik bırakılırsa:
+- `Cannot find module 'dotenv'` hatası
+- PM2 sürekli restart döngüsü (5 saniyede bir)
+- UI'da "ETL Worker durduruldu" uyarısı
+
+**Belirtiler:**
+```bash
+sudo pm2 logs etl-worker --err --lines 5
+# Error: Cannot find module 'dotenv'
+# code: 'MODULE_NOT_FOUND'
+```
+
+**Çözüm:**
+```bash
+cd /opt/clixer/services/etl-worker
+sudo npm install
+sudo npm link @clixer/shared
+sudo pm2 restart etl-worker
+```
+
+## PM2 Process İsim Mapping
+
+`ecosystem.config.js`'teki PM2 process isimleri servis ID'lerinden farklıdır:
+
+| Servis ID | PM2 Process Adı |
+|-----------|-----------------|
+| auth-service | auth |
+| core-service | core |
+| data-service | data |
+| notification-service | notification |
+| analytics-service | analytics |
+| etl-worker | etl-worker |
+| gateway | gateway |
+
+**Not:** `shared/src/service-manager.ts` dosyasında `PM2_PROCESS_NAMES` mapping'i bu eşleşmeyi sağlar. UI'dan servis restart çalışması için bu mapping doğru olmalı.
+
 ## ASLA YAPMA
 
 1. ❌ `rm -rf node_modules` sonrası direkt `npm install` (link kaybolur)
 2. ❌ Sadece bir servisi build et (shared değiştiyse hepsi rebuild)
 3. ❌ Frontend'i build etmeden deploy et (UI değişiklikleri gelmez)
 4. ❌ Gateway'i unutma (en sık unutulan servis)
+5. ❌ ETL Worker'ı deploy script'ten çıkarma (arka plan işleri durur)

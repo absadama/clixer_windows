@@ -547,17 +547,33 @@ export class SystemdManager implements IServiceManager {
 // PM2 MANAGER
 // ============================================
 
+// PM2 process name mapping (ecosystem.config.js'teki isimlerle eşleşmeli)
+const PM2_PROCESS_NAMES: Record<string, string> = {
+  'auth-service': 'auth',
+  'core-service': 'core',
+  'data-service': 'data',
+  'notification-service': 'notification',
+  'analytics-service': 'analytics',
+  'etl-worker': 'etl-worker',
+  'gateway': 'gateway'
+};
+
+function getPM2ProcessName(serviceId: string): string {
+  return PM2_PROCESS_NAMES[serviceId] || serviceId;
+}
+
 export class PM2Manager implements IServiceManager {
   async start(serviceId: string): Promise<ServiceInfo> {
     const config = SERVICE_CONFIGS[serviceId];
     if (!config) throw new Error(`Service not found: ${serviceId}`);
 
+    const pm2Name = getPM2ProcessName(serviceId);
     try {
-      await execAsync(`pm2 start clixer-${serviceId}`);
-      logger.info('PM2 service started', { serviceId });
+      await execAsync(`pm2 start ${pm2Name}`);
+      logger.info('PM2 service started', { serviceId, pm2Name });
       return await this.getStatus(serviceId);
     } catch (error: any) {
-      logger.error('Failed to start PM2 service', { serviceId, error: error.message });
+      logger.error('Failed to start PM2 service', { serviceId, pm2Name, error: error.message });
       throw new Error(`Failed to start ${config.name}: ${error.message}`);
     }
   }
@@ -566,12 +582,13 @@ export class PM2Manager implements IServiceManager {
     const config = SERVICE_CONFIGS[serviceId];
     if (!config) throw new Error(`Service not found: ${serviceId}`);
 
+    const pm2Name = getPM2ProcessName(serviceId);
     try {
-      await execAsync(`pm2 stop clixer-${serviceId}`);
-      logger.info('PM2 service stopped', { serviceId });
+      await execAsync(`pm2 stop ${pm2Name}`);
+      logger.info('PM2 service stopped', { serviceId, pm2Name });
       return await this.getStatus(serviceId);
     } catch (error: any) {
-      logger.error('Failed to stop PM2 service', { serviceId, error: error.message });
+      logger.error('Failed to stop PM2 service', { serviceId, pm2Name, error: error.message });
       throw new Error(`Failed to stop ${config.name}: ${error.message}`);
     }
   }
@@ -580,13 +597,14 @@ export class PM2Manager implements IServiceManager {
     const config = SERVICE_CONFIGS[serviceId];
     if (!config) throw new Error(`Service not found: ${serviceId}`);
 
+    const pm2Name = getPM2ProcessName(serviceId);
     try {
-      await execAsync(`pm2 restart clixer-${serviceId}`);
-      logger.info('PM2 service restarted', { serviceId });
+      await execAsync(`pm2 restart ${pm2Name}`);
+      logger.info('PM2 service restarted', { serviceId, pm2Name });
       await new Promise(resolve => setTimeout(resolve, 2000));
       return await this.getStatus(serviceId);
     } catch (error: any) {
-      logger.error('Failed to restart PM2 service', { serviceId, error: error.message });
+      logger.error('Failed to restart PM2 service', { serviceId, pm2Name, error: error.message });
       throw new Error(`Failed to restart ${config.name}: ${error.message}`);
     }
   }
@@ -602,10 +620,11 @@ export class PM2Manager implements IServiceManager {
       };
     }
 
+    const pm2Name = getPM2ProcessName(serviceId);
     try {
       const { stdout } = await execAsync(`pm2 jlist`);
       const processes = JSON.parse(stdout);
-      const process = processes.find((p: any) => p.name === `clixer-${serviceId}`);
+      const process = processes.find((p: any) => p.name === pm2Name);
       
       if (process) {
         return {
