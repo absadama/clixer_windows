@@ -468,8 +468,8 @@ export default function Layout({ children }: LayoutProps) {
     const userRole = user?.role || UserRole.VIEWER
     
     return allMenuItems.filter(item => {
-      // adminOnly menüler sadece ADMIN rolüne açık (admin paneli, eğitim merkezi vb.)
-      if (item.adminOnly && userRole?.toUpperCase() !== UserRole.ADMIN) return false
+      // adminOnly menüler ADMIN veya SUPER_ADMIN rolüne açık (admin paneli, eğitim merkezi vb.)
+      if (item.adminOnly && ![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(userRole?.toUpperCase() as UserRole)) return false
       
       // Menu permission kontrolü - veritabanından gelen izinlere bak
       // Menü key mapping (sidebar id -> database menu_key)

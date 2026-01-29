@@ -41,11 +41,10 @@ router.get('/:code/permissions', authenticate, async (req: Request, res: Respons
 
 /**
  * PUT /positions/:code/permissions
- * Update permissions for a position (SUPER_ADMIN only)
- * SECURITY FIX: Sadece SUPER_ADMIN pozisyon izinlerini değiştirebilir
- * (Pozisyonlar tüm tenant'lar için geçerli sistem ayarıdır)
+ * Update permissions for a position (ADMIN or SUPER_ADMIN)
+ * Admin kullanıcılar pozisyon menü izinlerini düzenleyebilir
  */
-router.put('/:code/permissions', authenticate, authorize(ROLES.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+router.put('/:code/permissions', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { code } = req.params;
     const { permissions } = req.body; // [{ menu_key, can_view, can_edit }]

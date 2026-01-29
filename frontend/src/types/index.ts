@@ -2,6 +2,7 @@
 
 // ==================== KULLANICI & YETKİ ====================
 export enum UserRole {
+  SUPER_ADMIN = 'SUPER_ADMIN',
   ADMIN = 'ADMIN',
   MANAGEMENT = 'MANAGEMENT',
   STORE_OWNER = 'STORE_OWNER',
